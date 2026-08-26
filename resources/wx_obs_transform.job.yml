@@ -1,0 +1,102 @@
+resources:
+  jobs:
+    wx_obs_transform:
+      name: wx_obs_transform
+      tasks:
+        - task_key: convert_ghcn
+          disabled: false
+          email_notifications: {}
+          environment_key: Default
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/obs/convert_ghcn.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: map_acis
+          disabled: false
+          email_notifications: {}
+          environment_key: Default
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/obs/map_acis.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: merge_obs
+          depends_on:
+            - task_key: convert_ghcn
+            - task_key: map_acis
+          disabled: false
+          email_notifications: {}
+          environment_key: Default
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/obs/merge_obs.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: pivot_obs
+          depends_on:
+            - task_key: merge_obs
+          disabled: false
+          email_notifications: {}
+          environment_key: Default
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/obs/pivot_obs.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: add_derived_vars
+          depends_on:
+            - task_key: pivot_obs
+          disabled: false
+          email_notifications: {}
+          environment_key: Default
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/obs/derived_vars.py
+          timeout_seconds: 0
+      email_notifications:
+        no_alert_for_skipped_runs: false
+        on_failure:
+          - kebnab@gmail.com
+      environments:
+        - environment_key: Default
+          spec:
+            environment_version: "5"
+      max_concurrent_runs: 1
+      notification_settings:
+        no_alert_for_canceled_runs: false
+        no_alert_for_skipped_runs: false
+      performance_target: PERFORMANCE_OPTIMIZED
+      queue:
+        enabled: true
+      schedule:
+        pause_status: UNPAUSED
+        quartz_cron_expression: 8 45 15 * * ?
+        timezone_id: America/New_York
+      timeout_seconds: 0
+      webhook_notifications: {}

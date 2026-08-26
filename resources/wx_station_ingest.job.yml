@@ -1,0 +1,121 @@
+resources:
+  jobs:
+    wx_station_ingest:
+      name: wx_station_ingest
+      tasks:
+        - task_key: fetch_emshr_list
+          disabled: false
+          email_notifications: {}
+          environment_key: wx_env_v1
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/stations/emshr_stn_fetch.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: fetch_ghcn_list
+          disabled: false
+          email_notifications: {}
+          environment_key: wx_env_v1
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/stations/ghcn_stn_fetch.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: filter_emshr_list
+          depends_on:
+            - task_key: fetch_emshr_list
+          disabled: false
+          email_notifications: {}
+          environment_key: wx_env_v1
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/stations/emshr_stn_filter.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: parse_ghcn_list
+          depends_on:
+            - task_key: fetch_ghcn_list
+          disabled: false
+          email_notifications: {}
+          environment_key: wx_env_v1
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/stations/ghcn_stn_parse.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: filter_ghcn_to_wmo
+          depends_on:
+            - task_key: parse_ghcn_list
+          disabled: false
+          email_notifications: {}
+          environment_key: wx_env_v1
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/stations/ghcn_stn_filter.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: merge_station_lists
+          depends_on:
+            - task_key: filter_emshr_list
+            - task_key: filter_ghcn_to_wmo
+          disabled: false
+          email_notifications: {}
+          environment_key: wx_env_v1
+          run_if: AT_LEAST_ONE_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/stations/emshr_stn_merge.py
+          timeout_seconds: 0
+      email_notifications:
+        no_alert_for_skipped_runs: false
+        on_failure:
+          - kebnab@gmail.com
+        on_success:
+          - kebnab@gmail.com
+      environments:
+        - environment_key: Default
+          spec:
+            environment_version: "5"
+        - environment_key: wx_env_v1
+          spec:
+            dependencies:
+              - pybreaker==1.4.1
+            environment_version: "5"
+      max_concurrent_runs: 1
+      notification_settings:
+        no_alert_for_canceled_runs: false
+        no_alert_for_skipped_runs: false
+      performance_target: PERFORMANCE_OPTIMIZED
+      queue:
+        enabled: true
+      timeout_seconds: 0
+      webhook_notifications: {}

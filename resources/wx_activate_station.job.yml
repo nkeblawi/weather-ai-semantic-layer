@@ -1,0 +1,57 @@
+resources:
+  jobs:
+    wx_activate_station:
+      name: wx_activate_station
+      tasks:
+        - task_key: activate_station
+          disabled: false
+          email_notifications: {}
+          environment_key: Default
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+              - --station-id
+              - '{{job.parameters.station_id}}'
+              - --activate
+              - --city
+              - '{{job.parameters.city}}'
+            python_file: ../src/wx/stations/activate_station.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: update_stations_table
+          depends_on:
+            - task_key: activate_station
+          disabled: false
+          email_notifications: {}
+          environment_key: Default
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/stations/create_stations_view.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+      parameters:
+        - name: station_id
+          default: ""
+        - name: city
+          default: ""
+      email_notifications:
+        no_alert_for_skipped_runs: false
+      environments:
+        - environment_key: Default
+          spec:
+            environment_version: "5"
+      max_concurrent_runs: 1
+      performance_target: PERFORMANCE_OPTIMIZED
+      queue:
+        enabled: true
+      timeout_seconds: 0
+      webhook_notifications: {}

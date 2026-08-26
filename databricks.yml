@@ -1,0 +1,44 @@
+# This is a Declarative Automation Bundle definition for the weather semantics AI projett
+bundle:
+  name: wxai
+  uuid: 5fa89993-5553-4e85-8aa3-a738987fb4d4
+
+include:
+  - resources/*.yml
+
+# Variable declarations. These variables are assigned in the dev/prod targets below.
+variables:
+  catalog:
+    description: The catalog to use
+
+targets:
+  # Development target
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-958231c0-60ed.cloud.databricks.com
+    variables:
+      catalog: weather_dev
+    resources:
+      jobs:
+        wx_obs_ingest_ghcn:
+          schedule:
+            pause_status: PAUSED
+        wx_obs_ingest_acis:
+          schedule:
+            pause_status: PAUSED
+        wx_obs_transform:
+          schedule:
+            pause_status: PAUSED
+  # Production target
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-958231c0-60ed.cloud.databricks.com
+      root_path: /Workspace/Users/kebnab@gmail.com/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: weather
+    permissions:
+      - user_name: kebnab@gmail.com
+        level: CAN_MANAGE

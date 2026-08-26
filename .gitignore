@@ -1,0 +1,27 @@
+# Secrets
+.env
+.env.*
+
+# Virtual environment
+.venv/
+pyvenv.cfg
+
+# Python
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Local connection/scratch scripts
+tests/
+
+# Deploy/pull scripts against the live workspace
+.cicd/
+.databricks/
+
+# Build artifacts
+skills.zip
