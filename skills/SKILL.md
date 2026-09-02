@@ -58,6 +58,36 @@ combination (`threshold`, `event_day_threshold`, `event_value`,
 - Date-range math is handled by `scripts/resolve_date_range.py` (see Step
   5) — never compute dates freehand.
 
+## Follow-up questions
+
+A **Conversation context** section may appear at the end of this prompt —
+a transcript of earlier turns, each with the question asked, its `Resolved
+query`, and the answer. When it is present, first classify the current
+question:
+
+- **Elliptical follow-up** ("what about 2021?", "and in the summer?", "how
+  about rainfall?", "same for BWI"): start from the most recent `Resolved
+  query`, override only the fields the new question explicitly names (date
+  range, metric, aggregation, location, thresholds), and keep everything
+  else — including `station_id`. Don't call `lookup_station` unless it
+  names a new location; you may still need `resolve_date_range` for a new
+  time expression. When only the year changes, keep the previous query's
+  period *granularity* (a month → that month in the new year, a season →
+  the same season, a full year → a full year) unless the question widens or
+  narrows it explicitly.
+- **Reference to an earlier turn** ("you said December 2022 was 36.9°F —
+  in Celsius?", "compare that to 2019"): reconstruct that turn's query from
+  its `Resolved query` line and apply the change — a Celsius/Fahrenheit
+  request just adds `output_unit` (see Step 6).
+- **Self-contained question** (names its own location, asks something
+  complete): ignore the context section and resolve from scratch.
+
+A transcript may identify a station as `station_id X is <airport> /
+<city>`; those names and the id are one site, and a follow-up that switches
+between the airport name and the city name is not a location change.
+
+With no Conversation context section, resolve normally.
+
 ## Step 1 — Resolve the current date
 
 Obtain today's date in `YYYY-MM-DD` format and hold it as `current_date`.
@@ -84,8 +114,10 @@ relative time expression is computed from it.
 5. On success, set `station_id` to the returned `ghcn_id`, never the airport
    code or city name.
 
-If the question doesn't name a location at all, ask the user what location
-they mean. Do not proceed without a resolved `station_id`.
+If the question names no location, resolve it in order: (a) inherit
+`station_id` from the **Conversation context** section (see "Follow-up
+questions"); (b) call `lookup_station` on the **User home location**
+section; (c) ask the user. Never proceed without a `station_id`.
 
 ## Step 3 — Resolve the metric
 
@@ -136,25 +168,16 @@ If the question asks "how many days" but doesn't match one of these idioms
 and doesn't state an explicit threshold itself, ask the user what condition
 defines "a day" rather than guessing a cutoff.
 
-**Events, months, and years.** Some questions ask about a coarser grain
-than a day — a precipitation/snow event, a calendar month, or a calendar
-year — where `aggregation` applies to a derived value for that grain
-instead of the raw daily value. Before resolving `unit`/`aggregation` any
-further, check whether either of these holds:
-
-1. The question refers to a precipitation/snow **event**, **storm**,
-   **spell**, or an "N days/inches in a row" phrasing.
-2. The question treats a calendar **month** or **year** itself as the thing
-   being counted, compared, or aggregated — phrasing like "how many
-   months/years ...", "which month/year was the wettest/coldest/driest...",
-   "average per month/year".
-
-If either holds, read `references/count_group.md` and resolve `unit`,
-`aggregation`, and the extra fields it requires (`event_day_threshold`,
-`event_value`, `period_aggregation`, `month_filter`) using that file's
-rules instead of anything below. If neither holds — including every plain
-"how many days ..." question above — `unit` stays `"day"` (omitted) and the
-reference file is not needed.
+**Events, months, and years.** If the question refers to a
+precipitation/snow **event** / **storm** / **spell** / "N in a row", or
+treats a calendar **month** or **year** as the thing being counted,
+compared, or aggregated ("how many months...", "which year was wettest",
+"average per month/year"), stop here and follow `references/count_group.md`
+— it defines `unit`, `aggregation`, and the extra fields
+(`event_day_threshold`, `event_value`, `period_aggregation`,
+`month_filter`) for those cases. Otherwise — including every plain "how
+many days..." question — `unit` stays `"day"` (omit it) and that file
+isn't needed.
 
 Temperature extremes carry both a metric and an aggregation cue at once —
 resolve them together, not independently:
@@ -223,6 +246,7 @@ it:
       "metric": "TAVG | TMAX | TMIN | PRCP | SNOW | SNWD | AWND | HDD | CDD",
       "aggregation": "mean | median | sum | max | min | stddev | count",
       "unit": "day | event | month | year, omit if day",
+      "output_unit": "C or F — only when the user explicitly asks for temperature in that unit (TAVG/TMAX/TMIN); omit otherwise",
       "start_date": "YYYY-MM-DD",
       "end_date": "YYYY-MM-DD",
       "threshold": {"operator": "> | >= | < | <= | =", "value": "number, only present when aggregation is count"},
@@ -239,6 +263,11 @@ Omit every field in the second half of that list (`threshold` through
 `month_filter`) unless the specific case that produces it applies — see
 Step 4 for `threshold`, and `references/count_group.md` for the
 `unit: "event"`/`"month"`/`"year"` fields.
+
+`output_unit` is answer-unit conversion only, not a data choice: set it to
+`"C"` or `"F"` only when the user explicitly asks for that unit; otherwise
+omit it and the app applies the user's default. The downstream layer
+converts — never do the arithmetic yourself.
 
 `queries` holds one entry per (station, metric, aggregation) combination
 needed to answer the question:

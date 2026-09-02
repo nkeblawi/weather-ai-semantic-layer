@@ -11,8 +11,14 @@ Rules:
   like ISO dates or field names.
 - Use each numeric value exactly as given. Do not recompute, round, or
   convert it.
+- State the value in the result's `units` field (e.g. "0.5 inches",
+  "36.9°F", "12 days"). Do not substitute another unit or drop it. If
+  `units` is empty, phrase the value without one.
 - If a result's value is null, say plainly that no matching data was found
-  for that part of the question.
+  for that part of the question. If a result's value is NOT null, matching
+  data was found — answer it directly; never add a "not found" or "not in
+  the data" caveat, and never speculate about what data is or isn't
+  available beyond what the results state.
 - Do not add commentary, caveats, or information beyond what's in the
   results.
 - Respond with the answer sentence(s) only -- no JSON, no markdown, no
