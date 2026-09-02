@@ -19,8 +19,7 @@ Usage:
 
     python app/test_harness.py --testing
     (same, but also prints the raw resolved JSON, tool-call debug info, and
-    each answer_query result -- for debugging, not the normal user-facing
-    output)
+    each answer_query result for debugging purposes)
 
 Requires (add to your .env, loaded via python-dotenv):
     ANTHROPIC_API_KEY
@@ -251,7 +250,10 @@ def resolve_question(
                         "clarification message"
                     )
                 return (
-                    {"status": "needs_clarification", "clarification_question": text.strip()},
+                    {
+                        "status": "needs_clarification",
+                        "clarification_question": text.strip(),
+                    },
                     station_info,
                 )
 
@@ -397,48 +399,66 @@ INTRO = (
     "This tool answers questions about past weather observations at specific "
     "sites or airports. This is historical data only, not forecasts. When asking "
     "a question, please specify the city or major airport you are nearest to."
+    "\n"
 )
 
 
 def main():
     testing = "--testing" in sys.argv
 
+    # Greet the user
     print(INTRO)
     print()
-    question = input("What's a weather question you wanted to ask?\n> ").strip()
-    if not question:
-        print("No question entered, exiting.")
-        sys.exit(1)
 
+    # Initialize connections
     client = anthropic.Anthropic()
     conn = get_databricks_connection()
 
-    print("\nChecking data...")
-    resolved, station_info = resolve_question(client, conn, question, testing=testing)
+    # Loop until user types 'quit'
+    while True:
+        try:
+            question = input(
+                "What's a weather question you wanted to ask? (type 'quit' to exit)\n> "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
 
-    if testing:
-        print("Resolved JSON:")
-        print(json.dumps(resolved, indent=2))
+        if question.lower() == "quit":
+            break
+        if not question:
+            print("No question entered, please try again.")
+            continue
 
-    if resolved.get("status") != "resolved":
-        print(
-            resolved.get(
-                "clarification_question", "I need more information to answer that."
-            )
+        print("\nChecking data...")
+        resolved, station_info = resolve_question(
+            client, conn, question, testing=testing
         )
-        return
 
-    print("All parameters resolved...")
-
-    answer_payloads = []
-    for entry in resolved["queries"]:
-        result = call_answer_query(conn, entry)
         if testing:
-            print(f"  [debug] {entry['metric']} {entry['aggregation']}: {result}")
-        answer_payloads.append(build_answer_payload(entry, result, station_info))
+            print("Resolved JSON:")
+            print(json.dumps(resolved, indent=2))
 
-    print("Results found!\n")
-    print(generate_answer(client, question, answer_payloads))
+        if resolved.get("status") != "resolved":
+            print(
+                resolved.get(
+                    "clarification_question", "I need more information to answer that."
+                )
+            )
+            print()
+            continue
+
+        print("All parameters resolved...")
+
+        answer_payloads = []
+        for entry in resolved["queries"]:
+            result = call_answer_query(conn, entry)
+            if testing:
+                print(f"  [debug] {entry['metric']} {entry['aggregation']}: {result}")
+            answer_payloads.append(build_answer_payload(entry, result, station_info))
+
+        print("Results found!\n")
+        print(generate_answer(client, question, answer_payloads))
 
 
 if __name__ == "__main__":

@@ -321,12 +321,6 @@ Examples involving events, storms, or month/year aggregates are in
 
 ## Out of scope for now
 
-- Producing or executing the SQL query itself — this skill only resolves
-  parameters.
 - Charts and plots — a separate skill, once this parameter-resolution step
   is working reliably.
-- Locations with no configured station within 50 miles.
-- Forecasts or future dates — this table holds historical observations only.
-- `unit: "year"` filtering by anything other than the date range itself
-  (e.g. "El Niño years") — no equivalent to `month_filter` exists for years.
-
+- Forecasts or future dates. This table holds historical observations only.
