@@ -1,0 +1,36 @@
+resources:
+  jobs:
+    wx_app_schema:
+      name: wx_app_schema
+      tasks:
+        - task_key: create_chat_tables
+          disabled: false
+          email_notifications: {}
+          environment_key: Default
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/app/create_chat_tables.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+      email_notifications:
+        no_alert_for_skipped_runs: false
+        on_failure:
+          - kebnab@gmail.com
+      environments:
+        - environment_key: Default
+          spec:
+            environment_version: "5"
+      max_concurrent_runs: 1
+      notification_settings:
+        no_alert_for_canceled_runs: false
+        no_alert_for_skipped_runs: false
+      performance_target: PERFORMANCE_OPTIMIZED
+      queue:
+        enabled: true
+      timeout_seconds: 0
+      webhook_notifications: {}

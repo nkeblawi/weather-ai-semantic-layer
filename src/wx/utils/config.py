@@ -21,6 +21,7 @@ CATALOG = os.environ.get("WX_CATALOG", "weather")
 SCHEMA_RAW = "raw"
 SCHEMA_CLEANED = "cleaned"
 SCHEMA_ANALYTICS = "analytics"
+SCHEMA_APP = "app"
 
 # --- Station tables ---
 STATION_LIST_RAW_TABLE = f"{CATALOG}.{SCHEMA_RAW}.station_list_raw"
@@ -41,3 +42,7 @@ OBS_PIVOT_TABLE = f"{CATALOG}.{SCHEMA_CLEANED}.obs_pivot"
 # --- Analytics tables ---
 OBS_ANALYTICS_TABLE = f"{CATALOG}.{SCHEMA_ANALYTICS}.observations"
 STATIONS_VIEW = f"{CATALOG}.{SCHEMA_ANALYTICS}.stations"
+
+# --- Application (chat history) tables ---
+USERS_TABLE = f"{CATALOG}.{SCHEMA_APP}.users"
+CHAT_HISTORY_TABLE = f"{CATALOG}.{SCHEMA_APP}.chat_history"

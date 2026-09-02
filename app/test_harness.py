@@ -54,9 +54,20 @@ SCRIPTS_PATH = PROJECT_ROOT / "skills" / "scripts"
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
+# Unity Catalog catalog holding the analytics functions/views this app calls.
+# Defaults to prod; set WX_CATALOG=weather_dev in .env to run against dev.
+CATALOG = os.environ.get("WX_CATALOG", "weather")
+
 # Import the resolve_date_range code used by the skill directly
 sys.path.insert(0, str(SCRIPTS_PATH))
 from resolve_date_range import resolve as _resolve_date_range_core  # type: ignore # noqa: E402
+
+# Chat-history persistence to Unity Catalog (same dir as this file).
+from chat_store import (  # noqa: E402
+    ensure_user,
+    new_session_id,
+    record_turn,
+)
 
 # ---------------------------------------------------------------------------
 # Databricks calls the two tools whose data actually lives in Unity
@@ -76,7 +87,7 @@ def get_databricks_connection():
 def call_lookup_station(conn, location_text: str):
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT weather.analytics.lookup_station(:location_text)",
+            f"SELECT {CATALOG}.analytics.lookup_station(:location_text)",
             parameters={"location_text": location_text},
         )
         row = cur.fetchone()
@@ -90,8 +101,8 @@ def call_answer_query(conn, entry: dict):
     event_day_threshold = entry.get("event_day_threshold") or {}
     with conn.cursor() as cur:
         cur.execute(
-            """
-            SELECT weather.analytics.answer_query(
+            f"""
+            SELECT {CATALOG}.analytics.answer_query(
                 p_station_id => :station_id,
                 p_metric => :metric,
                 p_aggregation => :aggregation,
@@ -145,7 +156,59 @@ def resolve_date_range(payload: dict) -> dict:
     return {"start_date": start.isoformat(), "end_date": end.isoformat()}
 
 
-def build_answer_payload(entry: dict, result: dict | None, station_info: dict) -> dict:
+# Physical unit each metric is stored in (the pipeline converts to imperial).
+_METRIC_UNITS = {
+    "TAVG": "°F",
+    "TMAX": "°F",
+    "TMIN": "°F",
+    "PRCP": "inches",
+    "SNOW": "inches",
+    "SNWD": "inches",
+    "AWND": "mph",
+    "HDD": "heating degree-days",
+    "CDD": "cooling degree-days",
+}
+# When aggregation is `count`, the value counts analysis-grain things, not
+# the metric -- so the unit is the plural grain word.
+_COUNT_UNITS = {"day": "days", "event": "events", "month": "months", "year": "years"}
+
+_TEMP_METRICS = {"TAVG", "TMAX", "TMIN"}
+
+# How many prior turns of this session to replay to the resolver.
+MAX_CONTEXT_TURNS = 6
+
+
+def answer_units(entry: dict) -> str:
+    """Physical unit the answer value should be stated in."""
+    grain = entry.get("unit", "day")
+    if entry["aggregation"] == "count":
+        return _COUNT_UNITS.get(grain, "days")
+    if grain == "event" and entry.get("event_value") == "duration":
+        return "days"
+    if entry.get("output_unit") == "C" and entry["metric"] in _TEMP_METRICS:
+        return "°C"
+    return _METRIC_UNITS.get(entry["metric"], "")
+
+
+def convert_value(entry: dict, value):
+    """
+    Apply the query's output_unit to the raw value. Only Fahrenheit ->
+    Celsius, and only for temperature metrics. A stddev is a spread, so it
+    scales by 5/9 without the 32-degree offset; everything else passes
+    through unchanged.
+    """
+    if value is None:
+        return None
+    if entry.get("output_unit") == "C" and entry["metric"] in _TEMP_METRICS:
+        if entry["aggregation"] == "stddev":
+            return value * 5 / 9
+        return (value - 32) * 5 / 9
+    return value
+
+
+def build_answer_payload(
+    entry: dict, result: dict | None, station_info: dict, temp_unit: str = "F"
+) -> dict:
     """
     Packages one query's parameters + its answer_query result into the plain
     facts the answer-generation model needs. No phrasing decisions are made
@@ -153,8 +216,12 @@ def build_answer_payload(entry: dict, result: dict | None, station_info: dict) -
     sentence; this function just makes sure the value it's given is exactly
     the one that should appear, so it has nothing to compute.
     """
+    # User's Celsius preference, unless the query already picked a unit.
+    if temp_unit == "C" and entry.get("output_unit") is None and entry["metric"] in _TEMP_METRICS:
+        entry = {**entry, "output_unit": "C"}
+
     station = station_info.get(entry["station_id"], {})
-    value = result.get("value") if result else None
+    value = convert_value(entry, result.get("value") if result else None)
     if value is not None:
         value = int(value) if entry["aggregation"] == "count" else round(value, 1)
 
@@ -162,7 +229,7 @@ def build_answer_payload(entry: dict, result: dict | None, station_info: dict) -
         "place": station.get("city") or station.get("name") or entry["station_id"],
         "metric": entry["metric"],
         "aggregation": entry["aggregation"],
-        "unit": entry.get("unit", "day"),
+        "units": answer_units(entry),
         "start_date": entry["start_date"],
         "end_date": entry["end_date"],
         "value": value,
@@ -180,23 +247,23 @@ def build_answer_payload(entry: dict, result: dict | None, station_info: dict) -
     return payload
 
 
-def generate_answer(client, question: str, results: list[dict]) -> str:
-    # answer_phrasing.md is loaded fresh (not appended to the resolver's
-    # system prompt like count_group.md) -- it's the entire system prompt
-    # for this separate call, made every time.
+def generate_answer(client, question: str, results: list[dict], history=None) -> str:
+    # answer_phrasing.md is loaded fresh; not appended to the resolver's
+    # system prompt like count_group.md)
+    parts = []
+    if history:
+        transcript = "\n".join(
+            f'- User asked: "{h["question"]}"\n  You answered: {h["answer"]}'
+            for h in history[-MAX_CONTEXT_TURNS:]
+        )
+        parts.append(f"Earlier in this conversation:\n{transcript}\n")
+    parts.append(f"Original question: {question}\n")
+    parts.append(f"Results:\n{json.dumps(results, indent=2)}")
     response = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=512,
         system=ANSWER_PHRASING_PATH.read_text(),
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"Original question: {question}\n\n"
-                    f"Results:\n{json.dumps(results, indent=2)}"
-                ),
-            }
-        ],
+        messages=[{"role": "user", "content": "\n".join(parts)}],
     )
     return "".join(
         block.text for block in response.content if block.type == "text"
@@ -204,17 +271,27 @@ def generate_answer(client, question: str, results: list[dict]) -> str:
 
 
 def resolve_question(
-    client, conn, question: str, testing: bool = False
-) -> tuple[dict, dict]:
+    client, conn, question: str, testing: bool = False,
+    history: list | None = None, station_info: dict | None = None,
+    home_location: str | None = None,
+) -> dict:
     """
-    Runs the Claude tool-use loop until the model returns its final JSON.
-    Returns (resolved_json, station_info), where station_info maps
-    ghcn_id -> the lookup_station result for it, collected along the way
-    so the final answer can mention a place name instead of a raw ID.
+    Runs the Claude tool-use loop until the model returns its final JSON,
+    and returns that JSON.
+
+    station_info maps ghcn_id -> the lookup_station result for it. It is
+    session-scoped: the caller passes the same dict every turn, and each
+    lookup_station call this turn adds to it, so a later follow-up that
+    inherits a station (no fresh lookup) can still name the place.
+
+    history is this session's prior turns ({question, answer, query});
+    it's rendered into the system prompt as a transcript so a follow-up can
+    inherit parameters or refer back to an earlier result.
     """
-    system_prompt = build_system_prompt(question)
+    if station_info is None:
+        station_info = {}
+    system_prompt = build_system_prompt(question, history, station_info, home_location)
     messages: list[dict[str, Any]] = [{"role": "user", "content": question}]
-    station_info: dict[str, dict] = {}
 
     while True:
         response = client.messages.create(
@@ -235,7 +312,7 @@ def resolve_question(
                 print(f"[debug] raw final response text:\n{text!r}\n")
 
             try:
-                return json.loads(_extract_json(text)), station_info
+                return json.loads(_extract_json(text))
             except json.JSONDecodeError:
                 # SKILL.md's Step 6 defines a needs_clarification JSON shape
                 # for exactly this case, but the model sometimes answers in
@@ -249,13 +326,10 @@ def resolve_question(
                         "[debug] final text wasn't JSON; treating it as a "
                         "clarification message"
                     )
-                return (
-                    {
-                        "status": "needs_clarification",
-                        "clarification_question": text.strip(),
-                    },
-                    station_info,
-                )
+                return {
+                    "status": "needs_clarification",
+                    "clarification_question": text.strip(),
+                }
 
         tool_results = []
         for block in response.content:
@@ -379,7 +453,10 @@ def needs_count_group(question: str) -> bool:
     return bool(TRIGGER_PATTERN.search(question))
 
 
-def build_system_prompt(question: str) -> str:
+def build_system_prompt(
+    question: str, history: list | None = None, station_info: dict | None = None,
+    home_location: str | None = None,
+) -> str:
     today = date.today().isoformat()
     skill_text = SKILL_PATH.read_text()
     skill_text = re.sub(r"^---\n.*?\n---\n\n", "", skill_text, count=1, flags=re.DOTALL)
@@ -387,6 +464,45 @@ def build_system_prompt(question: str) -> str:
 
     if needs_count_group(question):
         skill_text += "\n\n---\n\n" + COUNT_GROUP_PATH.read_text()
+
+    # Fallback location when the question names none (SKILL.md Step 2).
+    if home_location:
+        skill_text += (
+            f'\n\n---\n\n## User home location\n\n"{home_location}"'
+        )
+
+    # Replay recent turns as a transcript. SKILL.md's "Follow-up questions"
+    # section tells the resolver how to use it: inherit from the most recent
+    # Resolved query for an elliptical follow-up, or reconstruct an earlier
+    # turn's query for a back-reference / unit conversion.
+    recent = (history or [])[-MAX_CONTEXT_TURNS:]
+    if recent:
+        si = station_info or {}
+        blocks = []
+        for i, turn in enumerate(recent, 1):
+            lines = [f"--- turn {i} ---", f'User asked: "{turn["question"]}"']
+            query = turn.get("query")
+            if query:
+                lines.append("Resolved query: " + json.dumps(query))
+                info = si.get(query.get("station_id")) or {}
+                names = list(dict.fromkeys(
+                    n for n in (info.get("name"), info.get("city")) if n
+                ))
+                if query.get("station_id") and names:
+                    lines.append(
+                        f"(station_id {query['station_id']} is "
+                        + " / ".join(names)
+                        + " -- one site, whatever name the user uses)"
+                    )
+            if turn.get("answer"):
+                lines.append(f"Answer given: {turn['answer']}")
+            blocks.append("\n".join(lines))
+        skill_text += (
+            "\n\n---\n\n## Conversation context\n\n"
+            "Earlier turns in this session, oldest first; the last is the "
+            "most recent resolved query. Apply the \"Follow-up questions\" "
+            "rules above.\n\n" + "\n\n".join(blocks)
+        )
 
     return skill_text
 
@@ -414,6 +530,35 @@ def main():
     client = anthropic.Anthropic()
     conn = get_databricks_connection()
 
+    # Identify the user (stub auth: WX_APP_USER env var, else prompt) and
+    # open a session so every turn below is written to {WX_CATALOG}.app.*.
+    username = (
+        os.environ.get("WX_APP_USER")
+        or input("Sign in with your username (email or handle): ").strip()
+    )
+    user_id, temp_unit, home_location = ensure_user(
+        conn,
+        username,
+        email=os.environ.get("WX_APP_EMAIL"),
+        display_name=os.environ.get("WX_APP_NAME"),
+        temp_unit=os.environ.get("WX_APP_TEMP_UNIT"),
+        home_location=os.environ.get("WX_APP_HOME_LOCATION"),
+    )
+    session_id = new_session_id()
+    turn_index = 0
+    # Prior turns of this session, held in memory and replayed to the model.
+    # The chat_history table is the durable log; a future --resume would
+    # rehydrate this from it.
+    history: list[dict] = []
+    # ghcn_id -> {ghcn_id, name, city}, accumulated across the session from
+    # every lookup_station call so an inherited station stays nameable.
+    station_info: dict = {}
+    if testing:
+        print(
+            f"[debug] user_id={user_id} session_id={session_id} "
+            f"temp_unit={temp_unit} home_location={home_location!r}"
+        )
+
     # Loop until user types 'quit'
     while True:
         try:
@@ -430,35 +575,89 @@ def main():
             print("No question entered, please try again.")
             continue
 
-        print("\nChecking data...")
-        resolved, station_info = resolve_question(
-            client, conn, question, testing=testing
-        )
+        resolved: dict = {}
+        answer_text: str | None = None
+        status = "error"
+        interrupted = False
 
-        if testing:
-            print("Resolved JSON:")
-            print(json.dumps(resolved, indent=2))
-
-        if resolved.get("status") != "resolved":
-            print(
-                resolved.get(
-                    "clarification_question", "I need more information to answer that."
-                )
+        try:
+            print("\nChecking data...")
+            resolved = resolve_question(
+                client, conn, question, testing=testing,
+                history=history, station_info=station_info,
+                home_location=home_location,
             )
-            print()
-            continue
 
-        print("All parameters resolved...")
-
-        answer_payloads = []
-        for entry in resolved["queries"]:
-            result = call_answer_query(conn, entry)
             if testing:
-                print(f"  [debug] {entry['metric']} {entry['aggregation']}: {result}")
-            answer_payloads.append(build_answer_payload(entry, result, station_info))
+                print("Resolved JSON:")
+                print(json.dumps(resolved, indent=2))
 
-        print("Results found!\n")
-        print(generate_answer(client, question, answer_payloads))
+            if resolved.get("status") != "resolved":
+                answer_text = resolved.get(
+                    "clarification_question",
+                    "I need more information to answer that.",
+                )
+                status = resolved.get("status", "needs_clarification")
+                print(answer_text)
+                print()
+            else:
+                print("All parameters resolved...")
+
+                answer_payloads = []
+                for entry in resolved["queries"]:
+                    result = call_answer_query(conn, entry)
+                    if testing:
+                        print(
+                            f"  [debug] {entry['metric']} {entry['aggregation']}: {result}"
+                        )
+                    answer_payloads.append(
+                        build_answer_payload(entry, result, station_info, temp_unit)
+                    )
+
+                print("Results found!\n")
+                answer_text = generate_answer(
+                    client, question, answer_payloads, history=history
+                )
+                status = "resolved"
+                print(answer_text)
+        except (EOFError, KeyboardInterrupt):
+            print()
+            interrupted = True
+        except Exception as exc:  # noqa: BLE001
+            answer_text = f"[error] {exc}"
+            status = "error"
+            print(answer_text)
+
+        if interrupted:
+            break
+
+        # Denormalized site for this turn (analytics + a future --resume).
+        turn_station_id = None
+        if status == "resolved" and resolved.get("queries"):
+            turn_station_id = resolved["queries"][0].get("station_id")
+
+        record_turn(
+            conn,
+            user_id=user_id,
+            session_id=session_id,
+            turn_index=turn_index,
+            prompt=question,
+            response=answer_text,
+            status=status,
+            resolved_json=json.dumps(resolved) if resolved else None,
+            model=CLAUDE_MODEL,
+            error=answer_text if status == "error" else None,
+            station_id=turn_station_id,
+        )
+        turn_index += 1
+
+        history.append(
+            {
+                "question": question,
+                "answer": answer_text,
+                "query": resolved["queries"][0] if resolved.get("queries") else None,
+            }
+        )
 
 
 if __name__ == "__main__":
