@@ -38,6 +38,103 @@ resources:
             python_file: ../src/wx/stations/create_stations_view.py
           timeout_seconds: 0
           webhook_notifications: {}
+        # Backfill the newly activated station's full GHCN-Daily history into
+        # raw.obs_ghcn. Scoped to this one station via --station-id + --full;
+        # runs alongside update_stations_table (both only need activate_station).
+        - task_key: backfill_ghcn
+          depends_on:
+            - task_key: activate_station
+          disabled: false
+          email_notifications: {}
+          environment_key: wx_env_v1
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+              - --station-id
+              - '{{job.parameters.station_id}}'
+              - --full
+            python_file: ../src/wx/obs/ingest_ghcn.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        # Push the backfilled raw rows through the transform pipeline so the
+        # new station lands in analytics.observations. convert_ghcn (ingested_at
+        # watermark) and merge_obs (identity join) self-heal unscoped; pivot_obs
+        # and derived_vars use a date watermark that skips settled history, so
+        # they get --station-id to re-process this station's full range.
+        # These duplicate wx_obs_transform's steps; an activation overlapping
+        # that job's scheduled run may hit a retryable Delta concurrent write.
+        - task_key: backfill_convert_ghcn
+          depends_on:
+            - task_key: backfill_ghcn
+          disabled: false
+          email_notifications: {}
+          environment_key: Default
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/obs/convert_ghcn.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: backfill_merge_obs
+          depends_on:
+            - task_key: backfill_convert_ghcn
+          disabled: false
+          email_notifications: {}
+          environment_key: Default
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/obs/merge_obs.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: backfill_pivot_obs
+          depends_on:
+            - task_key: backfill_merge_obs
+          disabled: false
+          email_notifications: {}
+          environment_key: Default
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+              - --station-id
+              - '{{job.parameters.station_id}}'
+            python_file: ../src/wx/obs/pivot_obs.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: backfill_derived_vars
+          depends_on:
+            - task_key: backfill_pivot_obs
+          disabled: false
+          email_notifications: {}
+          environment_key: Default
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+              - --station-id
+              - '{{job.parameters.station_id}}'
+            python_file: ../src/wx/obs/derived_vars.py
+          timeout_seconds: 0
+          webhook_notifications: {}
       parameters:
         - name: station_id
           default: ""
@@ -48,6 +145,13 @@ resources:
       environments:
         - environment_key: Default
           spec:
+            environment_version: "5"
+        # backfill_ghcn runs ingest_ghcn.py, which imports wx.utils.http_utils
+        # -> pybreaker. Mirrors the wx_env_v1 env in wx_obs_ingest_ghcn.job.yml.
+        - environment_key: wx_env_v1
+          spec:
+            dependencies:
+              - pybreaker==1.4.1
             environment_version: "5"
       max_concurrent_runs: 1
       performance_target: PERFORMANCE_OPTIMIZED

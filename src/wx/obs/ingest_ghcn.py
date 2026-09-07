@@ -10,6 +10,11 @@ Uses tail-byte HTTP Range requests by default (empirically confirmed
 tail_bytes=8000 covers a full day's records without re-downloading entire
 multi-decade station histories), with --full available for a complete
 re-download when needed.
+
+Pass --station-id to restrict the run to a single station instead of every
+selected station. Combined with --full this backfills one newly activated
+station's complete history -- run that way by the backfill_ghcn task in
+wx_activate_station.job.yml right after a station is activated.
 Docs: https://www.ncei.noaa.gov/pub/data/ghcn/daily/readme.txt
 """
 
@@ -204,13 +209,22 @@ def parse_dly(station_id: str, raw_text: str) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def load_ghcn(spark, session, tail_bytes: int | None) -> None:
+def load_ghcn(
+    spark, session, tail_bytes: int | None, only_station_id: str | None = None
+) -> None:
     """
     tail_bytes=None: download and parse the full .dly file.
-    tail_bytes=N: Range-request just the tail (default DEFAULT_TAIL_BYTES).
+    tail_bytes=N: Range-request just the tail (default TAIL_BYTES).
+
+    only_station_id=None: process every selected station (station_merged.selected).
+    only_station_id=ID: process just that station, whether or not it's selected
+        yet -- used to backfill a station's history right after activation.
     """
 
-    station_ids = get_selected_stations(spark)
+    if only_station_id:
+        station_ids = [only_station_id]
+    else:
+        station_ids = get_selected_stations(spark)
     mode = f"tail-only ({tail_bytes} bytes)" if tail_bytes else "full file"
 
     print(
@@ -244,13 +258,24 @@ def main():
         default=TAIL_BYTES,
         help=f"Tail byte size for Range requests (default {TAIL_BYTES}). Ignored if --full is set.",
     )
+    parser.add_argument(
+        "--station-id",
+        default=None,
+        help=(
+            "Ingest only this GHCN station_id instead of every selected station. "
+            "Combine with --full to backfill a newly activated station's full history."
+        ),
+    )
     args, _ = parser.parse_known_args()
 
     spark = get_spark()
     session = get_session()
 
     tail_bytes = None if args.full else args.tail_bytes
-    load_ghcn(spark, session, tail_bytes=tail_bytes)
+    only_station_id = args.station_id or None
+    load_ghcn(
+        spark, session, tail_bytes=tail_bytes, only_station_id=only_station_id
+    )
 
 
 if __name__ == "__main__":

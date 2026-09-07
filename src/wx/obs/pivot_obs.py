@@ -28,6 +28,12 @@ run, which covers both:
     happen, until GHCN moves past it.
 Dates older than ghcn_last_date are settled (GHCN has already progressed
 past them) and are not reprocessed.
+
+--station-id bypasses the date watermark and re-pivots that one station's
+entire obs_merged history. A bulk historical backfill (a newly activated
+station getting `ingest_ghcn.py --full`) inserts rows far below
+ghcn_last_date, exactly the "settled" range this normally skips -- run by
+the backfill_pivot_obs task in wx_activate_station.job.yml.
 """
 
 import os
@@ -62,13 +68,20 @@ VARIABLES = ["AWND", "PRCP", "SNOW", "SNWD", "TMAX", "TMIN"]
 # ---------------------------------------------------------------------------
 
 
-def read_new_merged_rows(spark) -> DataFrame:
+def read_new_merged_rows(spark, only_station_id: str | None = None) -> DataFrame:
     """
     Read obs_merged rows with obs_date >= ghcn_last_date (the most recent
     obs_date GHCN has non-null data for). Reads the full table on first
     run, when obs_pivot doesn't exist yet.
+
+    only_station_id: restrict to that station and skip the date watermark
+    entirely -- re-pivot its full history (used to backfill a station
+    right after activation).
     """
     merged_df = spark.table(OBS_MERGED_TABLE)
+
+    if only_station_id:
+        return merged_df.filter(F.col("station_id") == F.lit(only_station_id))
 
     if not spark.catalog.tableExists(OBS_PIVOT_TABLE):
         return merged_df
@@ -122,9 +135,20 @@ def pivot_obs(df: DataFrame) -> DataFrame:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Pivot obs_merged into obs_pivot.")
+    parser.add_argument(
+        "--station-id",
+        default=None,
+        help=(
+            "Re-pivot only this station's full obs_merged history, ignoring the "
+            "date watermark. Use to backfill a newly activated station."
+        ),
+    )
+    args, _ = parser.parse_known_args()
+
     spark = get_spark()
 
-    new_merged_df = read_new_merged_rows(spark)
+    new_merged_df = read_new_merged_rows(spark, only_station_id=args.station_id or None)
 
     count = new_merged_df.count()
     print(f"New/changed obs_merged records to pivot: {count:,}")

@@ -18,6 +18,10 @@ obs_date change), so this watermarks the same way: ghcn_last_date =
 MAX(obs_date) where source = 'GHCN' in obs_pivot, recomputed fresh every
 run, reprocessing obs_date >= ghcn_last_date. No stored watermark.
 
+--station-id bypasses the date watermark and re-derives that one station's
+entire obs_pivot history -- the derived_vars half of a station backfill,
+run by the backfill_derived_vars task in wx_activate_station.job.yml.
+
 Note: matching the original notebook's CASE WHEN behavior exactly, HDD/CDD
 resolve to 0 (not NULL) when TAVG is NULL, since a SQL CASE (and
 PySpark's equivalent F.when) falls through to ELSE/otherwise when the
@@ -52,13 +56,20 @@ from wx.utils.spark_utils import get_spark
 # ---------------------------------------------------------------------------
 
 
-def read_new_pivot_rows(spark) -> DataFrame:
+def read_new_pivot_rows(spark, only_station_id: str | None = None) -> DataFrame:
     """
     Read obs_pivot rows with obs_date >= ghcn_last_date (the most recent
     obs_date with source = 'GHCN' in obs_pivot). Reads the full table on
     first run, when the analytics table doesn't exist yet.
+
+    only_station_id: restrict to that station and skip the date watermark
+    entirely -- re-derive its full history (used to backfill a station
+    right after activation).
     """
     pivot_df = spark.table(OBS_PIVOT_TABLE)
+
+    if only_station_id:
+        return pivot_df.filter(F.col("station_id") == F.lit(only_station_id))
 
     if not spark.catalog.tableExists(OBS_ANALYTICS_TABLE):
         return pivot_df
@@ -102,9 +113,22 @@ def add_derived_vars(df: DataFrame) -> DataFrame:
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Add derived vars to obs_pivot, write to the analytics layer."
+    )
+    parser.add_argument(
+        "--station-id",
+        default=None,
+        help=(
+            "Re-derive only this station's full obs_pivot history, ignoring the "
+            "date watermark. Use to backfill a newly activated station."
+        ),
+    )
+    args, _ = parser.parse_known_args()
+
     spark = get_spark()
 
-    new_pivot_df = read_new_pivot_rows(spark)
+    new_pivot_df = read_new_pivot_rows(spark, only_station_id=args.station_id or None)
     count = new_pivot_df.count()
     print(f"New/changed obs_pivot records to process: {count:,}")
 
