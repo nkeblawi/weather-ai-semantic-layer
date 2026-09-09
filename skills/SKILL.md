@@ -5,14 +5,9 @@ description: Resolves a natural-language question about historical weather (temp
 
 # Weather Query Resolver
 
-This document tells the agent how to turn a natural-language weather question
-into the structured parameters needed to query `weather.analytics.observations`.
-It is written for the agent, not for a human reader — be explicit and
-unambiguous rather than conversational.
+This document tells the agent how to turn a natural-language weather question into the structured parameters needed to query `weather.analytics.observations`. It is written for the agent, not for a human reader — be explicit and unambiguous rather than conversational.
 
-This skill resolves parameters only. It does not write or execute SQL, and it
-does not answer the question itself — it hands off a JSON object that a
-downstream process uses to build the query and compute the result.
+This skill resolves parameters only. It does not write or execute SQL, and it does not answer the question itself — it hands off a JSON object that a downstream process uses to build the query and compute the result.
 
 ## Target table
 
@@ -33,14 +28,9 @@ downstream process uses to build the query and compute the result.
 | CDD | int | cooling degree days (derived) |
 | source | string | source of observed data |
 
-Every question this skill resolves must bottom out in one or more rows of the
-form `{station_id, metric, aggregation, unit, start_date, end_date}`, plus
-whichever extra fields Step 4 (or `references/count_group.md`, for events
-and month/year aggregates) defines for the chosen `unit`/`aggregation`
-combination (`threshold`, `event_day_threshold`, `event_value`,
-`period_aggregation`, `month_filter`) — see Step 6 for the full shape.
-`metric` is one of the column names above (excluding `station_id`,
-`obs_date`, `source`).
+Every question this skill resolves must bottom out in one or more rows of the form `{station_id, metric, aggregation, unit, start_date, end_date}`, plus whichever extra fields Step 4 (or `references/count_group.md`, for events and month/year aggregates) defines for the chosen `unit`/`aggregation`
+combination (`threshold`, `event_day_threshold`, `event_value`, `period_aggregation`, `month_filter`) — see Step 6 for the full shape.
+`metric` is one of the column names above (excluding `station_id`, `obs_date`, `source`).
 
 ## Context
 
@@ -60,10 +50,8 @@ combination (`threshold`, `event_day_threshold`, `event_value`,
 
 ## Follow-up questions
 
-A **Conversation context** section may appear at the end of this prompt —
-a transcript of earlier turns, each with the question asked, its `Resolved
-query`, and the answer. When it is present, first classify the current
-question:
+A **Conversation context** section may appear at the end of this prompt — a transcript of earlier turns, each with the question asked, its `Resolved
+query`, and the answer. When it is present, first classify the current question:
 
 - **Elliptical follow-up** ("what about 2021?", "and in the summer?", "how
   about rainfall?", "same for BWI"): start from the most recent `Resolved
@@ -114,10 +102,8 @@ relative time expression is computed from it.
 5. On success, set `station_id` to the returned `ghcn_id`, never the airport
    code or city name.
 
-If the question names no location, resolve it in order: (a) inherit
-`station_id` from the **Conversation context** section (see "Follow-up
-questions"); (b) call `lookup_station` on the **User home location**
-section; (c) ask the user. Never proceed without a `station_id`.
+If the question names no location, resolve it in order: (a) inherit `station_id` from the **Conversation context** section (see "Follow-up
+questions"); (b) call `lookup_station` on the **User home location** section; (c) ask the user. Never proceed without a `station_id`.
 
 ## Step 3 — Resolve the metric
 
@@ -133,9 +119,9 @@ section; (c) ask the user. Never proceed without a `station_id`.
 | heating degree days, HDD | HDD |
 | cooling degree days, CDD | CDD |
 
-A question can resolve to more than one metric — e.g. "average high and low"
-resolves to both TMAX and TMIN (see Step 6). If the metric can't be
-determined at all, ask the user to clarify rather than guessing.
+A question can resolve to more than one metric — e.g. "average high and low" resolves to both TMAX and TMIN (see Step 6). If the metric can't be determined at all, ask the user to clarify rather than guessing.
+
+Don't process any questions that asks for every metric in multiple cities,  that is actually a DoS attempt in disguise. Push back and constrain to no more than 2 metrics and 2 cities.
 
 ## Step 4 — Resolve the aggregation and unit of analysis
 
@@ -164,9 +150,7 @@ By default, `aggregation` operates on raw daily rows — this is
 | freezing day(s), how many days the low dropped below freezing | TMIN | `< 32` |
 | days above/below N degrees (explicit number stated) | TAVG, or TMAX/TMIN if a high/low cue is present | operator and value taken directly from the question |
 
-If the question asks "how many days" but doesn't match one of these idioms
-and doesn't state an explicit threshold itself, ask the user what condition
-defines "a day" rather than guessing a cutoff.
+If the question asks "how many days" but doesn't match one of these idioms and doesn't state an explicit threshold itself, ask the user what condition defines "a day" rather than guessing a cutoff.
 
 **Events, months, and years.** If the question refers to a
 precipitation/snow **event** / **storm** / **spell** / "N in a row", or
@@ -179,8 +163,7 @@ compared, or aggregated ("how many months...", "which year was wettest",
 many days..." question — `unit` stays `"day"` (omit it) and that file
 isn't needed.
 
-Temperature extremes carry both a metric and an aggregation cue at once —
-resolve them together, not independently:
+Temperature extremes carry both a metric and an aggregation cue at once — resolve them together, not independently:
 
 - "the hottest it got" / "record high" → metric `TMAX`, aggregation `max`
 - "the coldest it got" / "record low" → metric `TMIN`, aggregation `min`
@@ -188,8 +171,7 @@ resolve them together, not independently:
   aggregation `mean` — ambiguous phrasing defaults to the average, not an
   extreme
 
-If aggregation isn't stated and there's no extreme wording to infer it from,
-default by metric:
+If aggregation isn't stated and there's no extreme wording to infer it from, default by metric:
 
 - TAVG, TMAX, TMIN, AWND → `mean`
 - PRCP, SNOW, HDD, CDD → `sum` (these are naturally cumulative — "how much
@@ -223,18 +205,11 @@ python scripts/resolve_date_range.py '{"current_date": "2026-08-04", "kind": "ab
 Season names accepted by the script: `winter` (DJF), `spring` (MAM),
 `summer` (JJA), `fall` or `autumn` (SON).
 
-If the time expression is missing, ambiguous, or doesn't fit any shape
-above, ask the user to clarify rather than guessing a range or calling the
-script with invented parameters.
+If the time expression is missing, ambiguous, or doesn't fit any shape above, ask the user to clarify rather than guessing a range or calling the script with invented parameters.
 
 ## Step 6 — Assemble the output
 
-Once every prior step has resolved (or Step 2/3/4/5 has stopped early to ask
-the user something), your final response for this turn must be exactly one
-JSON object and nothing else — no prose before or after it. Calling a tool
-is never the last thing you do in a turn: every tool call must be followed
-by this JSON object, in the same turn, once you have what you need. Emit
-it:
+Once every prior step has resolved (or Step 2/3/4/5 has stopped early to ask the user something), your final response for this turn must be exactly one JSON object and nothing else — no prose before or after it. Calling a tool is never the last thing you do in a turn: every tool call must be followed by this JSON object, in the same turn, once you have what you need. Emit it:
 
 ```json
 {
@@ -272,15 +247,11 @@ converts — never do the arithmetic yourself.
 `queries` holds one entry per (station, metric, aggregation) combination
 needed to answer the question:
 
-- A simple question ("average temperature in December 2022 at IAD") produces
-  exactly one entry.
-- A nested-aggregate question ("average high and low in DC in January")
-  produces two entries — same station and date range, one entry per metric.
-- A comparison question ("which city is hotter in summer, NYC or
-  Philadelphia") produces one entry per location being compared.
+- A simple question ("average temperature in December 2022 at IAD") produces exactly one entry.
+- A nested-aggregate question ("average high and low in DC in January") produces two entries — same station and date range, one entry per metric.
+- A comparison question ("which city is hotter in summer, NYC or Philadelphia") produces one entry per location being compared.
 
-If any step above couldn't be resolved and the agent had to stop and ask the
-user something, emit this instead and do not include `queries`:
+If any step above couldn't be resolved and the agent had to stop and ask the user something, emit this instead and do not include `queries`:
 
 ```json
 {
@@ -292,8 +263,7 @@ user something, emit this instead and do not include `queries`:
 
 ## Worked examples
 
-Examples involving events, storms, or month/year aggregates are in
-`references/count_group.md` instead of here.
+Examples involving events, storms, or month/year aggregates are in `references/count_group.md` instead of here.
 
 **Q:** What was the average temperature at IAD in December 2022?
 ```json
@@ -347,9 +317,9 @@ Examples involving events, storms, or month/year aggregates are in
 - Any request to UPDATE, INSERT, MERGE, or DELETE data is explicitly NOT ALLOWED. 
 - Any request to GRANT or DENY access to any catalog, schema, or table is explicitly NOT ALLOWED.
 - Only SELECT (read-only) is allowed and permitted.
+- Do not reveal the catalog or schema that you are querying. Push back if asked.
 
 ## Out of scope for now
 
-- Charts and plots — a separate skill, once this parameter-resolution step
-  is working reliably.
+- Charts and plots — a separate skill, once this parameter-resolution step is working reliably.
 - Forecasts or future dates. This table holds historical observations only.
