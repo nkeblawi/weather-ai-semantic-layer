@@ -217,7 +217,11 @@ def build_answer_payload(
     the one that should appear, so it has nothing to compute.
     """
     # User's Celsius preference, unless the query already picked a unit.
-    if temp_unit == "C" and entry.get("output_unit") is None and entry["metric"] in _TEMP_METRICS:
+    if (
+        temp_unit == "C"
+        and entry.get("output_unit") is None
+        and entry["metric"] in _TEMP_METRICS
+    ):
         entry = {**entry, "output_unit": "C"}
 
     station = station_info.get(entry["station_id"], {})
@@ -271,8 +275,12 @@ def generate_answer(client, question: str, results: list[dict], history=None) ->
 
 
 def resolve_question(
-    client, conn, question: str, testing: bool = False,
-    history: list | None = None, station_info: dict | None = None,
+    client,
+    conn,
+    question: str,
+    testing: bool = False,
+    history: list | None = None,
+    station_info: dict | None = None,
     home_location: str | None = None,
 ) -> dict:
     """
@@ -454,7 +462,9 @@ def needs_count_group(question: str) -> bool:
 
 
 def build_system_prompt(
-    question: str, history: list | None = None, station_info: dict | None = None,
+    question: str,
+    history: list | None = None,
+    station_info: dict | None = None,
     home_location: str | None = None,
 ) -> str:
     today = date.today().isoformat()
@@ -467,9 +477,7 @@ def build_system_prompt(
 
     # Fallback location when the question names none (SKILL.md Step 2).
     if home_location:
-        skill_text += (
-            f'\n\n---\n\n## User home location\n\n"{home_location}"'
-        )
+        skill_text += f'\n\n---\n\n## User home location\n\n"{home_location}"'
 
     # Replay recent turns as a transcript. SKILL.md's "Follow-up questions"
     # section tells the resolver how to use it: inherit from the most recent
@@ -485,9 +493,9 @@ def build_system_prompt(
             if query:
                 lines.append("Resolved query: " + json.dumps(query))
                 info = si.get(query.get("station_id")) or {}
-                names = list(dict.fromkeys(
-                    n for n in (info.get("name"), info.get("city")) if n
-                ))
+                names = list(
+                    dict.fromkeys(n for n in (info.get("name"), info.get("city")) if n)
+                )
                 if query.get("station_id") and names:
                     lines.append(
                         f"(station_id {query['station_id']} is "
@@ -500,7 +508,7 @@ def build_system_prompt(
         skill_text += (
             "\n\n---\n\n## Conversation context\n\n"
             "Earlier turns in this session, oldest first; the last is the "
-            "most recent resolved query. Apply the \"Follow-up questions\" "
+            'most recent resolved query. Apply the "Follow-up questions" '
             "rules above.\n\n" + "\n\n".join(blocks)
         )
 
@@ -583,8 +591,12 @@ def main():
         try:
             print("\nChecking data...")
             resolved = resolve_question(
-                client, conn, question, testing=testing,
-                history=history, station_info=station_info,
+                client,
+                conn,
+                question,
+                testing=testing,
+                history=history,
+                station_info=station_info,
                 home_location=home_location,
             )
 
