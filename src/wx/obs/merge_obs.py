@@ -3,9 +3,9 @@
 """
 Converted from the OBS_03_Merge notebook.
 
-Incremental processing: only new ACIS records, new GHCN records, and GHCN
+Incremental: Only new ACIS records, new GHCN records, and GHCN
 records that would replace an existing ACIS record are read/processed on
-each run -- no full table scans of the target.
+each run. Prevents wasted compute with full table scans.
 
 Deduplication, when the same (station_id, obs_date, variable) exists in
 both sources:
@@ -32,10 +32,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--workspace-root", default=os.environ.get("WX_WORKSPACE_ROOT"))
 args, _ = parser.parse_known_args()
 if not args.workspace_root:
-    parser.error("--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)")
+    parser.error(
+        "--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)"
+    )
 sys.path.append(args.workspace_root)
 
 from wx.utils.bootstrap import bootstrap  # noqa: E402
+
 bootstrap()
 
 from pyspark.sql import DataFrame  # type: ignore
@@ -49,15 +52,22 @@ from wx.utils.spark_utils import get_spark
 # ---------------------------------------------------------------------------
 
 
-def read_sources(spark) -> tuple[DataFrame, DataFrame]:
+def read_sources(spark, watermark) -> tuple[DataFrame, DataFrame]:
     """
     Read cleaned GHCN and ACIS tables, tagging each with its source and
     normalizing ACIS's string 'value' column ("T"/"M"/numeric) to double
-    with matching flag columns so both sources share a schema.
+    with matching flag columns so both sources share a schema. When
+    watermark is set, only rows ingested after it are read; None reads
+    both tables in full (first run).
     """
-    ghcn_df = spark.table(OBS_GHCN_CONV_TABLE).withColumn("source", F.lit("GHCN"))
-
+    ghcn_df = spark.table(OBS_GHCN_CONV_TABLE)
     acis = spark.table(OBS_ACIS_CONV_TABLE)
+
+    if watermark is not None:
+        ghcn_df = ghcn_df.filter(F.col("ingested_at") > F.lit(watermark))
+        acis = acis.filter(F.col("ingested_at") > F.lit(watermark))
+
+    ghcn_df = ghcn_df.withColumn("source", F.lit("GHCN"))
     acis_df = (
         acis.withColumn(
             "value",
@@ -75,60 +85,32 @@ def read_sources(spark) -> tuple[DataFrame, DataFrame]:
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Filter down to new/updated records only (incremental)
+# Step 2: Watermark the source reads (incremental)
 # ---------------------------------------------------------------------------
 
 
-def build_incremental_source(
-    spark, ghcn_df: DataFrame, acis_df: DataFrame
-) -> DataFrame:
+def merged_watermark(spark):
     """
-    Return only the rows that are new or need to replace an existing row
-    in the merged table: new ACIS rows, new GHCN rows, and GHCN rows that
-    would replace an ACIS row already in the merged table. On first run
-    (no merged table yet), returns everything.
+    obs_merged's current max ingested_at, source rows newer than this are
+    what a run needs to process. None when obs_merged doesn't exist yet
+    (first run).
     """
     if not spark.catalog.tableExists(OBS_MERGED_TABLE):
-        print("Merged table doesn't exist yet - processing all records (first run)")
-        return ghcn_df.unionByName(acis_df, allowMissingColumns=True)
+        return None
+    return spark.table(OBS_MERGED_TABLE).agg(F.max("ingested_at")).collect()[0][0]
 
-    existing_df = spark.table(OBS_MERGED_TABLE)
-    print(f"Existing merged records: {existing_df.count():,}")
 
-    new_acis_df = acis_df.join(
-        existing_df.select("station_id", "obs_date", "variable").distinct(),
-        on=["station_id", "obs_date", "variable"],
-        how="left_anti",
+def ghcn_cutoff_date(spark):
+    """
+    Last obs_date GHCN has non-NULL data for, across all of obs_ghcn_conv.
+    Drives GHCN-vs-ACIS precedence in dedupe_with_priority.
+    """
+    return (
+        spark.table(OBS_GHCN_CONV_TABLE)
+        .filter(F.col("value").isNotNull())
+        .agg(F.max("obs_date").alias("last_date"))
+        .collect()[0]["last_date"]
     )
-    print(f"New ACIS records to add: {new_acis_df.count():,}")
-
-    acis_keys_in_merged = (
-        existing_df.filter(F.col("source") == "ACIS")
-        .select("station_id", "obs_date", "variable")
-        .distinct()
-    )
-
-    new_ghcn_df = ghcn_df.join(
-        existing_df.filter(F.col("source") == "GHCN")
-        .select("station_id", "obs_date", "variable")
-        .distinct(),
-        on=["station_id", "obs_date", "variable"],
-        how="left_anti",
-    )
-
-    ghcn_to_replace_acis = ghcn_df.join(
-        acis_keys_in_merged,
-        on=["station_id", "obs_date", "variable"],
-        how="inner",
-    )
-
-    ghcn_to_process = new_ghcn_df.unionByName(ghcn_to_replace_acis).distinct()
-
-    print(f"New GHCN records: {new_ghcn_df.count():,}")
-    print(f"GHCN records replacing ACIS: {ghcn_to_replace_acis.count():,}")
-    print(f"Total GHCN records to process: {ghcn_to_process.count():,}")
-
-    return ghcn_to_process.unionByName(new_acis_df, allowMissingColumns=True)
 
 
 # ---------------------------------------------------------------------------
@@ -136,18 +118,13 @@ def build_incremental_source(
 # ---------------------------------------------------------------------------
 
 
-def dedupe_with_priority(ghcn_df: DataFrame, unioned_df: DataFrame) -> DataFrame:
+def dedupe_with_priority(ghcn_last_date, unioned_df: DataFrame) -> DataFrame:
     """
     Collapse unioned_df down to one row per (station_id, obs_date,
     variable), preferring GHCN once it has non-NULL data for a date, and
     ACIS for any date after GHCN's most recent non-NULL date (since ACIS
     runs ahead of GHCN).
     """
-    ghcn_last_date = (
-        ghcn_df.filter(F.col("value").isNotNull())
-        .agg(F.max("obs_date").alias("last_date"))
-        .collect()[0]["last_date"]
-    )
     print(f"GHCN last date with non-NULL data: {ghcn_last_date}")
 
     prioritized_df = unioned_df.withColumn(
@@ -220,30 +197,28 @@ def merge_into_obs_merged(spark, merged_df: DataFrame) -> None:
 
 
 def merge_obs(spark) -> None:
-    ghcn_df, acis_df = read_sources(spark)
-    print(f"GHCN records: {ghcn_df.count():,}")
-    print(f"ACIS records: {acis_df.count():,}")
+    first_run = not spark.catalog.tableExists(OBS_MERGED_TABLE)
 
-    unioned_df = build_incremental_source(spark, ghcn_df, acis_df)
+    ghcn_df, acis_df = read_sources(
+        spark, None if first_run else merged_watermark(spark)
+    )
+    unioned_df = ghcn_df.unionByName(acis_df, allowMissingColumns=True)
     print(f"Total records to process: {unioned_df.count():,}")
 
     if unioned_df.count() == 0:
         print("No new records to merge.")
         return
 
-    if not spark.catalog.tableExists(OBS_MERGED_TABLE):
-        merged_df = dedupe_with_priority(ghcn_df, unioned_df)
+    merged_df = dedupe_with_priority(ghcn_cutoff_date(spark), unioned_df)
+    print(f"Merged records (after deduplication): {merged_df.count():,}")
+
+    if first_run:
         merged_df.write.format("delta").saveAsTable(OBS_MERGED_TABLE)
         print(f"Created {OBS_MERGED_TABLE} with {merged_df.count():,} records")
         return
 
-    merged_df = dedupe_with_priority(ghcn_df, unioned_df)
-    print(f"Merged records (after deduplication): {merged_df.count():,}")
-
     merge_into_obs_merged(spark, merged_df)
-
     print(f"MERGE complete for {OBS_MERGED_TABLE}")
-    print(f"Total records in table: {spark.table(OBS_MERGED_TABLE).count():,}")
 
 
 def main():
