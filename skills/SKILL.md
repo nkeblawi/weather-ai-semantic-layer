@@ -50,8 +50,7 @@ combination (`threshold`, `event_day_threshold`, `event_value`, `period_aggregat
 
 ## Follow-up questions
 
-A **Conversation context** section may appear at the end of this prompt — a transcript of earlier turns, each with the question asked, its `Resolved
-query`, and the answer. When it is present, first classify the current question:
+A **Conversation context** section may appear at the end of this prompt — a transcript of earlier turns, each with the question asked, its `Resolved query`, and the answer. When it is present, first classify the current question:
 
 - **Elliptical follow-up** ("what about 2021?", "and in the summer?", "how
   about rainfall?", "same for BWI"): start from the most recent `Resolved
@@ -70,17 +69,13 @@ query`, and the answer. When it is present, first classify the current question:
 - **Self-contained question** (names its own location, asks something
   complete): ignore the context section and resolve from scratch.
 
-A transcript may identify a station as `station_id X is <airport> /
-<city>`; those names and the id are one site, and a follow-up that switches
-between the airport name and the city name is not a location change.
+A transcript may identify a station as `station_id X is <airport> / <city>`; those names and the id are one site, and a follow-up that switches between the airport name and the city name is not a location change.
 
 With no Conversation context section, resolve normally.
 
 ## Step 1 — Resolve the current date
 
-Obtain today's date in `YYYY-MM-DD` format and hold it as `current_date`.
-This is required before Step 4 (date range resolution) can run, since every
-relative time expression is computed from it.
+Obtain today's date in `YYYY-MM-DD` format and hold it as `current_date`. This is required before Step 4 (date range resolution) can run, since every relative time expression is computed from it.
 
 ## Step 2 — Resolve the location to a GHCN station ID
 
@@ -138,9 +133,7 @@ Don't process any questions that asks for every metric in multiple cities,  that
 By default, `aggregation` operates on raw daily rows — this is
 `unit: "day"`, the default, and the field can be omitted entirely.
 
-**Counting days** (`aggregation: "count"`, `unit: "day"`) requires a
-`threshold: {"operator": ..., "value": ...}` (operator is one of `>`, `>=`,
-`<`, `<=`, `=`). Default thresholds by idiom:
+**Counting days** (`aggregation: "count"`, `unit: "day"`) requires a `threshold: {"operator": ..., "value": ...}` (operator is one of `>`, `>=`, `<`, `<=`, `=`). Default thresholds by idiom:
 
 | user says (examples) | metric | threshold |
 |---|---|---|
