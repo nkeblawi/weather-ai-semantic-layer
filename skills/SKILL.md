@@ -86,15 +86,23 @@ Obtain today's date in `YYYY-MM-DD` format and hold it as `current_date`. This i
    station's ICAO code, FAA code, city, name, and known aliases, and
    returns `{ghcn_id, name, city}` for a match, or nothing if there's no
    match.
-3. If there's no match and a geocoding or nearest-neighbor capability is
-   separately available in this environment, use it to find the closest
-   active station within 50 miles of the named place. (`lookup_station`
-   itself does not do this — it's exact/alias text matching only.)
-4. If no station can be resolved — no tool match, and no geocoding capability
-   available or it also found nothing within 50 miles — stop and tell the
-   user: "I don't have any weather observation history near that location."
-   Do not guess a nearby station.
-5. On success, set `station_id` to the returned `ghcn_id`, never the airport
+3. If there's no match, use general geographic knowledge to think of the
+   most plausible nearby airports or well-known places (e.g. a town's
+   nearest major-metro airport), and call `lookup_station` again for each
+   candidate name to check whether it's actually active in this system.
+   `lookup_station` is still the source of truth for what's active — never
+   set `station_id` to a candidate that didn't come back from a successful
+   `lookup_station` call.
+4. If exactly one candidate from step 3 resolves, use it.
+5. If two or more candidates resolve and are comparably plausible, with no
+   one of them clearly the better answer, don't guess — stop and ask the
+   user which they mean, naming each candidate by city/airport (e.g. "The
+   nearest sites are Dulles Airport and Reagan National. Which one did you
+   want me to check?").
+6. If no candidate resolves at all, stop and tell the user: "I don't have
+   any weather observation history near that location." Do not guess a
+   nearby station.
+7. On success, set `station_id` to the returned `ghcn_id`, never the airport
    code or city name.
 
 If the question names no location, resolve it in order: (a) inherit `station_id` from the **Conversation context** section (see "Follow-up

@@ -241,6 +241,7 @@ def build_answer_payload(
         value = int(value) if entry["aggregation"] == "count" else round(value, 1)
 
     payload = {
+        "station_name": station.get("name") or entry["station_id"],
         "place": station.get("city") or station.get("name") or entry["station_id"],
         "metric": entry["metric"],
         "aggregation": entry["aggregation"],
@@ -636,6 +637,9 @@ def main():
                     answer_payloads.append(
                         build_answer_payload(entry, result, station_info, temp_unit)
                     )
+
+                if testing:
+                    print(f"[debug] answer payloads: {json.dumps(answer_payloads, indent=2)}")
 
                 print("Results found!\n")
                 answer_text = generate_answer(
