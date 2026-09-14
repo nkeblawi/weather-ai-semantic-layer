@@ -25,7 +25,8 @@ Requires (add to your .env, loaded via python-dotenv):
     ANTHROPIC_API_KEY
     DATABRICKS_SERVER
     DATABRICKS_HTTP     (SQL warehouse connection details page in Databricks)
-    DATABRICKS_PAT      (personal access token or service principal token)
+    DATABRICKS_CLIENT   (service principal application/client ID)
+    DATABRICKS_SECRET   (service principal OAuth secret)
 
 NOTE: the exact parameter-binding syntax below (":name" style, passed via
 the `parameters=` dict to cursor.execute) is databricks-sql-connector's
@@ -43,6 +44,7 @@ from typing import Any
 from dotenv import load_dotenv
 import anthropic
 from databricks import sql as databricks_sql
+from databricks.sdk.core import Config, oauth_service_principal
 
 load_dotenv()
 
@@ -76,11 +78,20 @@ from chat_store import (  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
+def _service_principal_credentials():
+    config = Config(
+        host=f"https://{os.environ['DATABRICKS_SERVER']}",
+        client_id=os.environ["DATABRICKS_CLIENT"],
+        client_secret=os.environ["DATABRICKS_SECRET"],
+    )
+    return oauth_service_principal(config)
+
+
 def get_databricks_connection():
     return databricks_sql.connect(
         server_hostname=os.environ["DATABRICKS_SERVER"],
         http_path=os.environ["DATABRICKS_HTTP"],
-        access_token=os.environ["DATABRICKS_PAT"],
+        credentials_provider=_service_principal_credentials,
     )
 
 
