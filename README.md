@@ -49,14 +49,17 @@ A [Claude Skill](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/o
 weather question into the structured parameters (station, metric,
 aggregation, date range) needed to call the query layer above.
 
-## 4. The application (`app/test_harness.py`)
+## 4. The application (`app/pipeline.py`)
 
 Ties the above together: a real Claude API call runs the skill to resolve a
 question into parameters (calling `lookup_station` and a local date-range
 resolver as tools along the way), the resolved parameters are used to call
 `answer_query` in Unity Catalog, and a second, smaller Claude call turns the
 numeric result into a natural-language answer in the same voice as the
-original question.
+original question. `app/test_harness.py` is a terminal CLI over this
+pipeline for local testing; `app/chat_session.py` is a non-CLI session
+wrapper for a future Streamlit chat UI. Both import the same functions from
+`app/pipeline.py` rather than duplicating any of this logic.
 
 ## Environments
 

@@ -1,5 +1,8 @@
 """
-Streamlit wrapper around the resolve/answer pipeline without using CLI.
+Session management for the weather-query-resolver skill: wraps the shared
+pipeline in app/pipeline.py with per-session state and chat_store.py
+persistence, for callers with no CLI of their own (e.g. a future Streamlit
+chat UI).
 """
 
 from __future__ import annotations
@@ -10,18 +13,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# app/ is not a package (no __init__.py). Mirror test_harness.py's own
-# sys.path.insert(SCRIPTS_PATH) pattern: put app/ itself on sys.path before
-# importing test_harness/chat_store, so `import test_harness` and
-# test_harness's own bare `from chat_store import (...)` both resolve
-# regardless of the caller's cwd or how THIS module was imported (e.g. from
-# a Streamlit entry point elsewhere in the repo). Must run before the
-# imports below.
+# app/ is not a package (no __init__.py). Put app/ itself on sys.path before
+# importing pipeline/chat_store, so these bare imports resolve regardless of
+# the caller's cwd or how THIS module was imported (e.g. from a Streamlit
+# entry point elsewhere in the repo). Must run before the imports below.
 _APP_DIR = str(Path(__file__).resolve().parent)
 if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
 
-import test_harness  # noqa: E402
+import pipeline  # noqa: E402
 import chat_store  # noqa: E402
 
 
@@ -29,10 +29,12 @@ import chat_store  # noqa: E402
 class QuerySession:
     """
     Session-scoped state for one chat session, matching the local variables
-    test_harness.main() holds across its while-loop. Create via
+    app/test_harness.py's main() holds across its while-loop. Create via
     create_session(); pass the same instance to get_answer() once per
-    question. conn/client are supplied by the caller and are NOT owned or
-    closed here (construct via test_harness.get_databricks_connection() and
+    question.
+
+    conn/client are supplied by the caller and are not owned or
+    closed here (construct via pipeline.get_databricks_connection() and
     anthropic.Anthropic(), e.g. behind st.cache_resource).
     """
 
@@ -58,12 +60,7 @@ def create_session(
     home_location: str | None = None,
 ) -> QuerySession:
     """
-    Opens one chat session for `username`. Thin wrapper over
-    chat_store.ensure_user (a real MERGE + SELECT -- call this once per
-    session, not per question/rerun) + chat_store.new_session_id (pure,
-    cheap), matching test_harness.main()'s setup block exactly. Raises on
-    ensure_user's write failure, same as the CLI (a startup problem should
-    stop the app, not be swallowed).
+    Opens one chat session for `username`.
     """
     user_id, resolved_temp_unit, resolved_home_location = chat_store.ensure_user(
         conn,
@@ -85,21 +82,20 @@ def create_session(
 
 def get_answer(session: QuerySession, question: str) -> str:
     """
-    Answers one question within `session`. Reproduces the per-turn body of
-    test_harness.main()'s while-loop verbatim, minus CLI print/input and
-    EOFError/KeyboardInterrupt handling (CLI-only). Every step below calls
-    into test_harness's / chat_store's existing public functions only.
+    Answers one question within `session`. Every step below
+    calls into pipeline's and chat_store's existing public functions only.
 
-    Mutates session.history, session.station_info (also mutated in place
-    by test_harness.resolve_question itself on each lookup_station hit),
-    and session.turn_index. Returns the answer text.
+    Mutates session.history and session.station_info in place by
+    pipeline.resolve_question itself on each lookup_station hit, and
+    session.turn_index. Returns the answer text.
 
     Matches the CLI's error-handling convention exactly: on any internal
     failure (Claude API error, SQL error, etc.) this returns
-    "[error] {exc}" as the answer text rather than raising -- it does NOT
-    raise for ordinary runtime failures. Callers who need to distinguish
-    resolved / needs_clarification / error should check the returned
-    string's "[error] " prefix for now (status is still recorded via
+    "[error] {exc}" as the answer text rather than raising.
+
+    This does not raise for ordinary runtime failures. To distinguish between
+    resolved / needs_clarification / error, function calls should check the
+    returned string's "[error] " prefix for now (status is still recorded via
     chat_store.record_turn, just not returned).
     """
     resolved: dict = {}
@@ -107,7 +103,7 @@ def get_answer(session: QuerySession, question: str) -> str:
     status = "error"
 
     try:
-        resolved = test_harness.resolve_question(
+        resolved = pipeline.resolve_question(
             session.client,
             session.conn,
             question,
@@ -125,17 +121,17 @@ def get_answer(session: QuerySession, question: str) -> str:
         else:
             answer_payloads = []
             for entry in resolved["queries"]:
-                result = test_harness.call_answer_query(session.conn, entry)
+                result = pipeline.call_answer_query(session.conn, entry)
                 answer_payloads.append(
-                    test_harness.build_answer_payload(
+                    pipeline.build_answer_payload(
                         entry, result, session.station_info, session.temp_unit
                     )
                 )
-            answer_text = test_harness.generate_answer(
+            answer_text = pipeline.generate_answer(
                 session.client, question, answer_payloads, history=session.history
             )
             status = "resolved"
-    except Exception as exc:  # noqa: BLE001 -- parity with test_harness.main()
+    except Exception as exc:  # noqa: BLE001 -- parity with the CLI's main()
         answer_text = f"[error] {exc}"
         status = "error"
 
@@ -152,7 +148,7 @@ def get_answer(session: QuerySession, question: str) -> str:
         response=answer_text,
         status=status,
         resolved_json=json.dumps(resolved) if resolved else None,
-        model=test_harness.CLAUDE_MODEL,
+        model=pipeline.CLAUDE_MODEL,
         error=answer_text if status == "error" else None,
         station_id=turn_station_id,
     )
