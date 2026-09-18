@@ -10,11 +10,6 @@ notebooks doc), not the older "silver" naming used in earlier notes.
 import os
 
 # --- Catalog ---
-# Overridable via WX_CATALOG so dev jobs can point at a separate mirror
-# catalog (e.g. weather_dev) instead of writing to the same tables as prod.
-# Must be set (e.g. via a --catalog CLI arg setting os.environ) before this
-# module is imported, since every table constant below is computed once at
-# import time.
 CATALOG = os.environ.get("WX_CATALOG", "weather")
 
 # --- Schemas ---

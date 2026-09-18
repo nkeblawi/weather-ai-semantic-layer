@@ -3,18 +3,17 @@ Persists application chat history to Unity Catalog: one row per user in
 {CATALOG}.app.users, one row per prompt/answer turn in
 {CATALOG}.app.chat_history (DDL: src/wx/app/create_chat_tables.py).
 
-{CATALOG} follows WX_CATALOG the same way test_harness.py's does, so this
-writes to weather_dev.app.* when the harness is run against dev and
-weather.app.* otherwise.
+{CATALOG} follows WX_CATALOG from .env so this writes to weather_dev.app.*
+when the harness is run against dev and weather.app.* in production.
 
 Stub auth: there is no login yet. The caller passes a `username` (email or
 handle, from the WX_APP_USER env var or a startup prompt) and user_id is
-derived from it deterministically with uuid5 -- the same username always
+derived from it deterministically with uuid5, so the same username always
 maps to the same row, on any machine, with no auth server. When real auth
 is added, swap derive_user_id() for the provider's subject id and backfill.
 
 Writes go through the databricks-sql-connector connection the app already
-holds, using the same ":name" native-parameter style as test_harness.py.
+holds, using the same ":name" native-parameter style binding.
 record_turn() never raises: a logging failure must not take down the chat
 loop, so it logs a warning and returns.
 """
@@ -44,8 +43,9 @@ def new_session_id() -> str:
     return str(uuid.uuid4())
 
 
-def ensure_user(conn, username, email=None, display_name=None,
-                temp_unit=None, home_location=None):
+def ensure_user(
+    conn, username, email=None, display_name=None, temp_unit=None, home_location=None
+):
     """
     Insert the user on first sight, else refresh last_seen_at. email /
     display_name / temp_unit / home_location are seeded only if not already
