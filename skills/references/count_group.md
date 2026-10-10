@@ -40,6 +40,14 @@ selects, not the daily values:
 - `max` / `min` → the biggest/smallest event by that value — "the biggest
   storm total" is `aggregation: "max"`, `event_value: "total"`; "the
   longest snow event" is `aggregation: "max"`, `event_value: "duration"`.
+- `latest` / `earliest` → the most recent / first event *by date*, not by
+  size — "the last snowstorm", "the most recent storm over 6 inches", "the
+  first snow of the season". Returns that event's value plus its
+  `event_start`/`event_end`. Add `threshold` when the question filters by
+  size ("over 6 inches" → `event_value: "total"`, `threshold: {">", 6}`);
+  the most recent event that passes the threshold is the one returned.
+  Never use `max` for "last"/"most recent" — `max` is the *biggest* event,
+  which is usually a different, older storm.
 - `mean` / `median` → the average event value (average total, or average
   duration).
 - `sum` with `event_value: "total"` → total across all events (equivalent
@@ -98,6 +106,24 @@ confidently resolved, ask the user rather than guessing.
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "<resolved via lookup_station>", "metric": "PRCP", "aggregation": "max", "unit": "event", "event_value": "total", "start_date": "2025-12-01", "end_date": "2026-02-28", "event_day_threshold": {"operator": ">=", "value": 0.05}}
+]}
+```
+
+**Q:** How much snow did Dulles Airport get in its last major snowstorm above 6 inches?
+
+No time period stated, so search the whole record (SKILL.md Step 5). "Last"
+→ `latest`; "how much snow" → `event_value: "total"`; "above 6 inches" →
+`threshold`. Everything needed is stated, so resolve it — don't ask.
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "SNOW", "aggregation": "latest", "unit": "event", "event_value": "total", "start_date": "1800-01-01", "end_date": "2026-08-04", "event_day_threshold": {"operator": ">=", "value": 0.5}, "threshold": {"operator": ">", "value": 6}}
+]}
+```
+
+**Q:** When was the first snow of this past winter, and how much fell?
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "<resolved via lookup_station>", "metric": "SNOW", "aggregation": "earliest", "unit": "event", "event_value": "total", "start_date": "2025-12-01", "end_date": "2026-02-28", "event_day_threshold": {"operator": ">=", "value": 0.5}}
 ]}
 ```
 

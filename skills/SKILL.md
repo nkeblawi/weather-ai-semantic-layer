@@ -137,6 +137,8 @@ Don't process any questions that asks for every metric in multiple cities,  that
 | lowest, minimum, least, record low (as an extreme, not a metric cue) | min |
 | how much it varied, standard deviation, variability | stddev |
 | how many, number of, count of | count |
+| last, most recent, latest (an event/storm — `unit: "event"` only) | latest |
+| first, earliest (an event/storm — `unit: "event"` only) | earliest |
 
 By default, `aggregation` operates on raw daily rows — this is
 `unit: "day"`, the default, and the field can be omitted entirely.
@@ -203,6 +205,7 @@ python scripts/resolve_date_range.py '{"current_date": "2026-08-04", "kind": "ab
 | "last 30 days" | `relative_days` | `days` |
 | "last Friday" / "this past Friday" / "on Friday" (a past weekday, single day) | `weekday` | `weekday` (lowercase name, e.g. `friday`) — resolves to the most recent such day *strictly before* `current_date` (asked on a Friday, it's a week ago). Never work out the weekday's date yourself. |
 | "ever", "on record", "all-time", "in history" | `all_time` | none — resolves to `1800-01-01` through `current_date` |
+| "the last / most recent <event>" with no time period stated (e.g. "the last storm over 6 inches") | `all_time` | none — search the whole record for the most recent one; do **not** ask the user how far back to look |
 
 Season names accepted by the script: `winter` (DJF), `spring` (MAM),
 `summer` (JJA), `fall` or `autumn` (SON).
@@ -221,7 +224,7 @@ Once every prior step has resolved (or Step 2/3/4/5 has stopped early to ask the
     {
       "station_id": "GHCN station ID",
       "metric": "TAVG | TMAX | TMIN | PRCP | SNOW | SNWD | AWND | HDD | CDD",
-      "aggregation": "mean | median | sum | max | min | stddev | count",
+      "aggregation": "mean | median | sum | max | min | stddev | count | latest | earliest",
       "unit": "day | event | month | year, omit if day",
       "output_unit": "C or F — only when the user explicitly asks for temperature in that unit (TAVG/TMAX/TMIN); omit otherwise",
       "start_date": "YYYY-MM-DD",

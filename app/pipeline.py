@@ -491,14 +491,30 @@ def execute_tool(conn, name: str, tool_input: dict):
 # this is decided upfront, and applied to the system prompt.
 # ---------------------------------------------------------------------------
 
+# \w*storms? also catches compounds (snowstorm, rainstorm, thunderstorm),
+# which a plain \bstorm\b misses.
 TRIGGER_PATTERN = re.compile(
-    r"\b(event|events|storm|storms|spell|spells|in a row|month|months|year|years)\b",
+    r"\b(events?|\w*storms?|blizzards?|spells?|in a row|months?|years?)\b",
     re.IGNORECASE,
 )
 
 
-def needs_count_group(question: str) -> bool:
-    return bool(TRIGGER_PATTERN.search(question))
+def needs_count_group(question: str, history: list | None = None) -> bool:
+    """
+    True if this question -- or the recent conversation it may be following
+    up on -- is about events/months/years. A follow-up like "narrow that to
+    this winter" names no trigger word itself, so earlier turns count too:
+    their questions (including ones that only got a clarification back) and
+    any non-day query they resolved to.
+    """
+    if TRIGGER_PATTERN.search(question):
+        return True
+    for turn in (history or [])[-MAX_CONTEXT_TURNS:]:
+        if TRIGGER_PATTERN.search(turn.get("question", "")):
+            return True
+        if (turn.get("query") or {}).get("unit", "day") != "day":
+            return True
+    return False
 
 
 def build_system_prompt(
@@ -512,7 +528,7 @@ def build_system_prompt(
     skill_text = re.sub(r"^---\n.*?\n---\n\n", "", skill_text, count=1, flags=re.DOTALL)
     skill_text = skill_text.replace("{{CURRENT_DATE}}", today)
 
-    if needs_count_group(question):
+    if needs_count_group(question, history):
         skill_text += "\n\n---\n\n" + COUNT_GROUP_PATH.read_text()
 
     # Fallback location when the question names none (SKILL.md Step 2).
