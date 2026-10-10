@@ -100,6 +100,28 @@ def call_lookup_station(conn, location_text: str):
     return json.loads(row[0])
 
 
+def list_home_locations(conn) -> list[str]:
+    """
+    Distinct "City, ST" labels for the active stations (analytics.stations),
+    for the home-location picker. A city that already carries its own
+    qualifier (e.g. "Washington, DC", stored with state VA) is used as-is.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT DISTINCT city, state
+            FROM {CATALOG}.analytics.stations
+            WHERE city IS NOT NULL
+            ORDER BY city
+            """
+        )
+        rows = cur.fetchall()
+    return [
+        city if "," in city or not state else f"{city}, {state}"
+        for city, state in rows
+    ]
+
+
 def call_answer_query(conn, entry: dict):
     threshold = entry.get("threshold") or {}
     event_day_threshold = entry.get("event_day_threshold") or {}
@@ -406,8 +428,8 @@ TOOLS = [
             "Resolves a classified time expression to {start_date, end_date} in "
             "YYYY-MM-DD, per weather-query-resolver Step 5. kind is one of: "
             "absolute_year, absolute_year_range, absolute_month, absolute_day, "
-            "season, relative_days, all_time. Only include the fields that apply "
-            "to the chosen kind."
+            "season, relative_days, weekday, all_time. Only include the fields "
+            "that apply to the chosen kind."
         ),
         "input_schema": {
             "type": "object",
@@ -422,6 +444,7 @@ TOOLS = [
                         "absolute_day",
                         "season",
                         "relative_days",
+                        "weekday",
                         "all_time",
                     ],
                 },
@@ -435,6 +458,18 @@ TOOLS = [
                     "enum": ["winter", "spring", "summer", "fall", "autumn"],
                 },
                 "days": {"type": "integer"},
+                "weekday": {
+                    "type": "string",
+                    "enum": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                        "sunday",
+                    ],
+                },
             },
             "required": ["current_date", "kind"],
         },

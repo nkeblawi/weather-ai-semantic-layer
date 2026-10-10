@@ -80,6 +80,21 @@ def create_session(
     )
 
 
+def update_preferences(
+    session: QuerySession, *, temp_unit: str, home_location: str | None
+) -> None:
+    """
+    Persists the user's temp_unit / home_location and applies them to
+    `session` so the next get_answer() uses them. Raises on write failure;
+    the session is only changed once the write succeeds.
+    """
+    chat_store.update_user_prefs(
+        session.conn, session.user_id, temp_unit, home_location
+    )
+    session.temp_unit = temp_unit
+    session.home_location = home_location
+
+
 def get_answer(session: QuerySession, question: str) -> str:
     """
     Answers one question within `session`. Every step below

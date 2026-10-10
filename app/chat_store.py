@@ -102,6 +102,29 @@ def ensure_user(
     return user_id, row[0], row[1]
 
 
+def update_user_prefs(conn, user_id, temp_unit, home_location) -> None:
+    """
+    Overwrite the user's temp_unit / home_location (the settings UI's
+    Update button). Unlike ensure_user's coalesce seeding, this replaces
+    whatever is stored. Raises on write failure so the UI can show it.
+    """
+    if temp_unit not in ("F", "C"):
+        raise ValueError(f"temp_unit must be 'F' or 'C', got {temp_unit!r}")
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            UPDATE {USERS_TABLE}
+            SET temp_unit = :temp_unit, home_location = :home_location
+            WHERE user_id = :user_id
+            """,
+            parameters={
+                "user_id": user_id,
+                "temp_unit": temp_unit,
+                "home_location": home_location,
+            },
+        )
+
+
 def record_turn(
     conn,
     user_id,

@@ -201,6 +201,7 @@ python scripts/resolve_date_range.py '{"current_date": "2026-08-04", "kind": "ab
 | "this past winter" / "last summer" (no year given) | `season` | `season` only — resolves to the most recently completed instance as of `current_date` |
 | "winter 2024" (year given) | `season` | `season`, `year` — `year` is the calendar year containing the season's *last* month, so winter `year=2024` means Dec 2023–Feb 2024 |
 | "last 30 days" | `relative_days` | `days` |
+| "last Friday" / "this past Friday" / "on Friday" (a past weekday, single day) | `weekday` | `weekday` (lowercase name, e.g. `friday`) — resolves to the most recent such day *strictly before* `current_date` (asked on a Friday, it's a week ago). Never work out the weekday's date yourself. |
 | "ever", "on record", "all-time", "in history" | `all_time` | none — resolves to `1800-01-01` through `current_date` |
 
 Season names accepted by the script: `winter` (DJF), `spring` (MAM),

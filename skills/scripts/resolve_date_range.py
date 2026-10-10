@@ -18,12 +18,17 @@ Input JSON shapes (current_date is always required, YYYY-MM-DD):
   {"current_date": "2026-08-04", "kind": "season", "season": "winter"}
   {"current_date": "2026-08-04", "kind": "season", "season": "winter", "year": 2026}
   {"current_date": "2026-08-04", "kind": "relative_days", "days": 30}
+  {"current_date": "2026-08-04", "kind": "weekday", "weekday": "friday"}
   {"current_date": "2026-08-04", "kind": "all_time"}
 
 For "season" with no "year", resolves to the most recently completed
 instance of that season as of current_date. With "year", "year" is the
 calendar year containing the season's last month (so winter year=2026 means
 Dec 2025 - Feb 2026).
+
+For "weekday" ("last Friday", "this past Friday", "on Friday"), resolves to
+the single most recent such day strictly before current_date -- so asked on
+a Saturday, "last Friday" is yesterday; asked on a Friday, it's a week ago.
 
 Output on stdout: {"start_date": "...", "end_date": "..."}
 On invalid input: {"error": "..."} and a non-zero exit code.
@@ -43,6 +48,8 @@ SEASON_MONTHS = {
     "fall": (9, 11),
     "autumn": (9, 11),
 }
+
+WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 
 def _last_day(year, month):
@@ -97,6 +104,15 @@ def resolve(payload):
     if kind == "relative_days":
         days = int(payload["days"])
         return current - timedelta(days=days), current
+
+    if kind == "weekday":
+        weekday = payload["weekday"].lower()
+        if weekday not in WEEKDAYS:
+            raise ValueError(f"unknown weekday: {weekday}")
+        # 1..7 days back, never 0: today is not "last <today's weekday>"
+        days_back = (current.weekday() - WEEKDAYS.index(weekday) - 1) % 7 + 1
+        d = current - timedelta(days=days_back)
+        return d, d
 
     if kind == "all_time":
         return date.fromisoformat(ALL_TIME_START), current
