@@ -77,8 +77,6 @@ kept in sync via a small CI/CD export tool.
 
 ### Rankings (`top` / `bottom`)
 
-**Note: Functionality coming soon.**
-
 `answer_query` and the three `query_by_*` functions accept two ranking
 aggregations, `top` (largest first) and `bottom` (smallest first), plus an
 optional `p_limit`:
@@ -98,6 +96,15 @@ optional `p_limit`:
   - day: `{rank, obs_date, value}`
   - event: `{rank, event_start, event_end, value, duration, total}`
   - month/year: `{rank, bucket_year, bucket_month, value, n_days}`
+
+#### Snow seasons
+
+Snowfall grouped by winter ("the snowiest winters", "an average snow season")
+uses the July 1 - June 30 snow season (the NWS convention), not the calendar
+year, so one winter's snow isn't split across two years and October or May
+snow still counts toward its season. `query_by_period`/`answer_query` take
+`p_year_start_month` (default 1 = calendar year; the app passes 7 for snow
+seasons), and a season is labeled by the year it ends in (2010 = "2009-10").
 
 #### Coverage rule (month/year rankings)
 
