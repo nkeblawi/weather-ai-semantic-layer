@@ -7,17 +7,11 @@ query layer rather than general-purpose text-to-SQL conversions.
 
 ## Try the app
 
-The chat app is live at **https://weather-obs-chat.streamlit.app/**.
+The chat app is live at **https://weather-obs-chat.streamlit.app/**. It's
+public: no account or sign-in needed.
 
-Access is **invite-only**. To get in:
-
-1. Ask the project owner for an invite, giving the email address you'll sign
-   in with.
-2. Accept the invitation email from Streamlit.
-3. Open the app URL and sign in with that same email address.
-
-Each session gets 10 questions; type `/help` in the chat for example
-questions.
+Each session gets 10 questions, and the app as a whole answers up to 100 a
+day. Type `/help` in the chat for example questions.
 
 ## Architecture
 
