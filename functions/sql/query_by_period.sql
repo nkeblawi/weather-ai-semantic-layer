@@ -24,13 +24,13 @@ p_period_aggregation (mean or sum) collapses each calendar bucket before p_aggre
 
 p_threshold_operator/p_threshold_value are required together only when p_aggregation is count. 
 
-p_month_filter is an array of month numbers 1-12, only used when p_unit is month, to restrict which calendar months form buckets.
+p_month_filter is an array of month numbers 1-12 restricting which days count. With p_unit month it picks which calendar months form buckets; with p_unit year it keeps only those months inside each year bucket, which is how a season is one bucket per year (summer = year + [6, 7, 8]; winter = p_year_start_month 12 + [12, 1, 2], so Dec 2009 - Feb 2010 is bucket 2010).
 
 p_aggregation top/bottom ranks buckets by bucket value (highest first / lowest first) with DENSE_RANK, so tied buckets share a rank. rows holds every bucket ranked 1..p_limit as {rank, bucket_year, bucket_month, value, n_days}, ordered by rank then date; value/bucket_year/bucket_month are null. p_limit defaults to 3 and is clamped to 1-15; rows is capped at 15 entries, and rows_truncated is true when ties pushed more than 15 buckets into the ranks. rows is null for every other aggregation.
 
-p_year_start_month (1-12, default 1) is the month a p_unit = year bucket starts in. 1 is the calendar year. 7 is the snow season, July 1 - June 30, labeled by the year it ends in (bucket_year 2010 = Jul 2009 - Jun 2010). Ignored when p_unit is month.
+p_year_start_month (1-12, default 1) is the month a p_unit = year bucket starts in. 1 is the calendar year. 7 is the snow season, July 1 - June 30, labeled by the year it ends in (bucket_year 2010 = Jul 2009 - Jun 2010); 12 with p_month_filter [12, 1, 2] is meteorological winter. Ignored when p_unit is month.
 
-Coverage rule (top/bottom only): a bucket is ranked only if at least 90% of its calendar days have a non-null value (n_days >= 0.9 * days in the month/year). This drops the current partial month/year, a station''s first partial year, and months with long reporting gaps, which would otherwise dominate bottom rankings. max/min are unchanged.
+Coverage rule (top/bottom only): a bucket is ranked only if at least 90% of its calendar days have a non-null value (n_days >= 0.9 * days in the month/year, counting only p_month_filter months for a year bucket). This drops the current partial month/year, a station''s first partial year, and months with long reporting gaps, which would otherwise dominate bottom rankings. max/min are unchanged.
 '
 RETURN ((
     SELECT to_json(named_struct(
@@ -84,11 +84,15 @@ RETURN ((
                 -- coverage rule: >= 90% of the bucket's calendar days observed
                 bucket_value IS NOT NULL AND n_days >= 0.9 * CASE
                     WHEN p_unit = 'month' THEN DAY(LAST_DAY(MAKE_DATE(bucket_year, bucket_month, 1)))
-                    -- days in the 12-month bucket, which starts p_year_start_month of the
-                    -- prior year when the year doesn't start in January
-                    ELSE DATEDIFF(
-                        ADD_MONTHS(MAKE_DATE(bucket_year - IF(COALESCE(p_year_start_month, 1) > 1, 1, 0), COALESCE(p_year_start_month, 1), 1), 12),
-                        MAKE_DATE(bucket_year - IF(COALESCE(p_year_start_month, 1) > 1, 1, 0), COALESCE(p_year_start_month, 1), 1)
+                    -- days in the 12-month bucket (which starts p_year_start_month of the
+                    -- prior year when the year doesn't start in January), counting only
+                    -- p_month_filter months when there is one
+                    ELSE AGGREGATE(
+                        SEQUENCE(0, 11), 0,
+                        (acc, i) -> acc + IF(
+                            p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(ADD_MONTHS(bucket_start, i))),
+                            DAY(LAST_DAY(ADD_MONTHS(bucket_start, i))), 0
+                        )
                     )
                 END AS rankable
             FROM (
@@ -98,7 +102,12 @@ RETURN ((
             CASE WHEN p_period_aggregation = 'mean' THEN AVG(value)
                  WHEN p_period_aggregation = 'sum'  THEN SUM(value)
             END AS bucket_value,
-            COUNT(value) AS n_days
+            COUNT(value) AS n_days,
+            -- first day of a year bucket's 12-month window (for the coverage rule)
+            MAKE_DATE(
+                bucket_year - IF(COALESCE(p_year_start_month, 1) > 1, 1, 0),
+                COALESCE(p_year_start_month, 1), 1
+            ) AS bucket_start
         FROM (
             SELECT
                 -- year buckets that start mid-year are labeled by the year they end in:
@@ -122,7 +131,7 @@ RETURN ((
             FROM weather.analytics.observations
             WHERE station_id = p_station_id
               AND obs_date BETWEEN p_start_date AND p_end_date
-              AND (p_unit != 'month' OR p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(obs_date)))
+              AND (p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(obs_date)))
         ) days
         GROUP BY
             bucket_year,

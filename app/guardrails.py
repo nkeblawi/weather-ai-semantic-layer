@@ -51,7 +51,8 @@ MAX_RANK_LIMIT = 15  # top/bottom ranks per query; answer_query clamps to the sa
 METRICS = {"TAVG", "TMAX", "TMIN", "PRCP", "SNOW", "SNWD", "AWND", "HDD", "CDD"}
 AGGREGATIONS = {"mean", "median", "sum", "max", "min", "stddev", "count", "latest", "earliest", "top", "bottom"}
 RANKING_AGGREGATIONS = {"top", "bottom"}
-UNITS = {"day", "event", "month", "year", "snow_season"}
+UNITS = {"day", "event", "month", "year", "snow_season", "season"}
+SEASONS = {"winter", "spring", "summer", "fall"}
 OPERATORS = {">", ">=", "<", "<=", "="}
 EVENT_METRICS = {"PRCP", "SNOW"}
 EVENT_ONLY_AGGREGATIONS = {"latest", "earliest"}
@@ -259,7 +260,9 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
             problems.append(f"limit only applies to top/bottom, not {aggregation!r}")
         elif not (isinstance(lim, int) and not isinstance(lim, bool) and 1 <= lim <= MAX_RANK_LIMIT):
             problems.append(f"limit {lim!r} must be an integer 1-{MAX_RANK_LIMIT}")
-    if unit in ("month", "year", "snow_season") and q.get("period_aggregation") not in PERIOD_AGGREGATIONS:
+    if unit == "season" and q.get("season") not in SEASONS:
+        problems.append(f"unit 'season' requires season winter, spring, summer, or fall, got {q.get('season')!r}")
+    if unit in ("month", "year", "snow_season", "season") and q.get("period_aggregation") not in PERIOD_AGGREGATIONS:
         problems.append(f"unit {unit!r} requires period_aggregation mean or sum")
     if unit == "snow_season" and metric != "SNOW":
         problems.append(f"unit 'snow_season' requires SNOW, got {metric!r}")

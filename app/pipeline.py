@@ -125,9 +125,34 @@ def list_home_locations(conn) -> dict[str, str]:
 
 SNOW_SEASON_START_MONTH = 7  # NWS snow season: July 1 - June 30
 
+# Meteorological seasons. Winter's year starts in December so Dec-Feb stays
+# one bucket, labeled by the year it ends in (Dec 2009 - Feb 2010 = 2010).
+SEASON_MONTHS = {
+    "winter": [12, 1, 2],
+    "spring": [3, 4, 5],
+    "summer": [6, 7, 8],
+    "fall": [9, 10, 11],
+}
+SEASON_START_MONTH = {"winter": 12}
+
+
+def _sql_bucketing(entry: dict) -> tuple[str, list | None, int | None]:
+    """
+    (p_unit, p_month_filter, p_year_start_month) for answer_query. The
+    resolver's snow_season and season units are year buckets in SQL: a
+    snow season starts in July; a season keeps only its months.
+    """
+    unit = entry.get("unit", "day")
+    if unit == "snow_season":
+        return "year", None, SNOW_SEASON_START_MONTH
+    if unit == "season":
+        season = entry["season"]
+        return "year", SEASON_MONTHS[season], SEASON_START_MONTH.get(season)
+    return unit, entry.get("month_filter"), None
+
 
 def call_answer_query(conn, entry: dict):
-    snow_season = entry.get("unit") == "snow_season"
+    sql_unit, month_filter, year_start_month = _sql_bucketing(entry)
     threshold = entry.get("threshold") or {}
     event_day_threshold = entry.get("event_day_threshold") or {}
     with conn.cursor() as cur:
@@ -157,8 +182,7 @@ def call_answer_query(conn, entry: dict):
                 "aggregation": entry["aggregation"],
                 "start_date": entry["start_date"],
                 "end_date": entry["end_date"],
-                # snow_season is a year bucket that starts in July (Jul-Jun)
-                "unit": "year" if snow_season else entry.get("unit", "day"),
+                "unit": sql_unit,
                 "threshold_operator": threshold.get("operator"),
                 "threshold_value": threshold.get("value"),
                 "event_day_threshold_operator": event_day_threshold.get("operator"),
@@ -166,13 +190,9 @@ def call_answer_query(conn, entry: dict):
                 "event_value": entry.get("event_value"),
                 "period_aggregation": entry.get("period_aggregation"),
                 # JSON text: the connector does not bind a Python list as a SQL ARRAY
-                "month_filter": (
-                    json.dumps(entry["month_filter"])
-                    if entry.get("month_filter")
-                    else None
-                ),
+                "month_filter": json.dumps(month_filter) if month_filter else None,
                 "limit": entry.get("limit"),
-                "year_start_month": SNOW_SEASON_START_MONTH if snow_season else None,
+                "year_start_month": year_start_month,
             },
         )
         row = cur.fetchone()
@@ -217,6 +237,7 @@ _COUNT_UNITS = {
     "month": "months",
     "year": "years",
     "snow_season": "snow seasons",
+    "season": "seasons",
 }
 
 _TEMP_METRICS = {"TAVG", "TMAX", "TMIN"}
@@ -271,6 +292,22 @@ def snow_season_label(bucket_year: int) -> str:
     return f"{bucket_year - 1}-{bucket_year % 100:02d}"
 
 
+def season_label(entry: dict, bucket_year: int) -> str | None:
+    """
+    How a snow_season/season bucket reads ("2009-10", "Winter 2009-10",
+    "Summer 2024"), so it's never mistaken for a calendar year; None for any
+    other unit.
+    """
+    unit = entry.get("unit")
+    if unit == "snow_season":
+        return snow_season_label(bucket_year)
+    if unit == "season":
+        season = entry["season"]
+        span = snow_season_label(bucket_year) if season == "winter" else str(bucket_year)
+        return f"{season.capitalize()} {span}"
+    return None
+
+
 def _converted_rows(entry: dict, rows: list[dict]) -> list[dict]:
     """
     A top/bottom result's rows with output_unit applied to each value and
@@ -281,8 +318,9 @@ def _converted_rows(entry: dict, rows: list[dict]) -> list[dict]:
     for row in rows:
         row = dict(row)
         row["value"] = _round_value(entry, convert_value(entry, row.get("value")))
-        if entry.get("unit") == "snow_season" and row.get("bucket_year"):
-            row["snow_season"] = snow_season_label(row.pop("bucket_year"))
+        if row.get("bucket_year") and (label := season_label(entry, row["bucket_year"])):
+            del row["bucket_year"]
+            row["season"] = label
         if row.get("total") is not None:
             row["total"] = round(row["total"], 1)
         out.append(row)
@@ -332,13 +370,16 @@ def build_answer_payload(
         ):
             if result.get(key) is not None:
                 payload[key] = result[key]
-        # Jul-Jun season, not a calendar year: name it so it isn't read as one
-        if entry.get("unit") == "snow_season" and "bucket_year" in payload:
-            payload["snow_season"] = snow_season_label(payload.pop("bucket_year"))
+        # a season isn't a calendar year: name it so it isn't read as one
+        if "bucket_year" in payload and (label := season_label(entry, payload["bucket_year"])):
+            del payload["bucket_year"]
+            payload["season"] = label
         # top/bottom: value is null and the ranking is in rows (rank, then
         # date). Ties share a rank, so rows can outnumber the requested ranks.
         if entry["aggregation"] in RANKING_AGGREGATIONS:
             payload["unit"] = entry.get("unit", "day")
+            if entry.get("season"):
+                payload["season_name"] = entry["season"]
             payload["rows"] = _converted_rows(entry, result.get("rows") or [])
             payload["rows_truncated"] = bool(result.get("rows_truncated"))
             if entry.get("requested_limit"):
@@ -404,8 +445,8 @@ def ranking_table(payload: dict) -> dict | None:
                 "Rank": r["rank"],
                 "Month": f"{date(r['bucket_year'], r['bucket_month'], 1):%b %Y}",
             }
-        elif "snow_season" in r:
-            row = {"Rank": r["rank"], "Season": r["snow_season"]}
+        elif "season" in r:
+            row = {"Rank": r["rank"], "Season": r["season"]}
         else:
             row = {"Rank": r["rank"], "Year": str(r["bucket_year"])}
         row["Value"] = f"{r['value']}{unit_suffix}"
@@ -419,7 +460,11 @@ def ranking_table(payload: dict) -> dict | None:
         rows.append(row)
 
     which = "Top" if payload["aggregation"] == "top" else "Bottom"
-    grain = _COUNT_UNITS.get(payload.get("unit", "day"), "days")
+    grain = (
+        f"{payload['season_name']}s"  # "Top summers by ..."
+        if payload.get("unit") == "season"
+        else _COUNT_UNITS.get(payload.get("unit", "day"), "days")
+    )
     label = (
         "length"
         if by_duration
@@ -682,7 +727,7 @@ def execute_tool(conn, name: str, tool_input: dict):
 # month_filter climate average, defined in count_group.md. Plurals too, for
 # rankings ("the coldest Januaries").
 TRIGGER_PATTERN = re.compile(
-    r"\b(events?|\w*storms?|blizzards?|spells?|waves?|in a row|months?|years?|seasons?|winters?"
+    r"\b(events?|\w*storms?|blizzards?|spells?|waves?|in a row|months?|years?|seasons?|winters?|springs?|summers?|falls?|autumns?"
     r"|januar(?:y|ies)|februar(?:y|ies)|march(?:es)?|aprils?|mays?|junes?|julys?"
     r"|augusts?|septembers?|octobers?|novembers?|decembers?)\b",
     re.IGNORECASE,

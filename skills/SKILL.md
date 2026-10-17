@@ -136,7 +136,7 @@ If the question asks "how many days" but doesn't match one of these idioms and d
 
 **Events, months, and years.** If the question refers to a precipitation/snow **event** / **storm** / **spell** / "N in a row", or
 treats a calendar **month** or **year** as the thing being counted, compared, or aggregated ("how many months...", "which year was wettest",
-"average per month/year"), or groups **snowfall by winter or season** ("the snowiest winter", "an average snow season"), stop here and follow `references/count_group.md` — it defines `unit`, `aggregation`, and the extra fields
+"average per month/year"), or groups values **by season** ("the snowiest winter", "the hottest summers", "an average snow season"), stop here and follow `references/count_group.md` — it defines `unit`, `aggregation`, and the extra fields
 (`event_day_threshold`, `event_value`, `period_aggregation`, `month_filter`) for those cases. Otherwise — including every plain "how
 many days..." question — `unit` stays `"day"` (omit it) and that file isn't needed.
 
@@ -146,10 +146,10 @@ a number ("top 5", "the 3 coldest"), a plural ("the biggest snowstorms", "the ho
 integer 1-15). If the question gives no number, use 3. If it asks for more than 15, use 15. Ties share a rank, so the answer can list more
 rows than `limit`; that's expected. `top` = largest values first, `bottom` = smallest first — so "coldest" is `bottom` (of TMIN, or TAVG), and
 "least snowy" is `bottom` of SNOW. Rankings work on any `unit`: days (`unit: "day"`, the default), events, months, years, or snow seasons
-(see `references/count_group.md` for the last four). Snow by winter or season ("the snowiest winters", "the least snowy seasons", "the snowiest winter on record") uses
-`unit: "snow_season"` — the July-June snow season, which also catches October and April-May snow — see `references/count_group.md`. Any
-other seasonal ranking ("the hottest summers", "the wettest springs") can't be ranked as a unit — `unit` is never `"season"`, and
-`month_filter` only works with `unit: "month"` — so return `needs_clarification` asking whether to rank by year or by month. Plots, charts, and graphs aren't supported, and neither are per-day or per-month listings; for those, return `needs_clarification`
+(see `references/count_group.md`). Snow by winter or season ("the snowiest winters", "the least snowy seasons", "the snowiest winter on record") uses
+`unit: "snow_season"` — the July-June snow season, which also catches October and April-May snow. Every other metric by season ("the
+hottest summers", "the coldest winters", "the wettest springs", "an average summer") uses `unit: "season"` plus `season` (`winter`,
+`spring`, `summer`, or `fall` — "autumn" is `fall`) — see `references/count_group.md` for both. Plots, charts, and graphs aren't supported, and neither are per-day or per-month listings; for those, return `needs_clarification`
 saying charts aren't available and offering a ranking or a single summary value (like an average or total) instead.
 
 Temperature extremes carry both a metric and an aggregation cue at once — resolve them together, not independently:
@@ -206,7 +206,8 @@ Once every prior step has resolved (or Step 2/3/4/5 has stopped early to ask the
       "station_id": "GHCN station ID",
       "metric": "TAVG | TMAX | TMIN | PRCP | SNOW | SNWD | AWND | HDD | CDD",
       "aggregation": "mean | median | sum | max | min | stddev | count | latest | earliest | top | bottom",
-      "unit": "day | event | month | year | snow_season, omit if day",
+      "unit": "day | event | month | year | snow_season | season, omit if day",
+      "season": "winter | spring | summer | fall, only present when unit is season",
       "output_unit": "C or F — only when the user explicitly asks for temperature in that unit (TAVG/TMAX/TMIN); omit otherwise",
       "start_date": "YYYY-MM-DD",
       "end_date": "YYYY-MM-DD",
@@ -221,7 +222,7 @@ Once every prior step has resolved (or Step 2/3/4/5 has stopped early to ask the
 }
 ```
 
-Omit every field in the second half of that list (`threshold` through `limit`) unless the specific case that produces it applies — see
+Omit `season` and every field in the second half of that list (`threshold` through `limit`) unless the specific case that produces it applies — see
 Step 4 for `threshold`, and `references/count_group.md` for the `unit: "event"`/`"month"`/`"year"` fields.
 
 `output_unit` is answer-unit conversion only, not a data choice: set it to `"C"` or `"F"` only when the user explicitly asks for that unit; otherwise
@@ -309,9 +310,11 @@ Examples involving events, storms, or month/year aggregates are in `references/c
 ]}
 ```
 
-**Q:** What were the hottest summers at Reagan National?
+**Q:** What were the 5 hottest summers at Reagan National?
 ```json
-{"current_date": "2026-08-04", "status": "needs_clarification", "clarification_question": "I can't rank whole summers. Would you like the hottest years, or the hottest individual summer months (Jun, Jul, Aug)?"}
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00013743", "metric": "TAVG", "aggregation": "top", "limit": 5, "unit": "season", "season": "summer", "start_date": "1800-01-01", "end_date": "2026-08-04", "period_aggregation": "mean"}
+]}
 ```
 
 **Q:** Plot the temperature at Dulles from 1990 to 2000.

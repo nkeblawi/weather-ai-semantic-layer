@@ -1,8 +1,8 @@
 # Counting, events, and month/year aggregates
 
 Read this file only when SKILL.md's Step 4 trigger rule says to — i.e. the question refers to a precipitation/snow event/storm/spell, treats a
-calendar month or year itself as the thing being counted, compared, or aggregated, or groups snowfall by winter/season. It covers the extra fields
-`unit: "event"`, `unit: "month"`, `unit: "year"`, and `unit: "snow_season"` require, on top of the `aggregation` table already resolved in SKILL.md Step 4.
+calendar month or year itself as the thing being counted, compared, or aggregated, or groups values by season. It covers the extra fields
+`unit: "event"`, `unit: "month"`, `unit: "year"`, `unit: "snow_season"`, and `unit: "season"` require, on top of the `aggregation` table already resolved in SKILL.md Step 4.
 
 ## `unit: "event"`
 
@@ -82,6 +82,21 @@ snowiest/least snowy, `top`/`bottom` + `limit` for a ranking, `mean` for an aver
 inches". Use the `all_time` date range unless the question limits the years; seasons are labeled by the year they end in, so "since 2000" means
 `start_date` 1999-07-01 to keep the 1999-2000 season whole. Rankings skip seasons with under 90% of days observed, so the season under way never
 ranks as least snowy.
+
+## `unit: "season"`
+
+Any metric grouped by meteorological season — one bucket per year's winter (Dec-Feb), spring (Mar-May), summer (Jun-Aug), or fall
+(Sep-Nov): "the hottest summers", "the coldest winters", "the wettest springs", "an average summer high". Requires `season`: `winter`,
+`spring`, `summer`, or `fall` ("autumn" is `fall`). Don't add `month_filter` — the app supplies the season's months. A winter is kept
+whole across New Year (Dec 2009 - Feb 2010 is one winter).
+
+It works like `unit: "year"`: `period_aggregation` collapses each season (`mean` for temperatures/wind, `sum` for PRCP), then
+`aggregation` across seasons — `max`/`min`, `top`/`bottom` + `limit`, `mean`, or `count` + `threshold` ("how many summers averaged over
+78°F"). Use the `all_time` date range unless the question limits the years. Snowfall by winter or season is `unit: "snow_season"` instead
+(above), never `unit: "season"`.
+
+One season's value in one year ("How hot was summer 2024?", "How much rain fell this past spring?") isn't a ranking or an aggregate
+across seasons: that's a plain `unit: "day"` query over that season's date range (SKILL.md Step 5, `season`).
 
 ## If it doesn't resolve cleanly
 
@@ -168,6 +183,13 @@ No time period stated, so search the whole record (SKILL.md Step 5). "Last" → 
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "USW00093738", "metric": "SNOW", "aggregation": "mean", "unit": "snow_season", "start_date": "1800-01-01", "end_date": "2026-08-04", "period_aggregation": "sum"}
+]}
+```
+
+**Q:** What were the coldest winters at Dulles?
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TAVG", "aggregation": "bottom", "limit": 3, "unit": "season", "season": "winter", "start_date": "1800-01-01", "end_date": "2026-08-04", "period_aggregation": "mean"}
 ]}
 ```
 
