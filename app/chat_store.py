@@ -7,10 +7,11 @@ Persists application chat history to Unity Catalog: one row per user in
 when the harness is run against dev and weather.app.* in production.
 
 Stub auth: there is no login yet. The caller passes a `username` (email or
-handle, from the WX_APP_USER env var or a startup prompt) and user_id is
-derived from it deterministically with uuid5, so the same username always
-maps to the same row, on any machine, with no auth server. When real auth
-is added, swap derive_user_id() for the provider's subject id and backfill.
+handle from the WX_APP_USER env var locally, or new_anonymous_username() for
+a public visitor) and user_id is derived from it deterministically with
+uuid5, so the same username always maps to the same row, on any machine,
+with no auth server. When real auth is added, swap derive_user_id() for the
+provider's subject id and backfill.
 
 Writes go through the databricks-sql-connector connection the app already
 holds, using the same ":name" native-parameter style binding.
@@ -36,6 +37,15 @@ _USER_ID_NAMESPACE = uuid.UUID("6f9619ff-8b86-d011-b42d-00cf4fc964ff")
 def derive_user_id(username: str) -> str:
     """Deterministic user_id for a username (case/space-insensitive)."""
     return str(uuid.uuid5(_USER_ID_NAMESPACE, username.strip().lower()))
+
+
+def new_anonymous_username() -> str:
+    """
+    A throwaway username for a visitor with no sign-in (the public MVP):
+    unique per browser session, so each one gets its own users row and
+    preferences. derive_user_id() still applies to it as usual.
+    """
+    return f"anon-{uuid.uuid4()}"
 
 
 def new_session_id() -> str:
@@ -123,6 +133,21 @@ def update_user_prefs(conn, user_id, temp_unit, home_location) -> None:
                 "home_location": home_location,
             },
         )
+
+
+def count_resolved_turns_today(conn) -> int:
+    """
+    Resolved turns (ones that ran answer_query) recorded since midnight
+    (warehouse session time zone, UTC by default) across all users -- the
+    app-wide daily question cap. Clarifications and errors aren't counted.
+    Raises on failure; the caller decides whether to fail open.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT count(*) FROM {CHAT_HISTORY_TABLE} "
+            "WHERE created_at >= current_date() AND status = 'resolved'"
+        )
+        return cur.fetchone()[0]
 
 
 def record_turn(

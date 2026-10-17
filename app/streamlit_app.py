@@ -1,21 +1,55 @@
+import logging
 import os
 import anthropic
 import streamlit as st
 import pipeline
 import chat_session
+import chat_store
+import guardrails
 
 st.set_page_config(page_title="Weather Q&A", page_icon="🌤️")
 
+logger = logging.getLogger(__name__)
+
 CONNECTING_MSG = "Connecting to the weather database server..."
 
+# Usage limits (per session, per day, input length, ...) live in guardrails.py.
 
-# show_spinner=False: replaces the default "Running get_conn()." with
-# CONNECTING_MSG below
-@st.cache_resource(show_spinner=False)
+# Shown instead of raw exception text, which can leak internals to visitors.
+# The raw error is still logged and recorded in chat_history.error.
+QUOTA_MSG = (
+    "The weather database has reached its daily usage limit. "
+    "Please try again tomorrow."
+)
+GENERIC_ERROR_MSG = "Sorry, something went wrong answering that. Please try again in a moment."
+# Best-effort match for Databricks quota / compute-unavailable errors; the
+# exact Free Edition wording isn't documented, so match on common markers.
+_QUOTA_MARKERS = ("quota", "resource_exhausted", "usage limit", "limit exceeded")
+
+
+def friendly_error(error_text: str) -> str:
+    lowered = error_text.lower()
+    if any(marker in lowered for marker in _QUOTA_MARKERS):
+        return QUOTA_MSG
+    return GENERIC_ERROR_MSG
+
+
 def get_conn():
-    return pipeline.get_databricks_connection()
+    """
+    One connection per browser session (a shared connection isn't safe
+    across Streamlit's per-session threads). Reopened if it has closed,
+    e.g. after the warehouse ends an idle session.
+    """
+    conn = st.session_state.get("conn")
+    if conn is None or not conn.open:
+        conn = pipeline.get_databricks_connection()
+        st.session_state.conn = conn
+        if "session" in st.session_state:
+            st.session_state.session.conn = conn
+    return conn
 
 
+# The Anthropic client is thread-safe, so one per process is fine.
 @st.cache_resource(show_spinner=False)
 def get_client():
     return anthropic.Anthropic()
@@ -29,6 +63,35 @@ def get_home_locations(_conn):
 
 
 CLEAR_COMMAND = "/clear"
+HELP_COMMAND = "/help"
+
+# Verified end to end against the resolver + live data. Avoid "yesterday" /
+# "last <weekday>" here: wx_obs_transform runs at 19:45 UTC, so the most
+# recent day isn't in observations until mid-afternoon (ET).
+HELP_EXAMPLES = [
+    "What was the hottest day in Chicago this past summer?",
+    "How much snow did Dulles Airport get in its last snowstorm over 6 inches?",
+    "How many days did it rain in Miami in 2025?",
+]
+
+
+def render_help():
+    examples = "\n".join(f"- {q}" for q in HELP_EXAMPLES)
+    st.markdown(
+        "Ask about past weather for any of the cities in the **Home location** list. "
+        f"Some examples to try:\n\n{examples}\n\n"
+        "**Tip:** pick a **Home location** at the top and press **Update** to leave the city "
+        'out of your questions (e.g. "What was the average high temperature in July 2025?"). '
+        "You can also switch the temperature **Units** between °F and °C there.\n\n"
+        f"`{HELP_COMMAND}` doesn't count toward your question limit."
+    )
+
+
+def render_help_cards_at(position):
+    """Help cards requested when the transcript had `position` turns."""
+    for _ in range(st.session_state.get("help_after", []).count(position)):
+        with st.chat_message("assistant"):
+            render_help()
 
 # Sticky header needs an opaque background so scrolled messages don't show
 # through; Streamlit exposes no CSS variable for it, so match the theme.
@@ -82,11 +145,13 @@ def _start_saving():
 
 def render_preferences(session, locations):
     """Header: home location + units, saved only when Update is pressed."""
+    # Options are station codes (what gets saved); format_func shows the name.
     options = list(locations)
-    # Keep a stored value that isn't a station city (e.g. seeded free text
-    # from WX_APP_HOME_LOCATION) visible instead of silently dropping it.
-    if session.home_location and session.home_location not in options:
-        options.insert(0, session.home_location)
+    current = session.home_location
+    # Keep a stored value that isn't a known code (e.g. free text seeded from
+    # WX_APP_HOME_LOCATION) visible instead of silently dropping it.
+    if current and current not in options:
+        options.insert(0, current)
 
     # st.form: widget changes don't rerun the app until Update is pressed
     with st.form("preferences"):
@@ -94,7 +159,8 @@ def render_preferences(session, locations):
         loc_col.selectbox(
             "Home location",
             options,
-            index=options.index(session.home_location) if session.home_location else None,
+            index=options.index(current) if current else None,
+            format_func=lambda code: locations.get(code, code),
             placeholder="Select a city",
             key="pref_home",
         )
@@ -145,63 +211,119 @@ def save_preferences(session):
     st.rerun()
 
 
-if "session" not in st.session_state:
-    # same WX_APP_USER fallback the CLI uses; else a simple sign-in form
-    username = os.environ.get("WX_APP_USER")
-    if not username:
-        username = st.text_input("Sign in with your username (email or handle)")
-        if not username:
-            st.stop()
+def daily_limit_reached(conn) -> bool:
+    # Fails open: a counting hiccup shouldn't block a legitimate question
+    # (if the database is really down, answering fails anyway).
+    try:
+        return chat_store.count_resolved_turns_today(conn) >= guardrails.DAILY_QUESTION_LIMIT
+    except Exception:  # noqa: BLE001
+        logger.warning("daily question count failed", exc_info=True)
+        return False
+
+
+def render_answer(answer: str):
+    if answer.startswith("[error]"):
+        st.error(friendly_error(answer))
+    else:
+        st.write(answer)
+
 
 # One spinner over both DB steps (connect + create_session) so the message
 # stays up without a blank gap until the chat input renders.
-with st.spinner(CONNECTING_MSG):
-    conn, client = get_conn(), get_client()
-    if "session" not in st.session_state:
-        st.session_state.session = chat_session.create_session(
-            conn,
-            client,
-            username,
-            email=os.environ.get("WX_APP_EMAIL"),
-            display_name=os.environ.get("WX_APP_NAME"),
-            temp_unit=os.environ.get("WX_APP_TEMP_UNIT"),
-            home_location=os.environ.get("WX_APP_HOME_LOCATION"),
-        )
-    locations = get_home_locations(conn)
-    # created inside the spinner so the input is on screen before the
-    # message clears (no blank frame between them)
-    with st.bottom:
-        question = st.chat_input("Ask a weather question...")
-        st.caption(f"Type {CLEAR_COMMAND} to reset the chat context")
+try:
+    with st.spinner(CONNECTING_MSG):
+        conn, client = get_conn(), get_client()
+        if "session" not in st.session_state:
+            st.session_state.session = chat_session.create_session(
+                conn,
+                client,
+                # WX_APP_USER for local dev (same as the CLI); otherwise each
+                # visitor is anonymous, with their own users row per session
+                os.environ.get("WX_APP_USER") or chat_store.new_anonymous_username(),
+                email=os.environ.get("WX_APP_EMAIL"),
+                display_name=os.environ.get("WX_APP_NAME"),
+                temp_unit=os.environ.get("WX_APP_TEMP_UNIT"),
+                home_location=os.environ.get("WX_APP_HOME_LOCATION"),
+            )
+        session = st.session_state.session
+        locations = get_home_locations(conn)
 
-session = st.session_state.session
+        limit = guardrails.session_limit(session)
+        # created inside the spinner so the input is on screen before the
+        # message clears (no blank frame between them)
+        with st.bottom:
+            question = st.chat_input(
+                limit.placeholder if limit else "Ask a weather question...",
+                max_chars=guardrails.MAX_QUESTION_CHARS,
+                disabled=limit is not None,
+            )
+            # trailing double space = markdown line break inside one caption
+            st.caption(
+                f"Type {CLEAR_COMMAND} to reset the chat context · "
+                f"{guardrails.questions_remaining(session)} of "
+                f"{guardrails.SESSION_QUESTION_LIMIT} questions left  \n"
+                f"Type {HELP_COMMAND} for example questions and tips"
+            )
+except Exception as exc:  # noqa: BLE001 -- startup failure: explain, don't dump a traceback
+    logger.exception("startup failed")
+    st.error(friendly_error(str(exc)))
+    st.stop()
 
 render_preferences(session, locations)
 
+# Help cards live outside session.history (which is replayed to the model as
+# conversation context) as the history lengths they were shown at, so each
+# card stays in place in the transcript across reruns.
+help_after = st.session_state.setdefault("help_after", [])
+command = question.strip().lower() if question else None
+
 # /clear: wipe the on-screen chat and the context sent to the model. Turns
 # already saved in chat_history are left alone.
-if question and question.strip().lower() == CLEAR_COMMAND:
+if command == CLEAR_COMMAND:
     session.history.clear()
     session.station_info.clear()
+    help_after.clear()
     st.toast("Chat cleared.")
     question = None
+# /help: never reaches get_answer, so it isn't recorded or counted
+elif command == HELP_COMMAND:
+    help_after.append(len(session.history))
+    question = None
 
-for turn in session.history:
+for i, turn in enumerate(session.history):
+    render_help_cards_at(i)
     with st.chat_message("user"):
         st.write(turn["question"])
     with st.chat_message("assistant"):
-        st.write(turn["answer"])
+        render_answer(turn["answer"])
+render_help_cards_at(len(session.history))
 
 if question:
     with st.chat_message("user"):
         st.write(question)
     with st.chat_message("assistant"):
-        with st.spinner("Checking data..."):
-            answer = chat_session.get_answer(session, question)
-        if answer.startswith("[error]"):
-            st.error(answer)
+        # Re-checked here: the input may have been rendered enabled just
+        # before the last allowed question was answered.
+        if limit := guardrails.session_limit(session):
+            st.info(limit.message)
         else:
-            st.write(answer)
+            with st.spinner("Checking data..."):
+                answer = chat_session.get_answer(
+                    session, question, over_daily_limit=lambda: daily_limit_reached(conn)
+                )
+            if answer.startswith("[error]"):
+                logger.warning("answer failed: %s", answer)
+            # Rerun so the input/caption reflect the new remaining count
+            # (rendered at the top of this run, before this answer). The
+            # answer is in session.history, so the rerun redraws it. Limit
+            # messages above aren't in history, so those runs don't rerun.
+            st.rerun()
+
+# Ended by off-topic messages: say so under the transcript, since the
+# input is now disabled
+if (limit := guardrails.session_limit(session)) and limit.reason == "ended":
+    with st.chat_message("assistant"):
+        st.info(limit.message)
 
 if st.session_state.get("prefs_saving"):
     save_preferences(session)

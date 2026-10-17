@@ -100,26 +100,29 @@ def call_lookup_station(conn, location_text: str):
     return json.loads(row[0])
 
 
-def list_home_locations(conn) -> list[str]:
+def list_home_locations(conn) -> dict[str, str]:
     """
-    Distinct "City, ST" labels for the active stations (analytics.stations),
-    for the home-location picker. A city that already carries its own
-    qualifier (e.g. "Washington, DC", stored with state VA) is used as-is.
+    {station code: display name} for the home-location picker, ordered by
+    name, e.g. {"KIAD": "Sterling, VA (KIAD)"}. The code (ICAO, else FAA) is
+    the value saved as home_location and given to the resolver -- an exact
+    lookup_station key. The display name is presentation only. A city that
+    already carries its own qualifier (e.g. "Washington, DC", stored with
+    state VA) is used as-is.
     """
     with conn.cursor() as cur:
         cur.execute(
             f"""
-            SELECT DISTINCT city, state
+            SELECT coalesce(icao, faa) AS code, city, state
             FROM {CATALOG}.analytics.stations
-            WHERE city IS NOT NULL
-            ORDER BY city
+            WHERE coalesce(icao, faa) IS NOT NULL AND city IS NOT NULL
+            ORDER BY city, code
             """
         )
         rows = cur.fetchall()
-    return [
-        city if "," in city or not state else f"{city}, {state}"
-        for city, state in rows
-    ]
+    return {
+        code: f"{city if ',' in city or not state else f'{city}, {state}'} ({code})"
+        for code, city, state in rows
+    }
 
 
 def call_answer_query(conn, entry: dict):
@@ -361,9 +364,12 @@ def resolve_question(
                         "[debug] final text wasn't JSON; treating it as a "
                         "clarification message"
                     )
+                # from_prose: guardrails.validate_resolved only shows this
+                # text if it's short and reads as a question.
                 return {
                     "status": "needs_clarification",
                     "clarification_question": text.strip(),
+                    "from_prose": True,
                 }
 
         tool_results = []
