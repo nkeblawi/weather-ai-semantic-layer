@@ -228,11 +228,16 @@ def daily_limit_reached(conn) -> bool:
         return False
 
 
-def render_answer(answer: str):
+def render_answer(answer: str, tables: list[dict] | None = None):
     if answer.startswith("[error]"):
         st.error(friendly_error(answer))
-    else:
-        st.write(answer)
+        return
+    st.write(answer)
+    for table in tables or []:
+        st.markdown(f"**{table['title']}**")
+        st.dataframe(table["rows"], hide_index=True)
+        if table["note"]:
+            st.caption(table["note"])
 
 
 # Page order: header, welcome, then the connecting spinner. The header needs
@@ -312,7 +317,7 @@ for i, turn in enumerate(session.history):
     with st.chat_message("user"):
         st.write(turn["question"])
     with st.chat_message("assistant"):
-        render_answer(turn["answer"])
+        render_answer(turn["answer"], turn.get("tables"))
 render_help_cards_at(len(session.history))
 
 if question:

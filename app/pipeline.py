@@ -123,7 +123,11 @@ def list_home_locations(conn) -> dict[str, str]:
     }
 
 
+SNOW_SEASON_START_MONTH = 7  # NWS snow season: July 1 - June 30
+
+
 def call_answer_query(conn, entry: dict):
+    snow_season = entry.get("unit") == "snow_season"
     threshold = entry.get("threshold") or {}
     event_day_threshold = entry.get("event_day_threshold") or {}
     with conn.cursor() as cur:
@@ -142,7 +146,9 @@ def call_answer_query(conn, entry: dict):
                 p_event_day_threshold_value => :event_day_threshold_value,
                 p_event_value => :event_value,
                 p_period_aggregation => :period_aggregation,
-                p_month_filter => from_json(:month_filter, 'ARRAY<INT>')
+                p_month_filter => from_json(:month_filter, 'ARRAY<INT>'),
+                p_limit => :limit,
+                p_year_start_month => :year_start_month
             )
             """,
             parameters={
@@ -151,7 +157,8 @@ def call_answer_query(conn, entry: dict):
                 "aggregation": entry["aggregation"],
                 "start_date": entry["start_date"],
                 "end_date": entry["end_date"],
-                "unit": entry.get("unit", "day"),
+                # snow_season is a year bucket that starts in July (Jul-Jun)
+                "unit": "year" if snow_season else entry.get("unit", "day"),
                 "threshold_operator": threshold.get("operator"),
                 "threshold_value": threshold.get("value"),
                 "event_day_threshold_operator": event_day_threshold.get("operator"),
@@ -164,6 +171,8 @@ def call_answer_query(conn, entry: dict):
                     if entry.get("month_filter")
                     else None
                 ),
+                "limit": entry.get("limit"),
+                "year_start_month": SNOW_SEASON_START_MONTH if snow_season else None,
             },
         )
         row = cur.fetchone()
@@ -197,12 +206,18 @@ _METRIC_UNITS = {
     "SNOW": "inches",
     "SNWD": "inches",
     "AWND": "mph",
-    "HDD": "heating degree-days",
-    "CDD": "cooling degree-days",
+    "HDD": "heating degree days",
+    "CDD": "cooling degree days",
 }
 # When aggregation is `count`, the value counts analysis-grain things, not
 # the metric -- so the unit is the plural grain word.
-_COUNT_UNITS = {"day": "days", "event": "events", "month": "months", "year": "years"}
+_COUNT_UNITS = {
+    "day": "days",
+    "event": "events",
+    "month": "months",
+    "year": "years",
+    "snow_season": "snow seasons",
+}
 
 _TEMP_METRICS = {"TAVG", "TMAX", "TMIN"}
 
@@ -238,6 +253,42 @@ def convert_value(entry: dict, value):
     return value
 
 
+RANKING_AGGREGATIONS = {"top", "bottom"}
+
+
+def _round_value(entry: dict, value):
+    if value is None:
+        return None
+    # counts and event durations are whole numbers of days/events
+    whole = entry["aggregation"] == "count" or (
+        entry.get("unit") == "event" and entry.get("event_value") == "duration"
+    )
+    return int(value) if whole else round(value, 1)
+
+
+def snow_season_label(bucket_year: int) -> str:
+    """A snow season bucket is labeled by the year it ends in: 2010 -> "2009-10"."""
+    return f"{bucket_year - 1}-{bucket_year % 100:02d}"
+
+
+def _converted_rows(entry: dict, rows: list[dict]) -> list[dict]:
+    """
+    A top/bottom result's rows with output_unit applied to each value and
+    rounded, the same way a single value is. An event row's total is PRCP or
+    SNOW (never converted), so it's only rounded.
+    """
+    out = []
+    for row in rows:
+        row = dict(row)
+        row["value"] = _round_value(entry, convert_value(entry, row.get("value")))
+        if entry.get("unit") == "snow_season" and row.get("bucket_year"):
+            row["snow_season"] = snow_season_label(row.pop("bucket_year"))
+        if row.get("total") is not None:
+            row["total"] = round(row["total"], 1)
+        out.append(row)
+    return out
+
+
 def build_answer_payload(
     entry: dict, result: dict | None, station_info: dict, temp_unit: str = "F"
 ) -> dict:
@@ -257,9 +308,9 @@ def build_answer_payload(
         entry = {**entry, "output_unit": "C"}
 
     station = station_info.get(entry["station_id"], {})
-    value = convert_value(entry, result.get("value") if result else None)
-    if value is not None:
-        value = int(value) if entry["aggregation"] == "count" else round(value, 1)
+    value = _round_value(
+        entry, convert_value(entry, result.get("value") if result else None)
+    )
 
     payload = {
         "station_name": station.get("name") or entry["station_id"],
@@ -281,7 +332,130 @@ def build_answer_payload(
         ):
             if result.get(key) is not None:
                 payload[key] = result[key]
+        # Jul-Jun season, not a calendar year: name it so it isn't read as one
+        if entry.get("unit") == "snow_season" and "bucket_year" in payload:
+            payload["snow_season"] = snow_season_label(payload.pop("bucket_year"))
+        # top/bottom: value is null and the ranking is in rows (rank, then
+        # date). Ties share a rank, so rows can outnumber the requested ranks.
+        if entry["aggregation"] in RANKING_AGGREGATIONS:
+            payload["unit"] = entry.get("unit", "day")
+            payload["rows"] = _converted_rows(entry, result.get("rows") or [])
+            payload["rows_truncated"] = bool(result.get("rows_truncated"))
+            if entry.get("requested_limit"):
+                payload["requested_limit"] = entry["requested_limit"]
+            if entry.get("unit") == "event":
+                payload["event_value"] = entry.get("event_value", "total")
     return payload
+
+
+# Display names for the ranking table header.
+_METRIC_LABELS = {
+    "TAVG": "Average temperature",
+    "TMAX": "High temperature",
+    "TMIN": "Low temperature",
+    "PRCP": "Precipitation",
+    "SNOW": "Snowfall",
+    "SNWD": "Snow depth",
+    "AWND": "Average wind speed",
+    "HDD": "Heating degree days",
+    "CDD": "Cooling degree days",
+}
+
+
+def _fmt_day(iso: str) -> str:
+    d = date.fromisoformat(iso)
+    return f"{d:%b} {d.day}, {d.year}"
+
+
+def _fmt_span(start: str, end: str) -> str:
+    s, e = date.fromisoformat(start), date.fromisoformat(end)
+    if s == e:
+        return _fmt_day(start)
+    if (s.year, s.month) == (e.year, e.month):
+        return f"{s:%b} {s.day}–{e.day}, {s.year}"
+    if s.year == e.year:
+        return f"{s:%b} {s.day} – {e:%b} {e.day}, {s.year}"
+    return f"{_fmt_day(start)} – {_fmt_day(end)}"
+
+
+def ranking_table(payload: dict) -> dict | None:
+    """
+    A display table for one top/bottom answer payload, or None for any other
+    aggregation: {"title", "rows": [{column: text}], "note"}. Values carry
+    their units so the table reads on its own; formatting only, no new data.
+    """
+    if payload.get("aggregation") not in RANKING_AGGREGATIONS:
+        return None
+    units = payload["units"]
+    unit_suffix = units if units.startswith("°") else f" {units}" if units else ""
+    by_duration = payload.get("event_value") == "duration"
+
+    rows = []
+    for r in payload.get("rows", []):
+        if "event_start" in r:
+            row = {
+                "Rank": r["rank"],
+                "Dates": _fmt_span(r["event_start"], r["event_end"]),
+            }
+        elif "obs_date" in r:
+            row = {"Rank": r["rank"], "Date": _fmt_day(r["obs_date"])}
+        elif r.get("bucket_month"):
+            row = {
+                "Rank": r["rank"],
+                "Month": f"{date(r['bucket_year'], r['bucket_month'], 1):%b %Y}",
+            }
+        elif "snow_season" in r:
+            row = {"Rank": r["rank"], "Season": r["snow_season"]}
+        else:
+            row = {"Rank": r["rank"], "Year": str(r["bucket_year"])}
+        row["Value"] = f"{r['value']}{unit_suffix}"
+        if "duration" in r:
+            # show the event's other measure alongside the ranked one
+            if by_duration:
+                metric_units = _METRIC_UNITS.get(payload["metric"], "")
+                row["Total"] = f"{r['total']} {metric_units}".strip()
+            else:
+                row["Days"] = r["duration"]
+        rows.append(row)
+
+    which = "Top" if payload["aggregation"] == "top" else "Bottom"
+    grain = _COUNT_UNITS.get(payload.get("unit", "day"), "days")
+    label = (
+        "length"
+        if by_duration
+        else _METRIC_LABELS.get(payload["metric"], payload["metric"]).lower()
+    )
+    notes = []
+    if payload.get("requested_limit"):
+        notes.append(
+            f"You asked for {payload['requested_limit']}; rankings show at most 15, "
+            f"so this is the {payload['aggregation']} 15."
+        )
+    if payload.get("rows_truncated"):
+        notes.append("More rows are tied within these ranks than are shown.")
+    note = " ".join(notes) or None
+    return {
+        # e.g. "Top events by snowfall · Sterling, VA"
+        "title": f"{which} {grain} by {label} · {payload['place']}",
+        "rows": rows,
+        "note": note,
+    }
+
+
+def _for_phrasing(payload: dict) -> dict:
+    """
+    What the phrasing model sees of one payload. A ranking's lead-in names
+    only #1 (the table under it shows the rest), so it gets just the rank-1
+    rows plus how many rows the table holds -- it can't list rows it never
+    sees, however the prompt is followed.
+    """
+    rows = payload.get("rows")
+    if rows is None:
+        return payload
+    out = {k: v for k, v in payload.items() if k != "rows"}
+    out["rank_1"] = [r for r in rows if r.get("rank") == 1]
+    out["table_rows"] = len(rows)
+    return out
 
 
 def generate_answer(client, question: str, results: list[dict], history=None) -> str:
@@ -295,7 +469,8 @@ def generate_answer(client, question: str, results: list[dict], history=None) ->
         )
         parts.append(f"Earlier in this conversation:\n{transcript}\n")
     parts.append(f"Original question: {question}\n")
-    parts.append(f"Results:\n{json.dumps(results, indent=2)}")
+    phrasing_results = [_for_phrasing(r) for r in results]
+    parts.append(f"Results:\n{json.dumps(phrasing_results, indent=2)}")
     response = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=512,
@@ -504,11 +679,12 @@ def execute_tool(conn, name: str, tool_input: dict):
 # \w*storms? also catches compounds (snowstorm, rainstorm, thunderstorm),
 # which a plain \bstorm\b misses.
 # Month names load it too: "average January high" is a unit: "month" +
-# month_filter climate average, defined in count_group.md.
+# month_filter climate average, defined in count_group.md. Plurals too, for
+# rankings ("the coldest Januaries").
 TRIGGER_PATTERN = re.compile(
-    r"\b(events?|\w*storms?|blizzards?|spells?|waves?|in a row|months?|years?"
-    r"|january|february|march|april|may|june|july|august|september"
-    r"|october|november|december)\b",
+    r"\b(events?|\w*storms?|blizzards?|spells?|waves?|in a row|months?|years?|seasons?|winters?"
+    r"|januar(?:y|ies)|februar(?:y|ies)|march(?:es)?|aprils?|mays?|junes?|julys?"
+    r"|augusts?|septembers?|octobers?|novembers?|decembers?)\b",
     re.IGNORECASE,
 )
 

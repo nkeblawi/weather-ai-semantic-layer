@@ -168,6 +168,7 @@ def get_answer(
 
     resolved: dict = {}
     answer_text: str | None = None
+    tables: list[dict] = []
     status = "error"
     # Display-only turns are never replayed to the model as context
     model_history = [t for t in session.history if not t.get("ui_only")]
@@ -183,6 +184,7 @@ def get_answer(
             home_location=session.home_location,
         )
 
+        guardrails.cap_rank_limits(resolved)
         problems = guardrails.validate_resolved(resolved, session.station_info)
         if problems:
             logger.warning("invalid resolver output session=%s: %s", session.session_id, problems)
@@ -214,6 +216,7 @@ def get_answer(
             answer_text = pipeline.generate_answer(
                 session.client, question, answer_payloads, history=model_history
             )
+            tables = [t for p in answer_payloads if (t := pipeline.ranking_table(p))]
             status = "resolved"
     except Exception as exc:  # noqa: BLE001 -- parity with the CLI's main()
         answer_text = f"[error] {exc}"
@@ -249,6 +252,9 @@ def get_answer(
             "answer": answer_text,
             "query": resolved["queries"][0] if status == "resolved" and resolved.get("queries") else None,
             "ui_only": status in ("off_topic", "invalid"),
+            # top/bottom results, shown under the answer; display only (not
+            # replayed to the model, not saved in chat_history)
+            "tables": tables,
         }
     )
 

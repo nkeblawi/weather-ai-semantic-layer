@@ -42,14 +42,16 @@ OFF_TOPIC_STREAK_LIMIT = 3  # in a row -> session ends
 RATE_LIMIT_MESSAGES = 5
 RATE_LIMIT_WINDOW_SECS = 60
 MAX_QUERIES_PER_QUESTION = 4  # each query is a warehouse call
+MAX_RANK_LIMIT = 15  # top/bottom ranks per query; answer_query clamps to the same
 
 # ---------------------------------------------------------------------------
 # Allowed values (SKILL.md Step 6)
 # ---------------------------------------------------------------------------
 
 METRICS = {"TAVG", "TMAX", "TMIN", "PRCP", "SNOW", "SNWD", "AWND", "HDD", "CDD"}
-AGGREGATIONS = {"mean", "median", "sum", "max", "min", "stddev", "count", "latest", "earliest"}
-UNITS = {"day", "event", "month", "year"}
+AGGREGATIONS = {"mean", "median", "sum", "max", "min", "stddev", "count", "latest", "earliest", "top", "bottom"}
+RANKING_AGGREGATIONS = {"top", "bottom"}
+UNITS = {"day", "event", "month", "year", "snow_season"}
 OPERATORS = {">", ">=", "<", "<=", "="}
 EVENT_METRICS = {"PRCP", "SNOW"}
 EVENT_ONLY_AGGREGATIONS = {"latest", "earliest"}
@@ -251,8 +253,16 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
             problems.append("unit 'event' requires event_day_threshold")
         if q.get("event_value", "total") not in EVENT_VALUES:
             problems.append(f"event_value {q.get('event_value')!r} not allowed")
-    if unit in ("month", "year") and q.get("period_aggregation") not in PERIOD_AGGREGATIONS:
+    if "limit" in q:
+        lim = q["limit"]
+        if aggregation not in RANKING_AGGREGATIONS:
+            problems.append(f"limit only applies to top/bottom, not {aggregation!r}")
+        elif not (isinstance(lim, int) and not isinstance(lim, bool) and 1 <= lim <= MAX_RANK_LIMIT):
+            problems.append(f"limit {lim!r} must be an integer 1-{MAX_RANK_LIMIT}")
+    if unit in ("month", "year", "snow_season") and q.get("period_aggregation") not in PERIOD_AGGREGATIONS:
         problems.append(f"unit {unit!r} requires period_aggregation mean or sum")
+    if unit == "snow_season" and metric != "SNOW":
+        problems.append(f"unit 'snow_season' requires SNOW, got {metric!r}")
 
     for name in ("threshold", "event_day_threshold"):
         if name in q:
@@ -263,6 +273,10 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         mf = q["month_filter"]
         if not (isinstance(mf, list) and mf and all(isinstance(m, int) and 1 <= m <= 12 for m in mf)):
             problems.append(f"month_filter {mf!r} must be a list of months 1-12")
+        # query_by_period ignores it for any other unit, so e.g. "hottest
+        # summers" as unit year + [6, 7, 8] would silently rank whole years
+        if unit != "month":
+            problems.append(f"month_filter only applies to unit 'month', not {unit!r}")
 
     start, end = _parse_date(q.get("start_date")), _parse_date(q.get("end_date"))
     if start is None or end is None:
@@ -278,6 +292,23 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         if start > today:
             problems.append("start_date is in the future")
     return problems
+
+
+def cap_rank_limits(resolved: dict) -> None:
+    """
+    Trims a top/bottom limit over MAX_RANK_LIMIT down to it, in place, and
+    keeps what was asked for as requested_limit so the answer can say so
+    ("top 20" -> 15 ranks). Runs before validate_resolved, so an over-cap
+    limit is answered instead of rejected; anything else odd about limit
+    (not an integer, below 1) is still left for validation to reject.
+    """
+    for q in resolved.get("queries") or []:
+        if not isinstance(q, dict) or q.get("aggregation") not in RANKING_AGGREGATIONS:
+            continue
+        lim = q.get("limit")
+        if isinstance(lim, int) and not isinstance(lim, bool) and lim > MAX_RANK_LIMIT:
+            q["requested_limit"] = lim
+            q["limit"] = MAX_RANK_LIMIT
 
 
 def validate_resolved(resolved: dict, station_info: dict, today: date | None = None) -> list[str]:
