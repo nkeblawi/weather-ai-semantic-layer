@@ -164,3 +164,42 @@ touching production data:
 
 - `dev` → `weather_dev`
 - `prod` → `weather`
+
+## Deploying changes
+
+- **SQL functions:** `scripts/deploy_sql.sh --env dev|prod [function ...]`
+  (add `--dry-run` to preview). Deploy to dev first, and deploy SQL before
+  the app code that depends on it. `CREATE OR REPLACE FUNCTION` recreates
+  the function and drops its grants, so after redeploying `answer_query` or
+  `lookup_station`, re-grant `EXECUTE` on it to the app's service principal
+  (or grant `EXECUTE` once on the `analytics` schema).
+- **App:** Streamlit Community Cloud redeploys on every push to `main`, but
+  it doesn't reliably reload changed Python modules (`app/guardrails.py`,
+  `app/pipeline.py`, `app/chat_session.py`); the running app keeps the old
+  versions. After pushing changes to any of them, **reboot the app** from
+  the Community Cloud dashboard. Skill files (`skills/`) are read on every
+  question, so they take effect without a reboot.
+
+## Known limitations
+
+- **Partial periods in non-ranking aggregates.** The 90% coverage rule
+  applies only to `top`/`bottom` rankings. `mean`, `count`, `max`, and `min`
+  across months, years, and seasons still include partial buckets: an
+  "average winter" includes the snow season under way, and the least snowy
+  year (`min`) at Dulles comes back as 1960, which has only 122 days of
+  data.
+- **Ties in single answers.** When two days tie for `max`/`min`, which date
+  is returned isn't guaranteed (e.g. July 16 or July 20, 1980, both 101°F at
+  Dulles).
+- **Rank ties vs. displayed values.** Ties are detected on values rounded
+  to 2 decimals, but tables show 1 decimal, so two rows can both read
+  77.4°F yet hold different ranks.
+- **Display details.** Some ranking-table titles show the city without its
+  state ("Sterling"), and answers capitalize season labels mid-sentence
+  ("in Summer 2024").
+
+## Coming soon
+
+- **Plots and time series.** Charts such as "plot the temperature at
+  Dulles from 1990 to 2000". Today the app answers these with a
+  clarification offering a single value or a ranking instead.
