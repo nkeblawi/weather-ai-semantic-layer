@@ -87,6 +87,23 @@ average per month name. `unit: "year"` has no equivalent filter; if a
 question implies a subset of years by some property other than the date
 range itself (e.g. "El Niño years"), ask rather than guess.
 
+### Climate averages for a month name ("average January high")
+
+A month name with **no year**, asked as an average / typical / normal value
+("What is the average high in January at Dulles?", "How much snow does
+Chicago usually get in February?"), is a climate average over the **whole
+record** — resolve it, don't ask:
+
+- date range: `all_time` (SKILL.md Step 5)
+- `unit: "month"`, `month_filter: [<that month>]`
+- `period_aggregation`: `mean` for temperatures/wind, `sum` for PRCP/SNOW
+  (a January's total), then `aggregation: "mean"` across those Januaries
+
+A month name with no year that asks for one period's value instead ("How
+much snow fell in January?", "What was the high in March?") is the most
+recent such month — use `recent_month` (SKILL.md Step 5), never a future
+month.
+
 ## If it doesn't resolve cleanly
 
 If the question names an event/month/year grain but the specifics
@@ -145,6 +162,14 @@ No time period stated, so search the whole record (SKILL.md Step 5). "Last"
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "USW00093738", "metric": "TAVG", "aggregation": "count", "unit": "month", "start_date": "1800-01-01", "end_date": "2026-08-04", "threshold": {"operator": "<", "value": 32}, "period_aggregation": "mean", "month_filter": [12, 1, 2]}
+]}
+```
+
+**Q:** What is the average high and low temperature in January at Dulles?
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "mean", "unit": "month", "start_date": "1800-01-01", "end_date": "2026-08-04", "period_aggregation": "mean", "month_filter": [1]},
+  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "mean", "unit": "month", "start_date": "1800-01-01", "end_date": "2026-08-04", "period_aggregation": "mean", "month_filter": [1]}
 ]}
 ```
 

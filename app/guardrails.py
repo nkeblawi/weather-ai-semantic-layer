@@ -272,8 +272,11 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
             problems.append("start_date is after end_date")
         if start < MIN_DATE:
             problems.append(f"start_date before {MIN_DATE}")
-        if end > today:
-            problems.append("end_date is in the future")
+        # Only a range that hasn't started yet is a forecast. A range already
+        # under way ("October 2026", "this year") legitimately ends in the
+        # future; the query just finds observations up to today.
+        if start > today:
+            problems.append("start_date is in the future")
     return problems
 
 

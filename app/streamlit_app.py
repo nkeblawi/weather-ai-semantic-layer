@@ -7,21 +7,22 @@ import chat_session
 import chat_store
 import guardrails
 
-st.set_page_config(page_title="Weather Q&A", page_icon="🌤️")
+st.set_page_config(page_title="Weather Observations Chatbot", page_icon="🌤️")
 
 logger = logging.getLogger(__name__)
 
-CONNECTING_MSG = "Connecting to the weather database server..."
+CONNECTING_MSG = "Connecting to the weather database server. Please wait..."
 
 # Usage limits (per session, per day, input length, ...) live in guardrails.py.
 
 # Shown instead of raw exception text, which can leak internals to visitors.
 # The raw error is still logged and recorded in chat_history.error.
 QUOTA_MSG = (
-    "The weather database has reached its daily usage limit. "
-    "Please try again tomorrow."
+    "The weather database has reached its daily usage limit. Please try again tomorrow."
 )
-GENERIC_ERROR_MSG = "Sorry, something went wrong answering that. Please try again in a moment."
+GENERIC_ERROR_MSG = (
+    "Sorry, something went wrong answering that. Please try again in a moment."
+)
 # Best-effort match for Databricks quota / compute-unavailable errors; the
 # exact Free Edition wording isn't documented, so match on common markers.
 _QUOTA_MARKERS = ("quota", "resource_exhausted", "usage limit", "limit exceeded")
@@ -65,9 +66,13 @@ def get_home_locations(_conn):
 CLEAR_COMMAND = "/clear"
 HELP_COMMAND = "/help"
 
-# Verified end to end against the resolver + live data. Avoid "yesterday" /
-# "last <weekday>" here: wx_obs_transform runs at 19:45 UTC, so the most
-# recent day isn't in observations until mid-afternoon (ET).
+WELCOME_MSG = (
+    "Welcome to the Weather Observations Chat! I answer questions about past weather observations "
+    "(temperatures, rain, snow, and wind) at major cities around the US. Just ask a question, "
+    "or type `/help` for example questions you could ask."
+)
+
+# Example questions for the /help command.
 HELP_EXAMPLES = [
     "What was the hottest day in Chicago this past summer?",
     "How much snow did Dulles Airport get in its last snowstorm over 6 inches?",
@@ -93,6 +98,7 @@ def render_help_cards_at(position):
         with st.chat_message("assistant"):
             render_help()
 
+
 # Sticky header needs an opaque background so scrolled messages don't show
 # through; Streamlit exposes no CSS variable for it, so match the theme.
 PAGE_BG = "#FFFFFF" if st.context.theme.type == "light" else "#0E1117"
@@ -105,11 +111,10 @@ PAGE_BG = "#FFFFFF" if st.context.theme.type == "light" else "#0E1117"
 # - Chat: user messages on the right (avatar flipped to the right, bubble
 #   shrunk to its text), answers stay left -- messaging-app layout.
 # st.html (not st.markdown): a style-only block takes no layout space.
-st.html(
-    f"""
+st.html(f"""
     <style>
     [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"]
-        > [data-testid="stLayoutWrapper"]:has(> [data-testid="stForm"]) {{
+        > [data-testid="stLayoutWrapper"]:has(> .st-key-prefs_header) {{
         position: sticky;
         top: 3.75rem;
         z-index: 99;
@@ -133,8 +138,7 @@ st.html(
         color: #0E1117;
     }}
     </style>
-    """
-)
+    """)
 
 
 def _start_saving():
@@ -215,7 +219,10 @@ def daily_limit_reached(conn) -> bool:
     # Fails open: a counting hiccup shouldn't block a legitimate question
     # (if the database is really down, answering fails anyway).
     try:
-        return chat_store.count_resolved_turns_today(conn) >= guardrails.DAILY_QUESTION_LIMIT
+        return (
+            chat_store.count_resolved_turns_today(conn)
+            >= guardrails.DAILY_QUESTION_LIMIT
+        )
     except Exception:  # noqa: BLE001
         logger.warning("daily question count failed", exc_info=True)
         return False
@@ -227,6 +234,13 @@ def render_answer(answer: str):
     else:
         st.write(answer)
 
+
+# Page order: header, welcome, then the connecting spinner. The header needs
+# the station list, so reserve its slot at the top now and fill it once
+# connected; the welcome shows immediately, with the spinner under it.
+header_slot = st.container(key="prefs_header")
+with st.chat_message("assistant"):
+    st.markdown(WELCOME_MSG)
 
 # One spinner over both DB steps (connect + create_session) so the message
 # stays up without a blank gap until the chat input renders.
@@ -264,12 +278,15 @@ try:
                 f"{guardrails.SESSION_QUESTION_LIMIT} questions left  \n"
                 f"Type {HELP_COMMAND} for example questions and tips"
             )
-except Exception as exc:  # noqa: BLE001 -- startup failure: explain, don't dump a traceback
+except (
+    Exception
+) as exc:  # noqa: BLE001 -- startup failure: explain, don't dump a traceback
     logger.exception("startup failed")
     st.error(friendly_error(str(exc)))
     st.stop()
 
-render_preferences(session, locations)
+with header_slot:
+    render_preferences(session, locations)
 
 # Help cards live outside session.history (which is replayed to the model as
 # conversation context) as the history lengths they were shown at, so each
@@ -309,7 +326,9 @@ if question:
         else:
             with st.spinner("Checking data..."):
                 answer = chat_session.get_answer(
-                    session, question, over_daily_limit=lambda: daily_limit_reached(conn)
+                    session,
+                    question,
+                    over_daily_limit=lambda: daily_limit_reached(conn),
                 )
             if answer.startswith("[error]"):
                 logger.warning("answer failed: %s", answer)

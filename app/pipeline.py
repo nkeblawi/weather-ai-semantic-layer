@@ -110,14 +110,12 @@ def list_home_locations(conn) -> dict[str, str]:
     state VA) is used as-is.
     """
     with conn.cursor() as cur:
-        cur.execute(
-            f"""
+        cur.execute(f"""
             SELECT coalesce(icao, faa) AS code, city, state
             FROM {CATALOG}.analytics.stations
             WHERE coalesce(icao, faa) IS NOT NULL AND city IS NOT NULL
             ORDER BY city, code
-            """
-        )
+            """)
         rows = cur.fetchall()
     return {
         code: f"{city if ',' in city or not state else f'{city}, {state}'} ({code})"
@@ -144,7 +142,7 @@ def call_answer_query(conn, entry: dict):
                 p_event_day_threshold_value => :event_day_threshold_value,
                 p_event_value => :event_value,
                 p_period_aggregation => :period_aggregation,
-                p_month_filter => :month_filter
+                p_month_filter => from_json(:month_filter, 'ARRAY<INT>')
             )
             """,
             parameters={
@@ -160,7 +158,12 @@ def call_answer_query(conn, entry: dict):
                 "event_day_threshold_value": event_day_threshold.get("value"),
                 "event_value": entry.get("event_value"),
                 "period_aggregation": entry.get("period_aggregation"),
-                "month_filter": entry.get("month_filter"),
+                # JSON text: the connector does not bind a Python list as a SQL ARRAY
+                "month_filter": (
+                    json.dumps(entry["month_filter"])
+                    if entry.get("month_filter")
+                    else None
+                ),
             },
         )
         row = cur.fetchone()
@@ -434,7 +437,7 @@ TOOLS = [
             "Resolves a classified time expression to {start_date, end_date} in "
             "YYYY-MM-DD, per weather-query-resolver Step 5. kind is one of: "
             "absolute_year, absolute_year_range, absolute_month, absolute_day, "
-            "season, relative_days, weekday, all_time. Only include the fields "
+            "season, relative_days, weekday, recent_month, all_time. Only include the fields "
             "that apply to the chosen kind."
         ),
         "input_schema": {
@@ -451,6 +454,7 @@ TOOLS = [
                         "season",
                         "relative_days",
                         "weekday",
+                        "recent_month",
                         "all_time",
                     ],
                 },
@@ -499,8 +503,12 @@ def execute_tool(conn, name: str, tool_input: dict):
 
 # \w*storms? also catches compounds (snowstorm, rainstorm, thunderstorm),
 # which a plain \bstorm\b misses.
+# Month names load it too: "average January high" is a unit: "month" +
+# month_filter climate average, defined in count_group.md.
 TRIGGER_PATTERN = re.compile(
-    r"\b(events?|\w*storms?|blizzards?|spells?|in a row|months?|years?)\b",
+    r"\b(events?|\w*storms?|blizzards?|spells?|waves?|in a row|months?|years?"
+    r"|january|february|march|april|may|june|july|august|september"
+    r"|october|november|december)\b",
     re.IGNORECASE,
 )
 

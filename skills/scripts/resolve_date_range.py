@@ -19,6 +19,7 @@ Input JSON shapes (current_date is always required, YYYY-MM-DD):
   {"current_date": "2026-08-04", "kind": "season", "season": "winter", "year": 2026}
   {"current_date": "2026-08-04", "kind": "relative_days", "days": 30}
   {"current_date": "2026-08-04", "kind": "weekday", "weekday": "friday"}
+  {"current_date": "2026-08-04", "kind": "recent_month", "month": 1}
   {"current_date": "2026-08-04", "kind": "all_time"}
 
 For "season" with no "year", resolves to the most recently completed
@@ -104,6 +105,17 @@ def resolve(payload):
     if kind == "relative_days":
         days = int(payload["days"])
         return current - timedelta(days=days), current
+
+    if kind == "recent_month":
+        # Most recent instance of that month that has started: asked in
+        # October, "January" is this year's January; "November" is last
+        # year's. The current month resolves to itself (its end may be in
+        # the future; observations simply stop at today).
+        month = int(payload["month"])
+        if not 1 <= month <= 12:
+            raise ValueError(f"month must be 1-12, got {month}")
+        year = current.year if month <= current.month else current.year - 1
+        return date(year, month, 1), date(year, month, _last_day(year, month))
 
     if kind == "weekday":
         weekday = payload["weekday"].lower()
