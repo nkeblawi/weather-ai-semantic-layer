@@ -768,7 +768,7 @@ def build_system_prompt(
 
     # Fallback location when the question names none (SKILL.md Step 2).
     if home_location:
-        skill_text += f'\n\n---\n\n## User home location\n\n"{home_location}"'
+        skill_text += f'\n\n---\n\n## User home city\n\n"{home_location}"'
 
     # Replay recent turns as a transcript. SKILL.md's "Follow-up questions"
     # section tells the resolver how to use it: inherit from the most recent

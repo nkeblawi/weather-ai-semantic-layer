@@ -11,18 +11,23 @@ st.set_page_config(page_title="Weather Observations Chatbot", page_icon="🌤️
 
 logger = logging.getLogger(__name__)
 
-CONNECTING_MSG = "Connecting to the weather database server. Please wait..."
 
-# Usage limits (per session, per day, input length, ...) live in guardrails.py.
+# -------------------------------------------------------------------------
+# Canned replies and error handling (limits live in guardrails.py)
+# -------------------------------------------------------------------------
+
+CONNECTING_MSG = "Connecting to the weather database server. Please wait..."
 
 # Shown instead of raw exception text, which can leak internals to visitors.
 # The raw error is still logged and recorded in chat_history.error.
 QUOTA_MSG = (
     "The weather database has reached its daily usage limit. Please try again tomorrow."
 )
+
 GENERIC_ERROR_MSG = (
     "Sorry, something went wrong answering that. Please try again in a moment."
 )
+
 # Best-effort match for Databricks quota / compute-unavailable errors; the
 # exact Free Edition wording isn't documented, so match on common markers.
 _QUOTA_MARKERS = ("quota", "resource_exhausted", "usage limit", "limit exceeded")
@@ -83,19 +88,27 @@ HELP_EXAMPLES = [
 def render_help():
     examples = "\n".join(f"- {q}" for q in HELP_EXAMPLES)
     st.markdown(
-        "Ask about past weather for any of the cities in the **Home location** list. "
+        "Ask about past weather for any of the cities in the **Home city** list. "
         f"Some examples to try:\n\n{examples}\n\n"
-        "**Tip:** pick a **Home location** at the top and press **Update** to leave the city "
+        "**Tip:** pick a **Home city** at the top and press **Update** to leave the city "
         'out of your questions (e.g. "What was the average high temperature in July 2025?"). '
         "You can also switch the temperature **Units** between °F and °C there.\n\n"
         f"`{HELP_COMMAND}` doesn't count toward your question limit."
     )
 
 
+# Chat avatars: an emoji on a colored tile (CSS below sets the tile colors).
+AVATARS = {"user": "🧑", "assistant": "⛅"}
+
+
+def chat_message(role: str):
+    return st.chat_message(role, avatar=AVATARS[role])
+
+
 def render_help_cards_at(position):
     """Help cards requested when the transcript had `position` turns."""
     for _ in range(st.session_state.get("help_after", []).count(position)):
-        with st.chat_message("assistant"):
+        with chat_message("assistant"):
             render_help()
 
 
@@ -109,7 +122,9 @@ PAGE_BG = "#FFFFFF" if st.context.theme.type == "light" else "#0E1117"
 # - Update button: sky blue when clickable. Only the enabled state is
 #   restyled, so Streamlit's own gray disabled style shows while saving.
 # - Chat: user messages on the right (avatar flipped to the right, bubble
-#   shrunk to its text), answers stay left -- messaging-app layout.
+#   shrunk to its text), answers stay left -- messaging-app layout. Emoji
+#   avatars carry no role test id, so rows are matched by the content's
+#   aria-label; the avatar tile is the row's first child.
 # st.html (not st.markdown): a style-only block takes no layout space.
 st.html(f"""
     <style>
@@ -121,11 +136,20 @@ st.html(f"""
         background-color: {PAGE_BG};
         padding-bottom: 0.5rem;
     }}
-    [data-testid="stChatMessage"]:has(> [data-testid="stChatMessageAvatarUser"]) {{
+    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from user"]) {{
         flex-direction: row-reverse;
         width: fit-content;
         max-width: 85%;
         margin-left: auto;
+    }}
+    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from user"]) > div:first-child {{
+        /* pale enough that the yellow emoji face still stands out */
+        background-color: #FFF4B8;
+        border-color: #FFF4B8;
+    }}
+    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from assistant"]) > div:first-child {{
+        background-color: #87CEEB;
+        border-color: #87CEEB;
     }}
     [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled) {{
         background-color: #87CEEB;
@@ -148,7 +172,7 @@ def _start_saving():
 
 
 def render_preferences(session, locations):
-    """Header: home location + units, saved only when Update is pressed."""
+    """Header: home city + units, saved only when Update is pressed."""
     # Options are station codes (what gets saved); format_func shows the name.
     options = list(locations)
     current = session.home_location
@@ -161,7 +185,7 @@ def render_preferences(session, locations):
     with st.form("preferences"):
         loc_col, unit_col, btn_col = st.columns([3, 2, 1], vertical_alignment="bottom")
         loc_col.selectbox(
-            "Home location",
+            "Home city",
             options,
             index=options.index(current) if current else None,
             format_func=lambda code: locations.get(code, code),
@@ -244,7 +268,7 @@ def render_answer(answer: str, tables: list[dict] | None = None):
 # the station list, so reserve its slot at the top now and fill it once
 # connected; the welcome shows immediately, with the spinner under it.
 header_slot = st.container(key="prefs_header")
-with st.chat_message("assistant"):
+with chat_message("assistant"):
     st.markdown(WELCOME_MSG)
 
 # One spinner over both DB steps (connect + create_session) so the message
@@ -314,16 +338,16 @@ elif command == HELP_COMMAND:
 
 for i, turn in enumerate(session.history):
     render_help_cards_at(i)
-    with st.chat_message("user"):
+    with chat_message("user"):
         st.write(turn["question"])
-    with st.chat_message("assistant"):
+    with chat_message("assistant"):
         render_answer(turn["answer"], turn.get("tables"))
 render_help_cards_at(len(session.history))
 
 if question:
-    with st.chat_message("user"):
+    with chat_message("user"):
         st.write(question)
-    with st.chat_message("assistant"):
+    with chat_message("assistant"):
         # Re-checked here: the input may have been rendered enabled just
         # before the last allowed question was answered.
         if limit := guardrails.session_limit(session):
@@ -346,7 +370,7 @@ if question:
 # Ended by off-topic messages: say so under the transcript, since the
 # input is now disabled
 if (limit := guardrails.session_limit(session)) and limit.reason == "ended":
-    with st.chat_message("assistant"):
+    with chat_message("assistant"):
         st.info(limit.message)
 
 if st.session_state.get("prefs_saving"):

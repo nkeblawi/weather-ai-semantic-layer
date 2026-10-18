@@ -78,13 +78,14 @@ Obtain today's date in `YYYY-MM-DD` format and hold it as `current_date`. This i
    user which they mean, naming each candidate by city/airport (e.g. "The nearest sites are Dulles Airport and Reagan National. Which one did you
    want me to check?").
 6. If no candidate resolves at all, stop and set `clarification_question` to exactly: "I don't have any weather observation history near that
-   location. Please pick one of the cities in the Home location list." Add nothing else (no suggestions, apologies or explanations). This
+   location. Please pick one of the cities in the Home city list." Add nothing else (no suggestions, apologies or explanations). This
    includes places outside the covered region (e.g. Paris, France), and it is still the JSON `needs_clarification` output, not prose. Do not
    guess a nearby station.
 7. On success, set `station_id` to the returned `ghcn_id`, never the airport code or city name.
 
 If the question names no location, resolve it in order: (a) inherit `station_id` from the **Conversation context** section (see "Follow-up
-questions"); (b) call `lookup_station` on the **User home location** section; (c) ask the user. Never proceed without a `station_id`.
+questions"); (b) call `lookup_station` on the **User home city** section and use that station — the user chose it as their default, so don't ask
+them to confirm it; (c) only if there's no home city either, ask the user. Never proceed without a `station_id`.
 
 ## Step 3 — Resolve the metric
 
@@ -286,6 +287,13 @@ Examples involving events, storms, or month/year aggregates are in `references/c
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "<resolved via lookup_station>", "metric": "TMIN", "aggregation": "min", "start_date": "2025-12-01", "end_date": "2026-02-28"}
+]}
+```
+
+**Q:** What was the hottest day ever? (no place named; the **User home city** section says "KIAD", so call `lookup_station` on "KIAD" and use it — don't ask)
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "max", "start_date": "1800-01-01", "end_date": "2026-08-04"}
 ]}
 ```
 

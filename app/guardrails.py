@@ -68,7 +68,7 @@ MIN_DATE = date(1800, 1, 1)
 
 OFF_TOPIC_MSG = (
     "I can only answer questions about past weather at the stations in the "
-    "Home location list. Type /help for examples."
+    "Home city list. Type /help for examples."
 )
 SESSION_ENDED_MSG = (
     "This session has ended after several off-topic messages. "
