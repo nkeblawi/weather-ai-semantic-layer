@@ -58,8 +58,10 @@ MIN_BASELINE_YEARS, MAX_BASELINE_YEARS = 10, 50
 METRICS = {"TAVG", "TMAX", "TMIN", "PRCP", "SNOW", "SNWD", "AWND", "HDD", "CDD"}
 AGGREGATIONS = {"mean", "median", "sum", "max", "min", "stddev", "count", "latest", "earliest", "top", "bottom", "series"}
 RANKING_AGGREGATIONS = {"top", "bottom"}
-UNITS = {"day", "event", "month", "year", "snow_season", "season", "month_of_year", "season_of_year"}
-CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year"}  # series only
+UNITS = {"day", "event", "month", "year", "snow_season", "season", "month_of_year", "season_of_year", "day_of_year"}
+CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year", "day_of_year"}  # series only, except day_of_year (below)
+# day_of_year outside a series: one calendar day's record (max/min) or normal (mean)
+CALENDAR_DAY_AGGREGATIONS = {"max", "min", "mean"}
 SERIES_UNITS = {"day", "month", "year", "season", "snow_season"} | CLIMATOLOGY_UNITS
 DISPLAYS = {"overlay", "anomaly"}
 CLARIFICATION_REASONS = {"needs_plot"}
@@ -301,15 +303,25 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
             problems.append(f"limit {lim!r} must be an integer 1-{MAX_RANK_LIMIT}")
     if unit == "season" and q.get("season") not in SEASONS:
         problems.append(f"unit 'season' requires season winter, spring, summer, or fall, got {q.get('season')!r}")
+    if "calendar_day" in q and (unit != "day_of_year" or aggregation == "series"):
+        problems.append("calendar_day only applies to a day_of_year record or normal")
     if aggregation == "series":
         _validate_series(q, unit, today, problems)
+    elif unit == "day_of_year":
+        if aggregation not in CALENDAR_DAY_AGGREGATIONS:
+            problems.append(f"a calendar-day query takes max, min, or mean, not {aggregation!r}")
+        cd = q.get("calendar_day")
+        try:
+            date.fromisoformat(f"2000-{cd}")  # a leap year, so 02-29 is valid
+        except (TypeError, ValueError):
+            problems.append(f"calendar_day {cd!r} must be MM-DD")
     elif unit in CLIMATOLOGY_UNITS:
         problems.append(f"unit {unit!r} only applies to series")
     else:
         for name in ("trend", "baseline", "display"):
             if name in q:
                 problems.append(f"{name} only applies to series")
-    if unit in {"month", "year", "snow_season", "season"} | CLIMATOLOGY_UNITS:
+    if unit in {"month", "year", "snow_season", "season", "month_of_year", "season_of_year"}:
         allowed = SERIES_PERIOD_AGGREGATIONS if aggregation == "series" else PERIOD_AGGREGATIONS
         if q.get("period_aggregation") not in allowed:
             problems.append(f"unit {unit!r} requires period_aggregation {' or '.join(sorted(allowed))}")
@@ -378,10 +390,9 @@ def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> No
         start, end = _parse_date(q.get("start_date")), _parse_date(q.get("end_date"))
         if start and end and (end - start).days > MAX_DAILY_SERIES_DAYS:
             problems.append(f"daily series span more than {MAX_DAILY_SERIES_DAYS} days")
-        # daily normals don't exist yet, and a trend within a year isn't one
-        for name in ("baseline", "display", "trend"):
-            if name in q:
-                problems.append(f"{name} doesn't apply to a daily series")
+        # a trend within a year isn't one
+        if "trend" in q:
+            problems.append("trend doesn't apply to a daily series")
         if "period_aggregation" in q:
             problems.append("a daily series has no period_aggregation")
     elif q.get("period_aggregation") == "count" and "threshold" not in q:

@@ -113,6 +113,10 @@ If the question asks "how many days" but doesn't match one of these idioms and d
 thing counted, compared, or aggregated ("how many months…", "which year was wettest", "the snowiest winter", "the hottest summers") →
 follow `references/count_group.md`. Every other question, including plain "how many days…", stays `unit: "day"` (omit it).
 
+**One calendar day across years** ("the record high for July 4", "the normal low on Christmas", "the most rain ever on New Year's Day"):
+`unit: "day_of_year"` plus `calendar_day: "MM-DD"`, with `max` for a record high / most, `min` for a record low, `mean` for a normal or
+average. Records use `all_time`; a normal uses 1991-2020 (or the years named), an average the whole record.
+
 **Rankings** (`top` / `bottom`) only when the question asks for more than one result: a number ("top 5", "the 3 coldest"), a plural ("the
 biggest snowstorms", "the hottest days on record"), or "rank". A singular extreme ("the biggest snowstorm", "the hottest day") is
 `max`/`min`. Add `limit`: the number asked for, 3 if none, at most 15. `top` = largest first, `bottom` = smallest first ("coldest" is
@@ -177,8 +181,9 @@ Once every prior step has resolved (or Step 2/3/4/5 has stopped early to ask the
       "station_id": "GHCN station ID",
       "metric": "TAVG | TMAX | TMIN | PRCP | SNOW | SNWD | AWND | HDD | CDD",
       "aggregation": "mean | median | sum | max | min | stddev | count | latest | earliest | top | bottom",
-      "unit": "day | event | month | year | snow_season | season, omit if day",
+      "unit": "day | event | month | year | snow_season | season | day_of_year, omit if day",
       "season": "winter | spring | summer | fall, only present when unit is season",
+      "calendar_day": "MM-DD, only present when unit is day_of_year",
       "output_unit": "C or F — only when the user explicitly asks for temperature in that unit (TAVG/TMAX/TMIN); omit otherwise",
       "start_date": "YYYY-MM-DD",
       "end_date": "YYYY-MM-DD",
@@ -272,6 +277,13 @@ Examples involving events, storms, or month/year aggregates are in `references/c
 **Q:** Is Dulles getting warmer? (a trend over years: a chart, no Plot mode section)
 ```json
 {"current_date": "2026-08-04", "status": "needs_clarification", "reason": "needs_plot", "clarification_question": "That needs a chart: use /plot."}
+```
+
+**Q:** What's the record high for July 4 at Reagan National?
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "max", "unit": "day_of_year", "calendar_day": "07-04", "start_date": "1800-01-01", "end_date": "2026-08-04"}
+]}
 ```
 
 **Q:** What were the 5 hottest days ever recorded at Dulles?

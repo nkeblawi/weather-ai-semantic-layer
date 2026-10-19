@@ -86,7 +86,7 @@ def _bars(chart: dict) -> bool:
     """
     if not chart["series"][0]["bars"]:
         return False
-    name_axis = chart["kind"] == "climatology" or chart["unit"] == "month"
+    name_axis = (chart["kind"] == "climatology" and chart["unit"] != "day_of_year") or chart["unit"] == "month"
     return name_axis or len(chart["series"]) == 1
 
 
@@ -96,6 +96,9 @@ def _x(chart: dict, df: pd.DataFrame):
     Monthly bars also use names: on a date axis Vega sizes bars for daily
     spacing, so monthly bars would be slivers.
     """
+    if chart["unit"] == "day_of_year":
+        # calendar days on a leap-year (2000) axis; only the month shows
+        return alt.X("x:T", title=None, scale=alt.Scale(type="utc"), axis=alt.Axis(format="%b"))
     monthly_bars = chart["unit"] == "month" and _bars(chart)
     if chart["kind"] == "climatology" or monthly_bars:
         order = df.sort_values("x")["label"].drop_duplicates().tolist()
@@ -118,7 +121,7 @@ def _tooltip(chart: dict, extra: list[str] | None = None) -> list:
         alt.Tooltip("series:N", title="Series"),
         alt.Tooltip("label:N", title="When"),
         alt.Tooltip("value:Q", title=chart["units"] or "Value"),
-        *[alt.Tooltip(f"{f}:Q") for f in (extra or [])],
+        *[alt.Tooltip(f"{f}:Q", **({"format": "d"} if f.endswith("_year") else {})) for f in (extra or [])],
     ]
 
 
@@ -133,6 +136,8 @@ def time_series_chart(chart: dict) -> alt.Chart:
     y = alt.Y("value:Q", title=_y_title(chart), scale=alt.Scale(zero=chart["series"][0]["bars"]))
     base = alt.Chart(df)
     extra = ["stddev"] if chart["kind"] == "climatology" else []
+    if chart["unit"] == "day_of_year":
+        extra += ["record_high", "record_high_year", "record_low", "record_low_year"]
     if _bars(chart):
         marks = base.mark_bar().encode(
             x=x, y=y, color=color, tooltip=_tooltip(chart, extra),

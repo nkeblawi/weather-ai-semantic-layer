@@ -37,6 +37,7 @@ native-parameters feature.
 import sys
 import os
 import re
+import calendar
 import json
 from datetime import date
 from pathlib import Path
@@ -179,7 +180,50 @@ def _sql_bucketing(entry: dict) -> tuple[str, list | None, int | None]:
     return unit, entry.get("month_filter"), None
 
 
+NORMAL_SMOOTHING_DAYS = 7  # a daily normal averages +/- this many days
+
+
+def smooth_day_of_year(values: list) -> list:
+    """
+    Daily normals smoothed over +/- NORMAL_SMOOTHING_DAYS, wrapping across the
+    year end (Dec 28 uses early January too), so 30 years of noisy single days
+    read as a curve. Nulls are skipped; the input's 366 days are in order.
+    """
+    n, w, out = len(values), NORMAL_SMOOTHING_DAYS, []
+    for i in range(n):
+        window = [values[(i + k) % n] for k in range(-w, w + 1) if values[(i + k) % n] is not None]
+        out.append(sum(window) / len(window) if window else None)
+    return out
+
+
+def calendar_day_label(mm_dd: str) -> str:
+    """'07-04' -> 'July 4'."""
+    m, d = (int(x) for x in mm_dd.split("-"))
+    return f"{calendar.month_name[m]} {d}"
+
+
+def _calendar_day_result(entry: dict, result: dict | None) -> dict | None:
+    """
+    One calendar day out of a day_of_year result, as a single-value result:
+    the record (max/min, with the year set) or the smoothed normal (mean).
+    """
+    if not result or result.get("error") or entry["calendar_day"] not in result.get("days", []):
+        return {"value": None}
+    i = result["days"].index(entry["calendar_day"])
+    agg = entry["aggregation"]
+    out = {"calendar_day": calendar_day_label(entry["calendar_day"]), "n_years": result["n_years"][i]}
+    if agg in ("max", "min"):
+        out.update(value=result[agg][i], record_year=result[f"{agg}_year"][i])
+    else:
+        out["value"] = smooth_day_of_year(result["values"])[i]
+    return out
+
+
 def call_answer_query(conn, entry: dict):
+    # A record or normal for one calendar day ("record high on July 4") is a
+    # day_of_year series in SQL, reduced to that day here
+    if entry.get("unit") == "day_of_year" and entry["aggregation"] != "series":
+        return _calendar_day_result(entry, call_answer_query(conn, {**entry, "aggregation": "series"}))
     sql_unit, month_filter, year_start_month = _sql_bucketing(entry)
     threshold = entry.get("threshold") or {}
     event_day_threshold = entry.get("event_day_threshold") or {}
@@ -395,6 +439,9 @@ def build_answer_payload(
             "event_end",
             "bucket_year",
             "bucket_month",
+            "calendar_day",
+            "record_year",
+            "n_years",
         ):
             if result.get(key) is not None:
                 payload[key] = result[key]

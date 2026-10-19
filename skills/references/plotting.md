@@ -23,6 +23,7 @@ totals (as in `count_group.md`), or `count` for a number of days (below).
 
 | The user wants | `unit` | Notes |
 |---|---|---|
+| Normals or records for **each day of the year** ("daily normal highs and lows", "the normal high for every day") | `day_of_year` | 366 points, smoothed; no `period_aggregation`; dates as for any climatology |
 | Daily values over **a year or less** ("daily highs in 2024", "daily rainfall this summer", "snowfall day by day in winter 2009-10") | `day` | one point per day; no `period_aggregation` |
 | Values over time, range up to 30 years | `month` | one point per month |
 | Values over time, range over 30 years, or "annual"/"yearly" totals or averages | `year` | one point per year; no period stated → the whole record |
@@ -34,7 +35,7 @@ totals (as in `count_group.md`), or `count` for a number of days (below).
 
 **Daily points only over a year or less** — a span of at most 366 days: a calendar year, a few months, or one snow season (Jul 1 to Jun
 30). For a longer span, use `unit: "month"`; the app notes that daily points are limited to a year or less. A daily series takes no
-`baseline`, `display`, or `trend` (daily normals aren't available yet): for "daily highs in 2024 against normal", use monthly points.
+`trend`, but it may take `baseline`/`display` ("daily highs in 2024 against normal"): it's compared with smoothed daily normals.
 
 **Counting days per period** ("90-degree days per year", "freeze days each winter", "how many 70-degree nights each summer", "days
 with snow each month"): `period_aggregation: "count"` plus `threshold`, with any unit except `day` — including the climatologies ("average
@@ -84,7 +85,7 @@ On top of SKILL.md Step 6's query fields:
 ```json
 {
   "aggregation": "series",
-  "unit": "day | month | year | season | snow_season | month_of_year | season_of_year",
+  "unit": "day | month | year | season | snow_season | month_of_year | season_of_year | day_of_year",
   "period_aggregation": "mean | sum | count (required, except omitted for unit day)",
   "threshold": {"operator": "> | >= | < | <= | =", "value": "number, only with period_aggregation count"},
   "season": "winter | spring | summer | fall, only with unit season",
@@ -165,6 +166,21 @@ On top of SKILL.md Step 6's query fields:
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "day", "start_date": "2023-01-01", "end_date": "2023-12-31"},
   {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "series", "unit": "day", "start_date": "2023-01-01", "end_date": "2023-12-31"}
+]}
+```
+
+**Q:** /plot the normal high and low for each day of the year at Dulles ("normal" → 1991-2020)
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "day_of_year", "start_date": "1991-01-01", "end_date": "2020-12-31"},
+  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "series", "unit": "day_of_year", "start_date": "1991-01-01", "end_date": "2020-12-31"}
+]}
+```
+
+**Q:** /plot daily highs at Dulles in 2024 against normal
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "day", "start_date": "2024-01-01", "end_date": "2024-12-31", "baseline": {"start_year": 1991, "end_year": 2020}, "display": "overlay"}
 ]}
 ```
 

@@ -24,7 +24,7 @@ import numpy as np
 
 import pipeline
 
-CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year"}
+CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year", "day_of_year"}
 SEASON_NAMES = ["winter", "spring", "summer", "fall"]
 # A normal needs at least this share of the baseline's years (24 of 30)
 NORMAL_COMPLETENESS = 0.8
@@ -47,12 +47,13 @@ def baseline_entry(entry: dict) -> dict | None:
         "station_id": entry["station_id"],
         "metric": entry["metric"],
         "aggregation": "series",
-        "period_aggregation": entry["period_aggregation"],
-        **({"threshold": entry["threshold"]} if "threshold" in entry else {}),
+        **{k: entry[k] for k in ("period_aggregation", "threshold") if k in entry},
         "start_date": f"{sy}-01-01",
         "end_date": f"{ey}-12-31",
     }
     unit = entry["unit"]
+    if unit == "day":
+        return {**base, "unit": "day_of_year"}
     if unit == "month":
         return {**base, "unit": "month_of_year"}
     if unit == "season":
@@ -146,6 +147,20 @@ def _time_points(entry: dict, result: dict) -> list[dict]:
 
 
 def _climatology_points(entry: dict, result: dict) -> list[dict]:
+    if entry["unit"] == "day_of_year":
+        # smoothed normals on a leap-year axis (2000), records alongside
+        days = result.get("days", [])
+        values = pipeline.smooth_day_of_year(result.get("values", []))
+        spread = pipeline.smooth_day_of_year(result.get("stddev", []))
+        return [
+            {"x": f"2000-{d}", "label": f"{calendar.month_abbr[int(d[:2])]} {int(d[3:])}",
+             "value": v, "stddev": sd, "n_years": n,
+             "record_high": hi, "record_high_year": hy, "record_low": lo, "record_low_year": ly}
+            for d, v, sd, n, hi, hy, lo, ly in zip(
+                days, values, spread, result.get("n_years", []), result.get("max", []),
+                result.get("max_year", []), result.get("min", []), result.get("min_year", []),
+            )
+        ]
     if entry["unit"] == "month_of_year":
         keys = result.get("months", [])
         labels = [calendar.month_abbr[m] for m in keys]
@@ -173,7 +188,17 @@ def _normals(entry: dict, base_result: dict | None, notes: list[str]) -> dict | 
     need = NORMAL_COMPLETENESS * years
     unit = entry["unit"]
     out, dropped = {}, 0
-    if unit == "month":
+    if unit == "day":
+        days = base_result.get("days", [])
+        normals = pipeline.smooth_day_of_year(base_result.get("values", []))
+        spreads = pipeline.smooth_day_of_year(base_result.get("stddev", []))
+        for d, v, sd, n in zip(days, normals, spreads, base_result.get("n_years", [])):
+            # Feb 29 has a quarter of the years; its smoothed normal is still sound
+            if n >= need or d == "02-29":
+                out[d] = (v, sd)
+            else:
+                dropped += 1
+    elif unit == "month":
         for m, v, sd, n in zip(base_result.get("months", []), base_result.get("values", []),
                                base_result.get("stddev", []), base_result.get("n_years", [])):
             if n >= need:
@@ -267,7 +292,10 @@ def build_series(
     if climatology:
         points = _climatology_points(entry, result)
         for p in points:
-            p["value"] = _round(conv(p["value"]))
+            p["value"] = _round(conv(p["value"])) if p["value"] is not None else None
+            for f in ("record_high", "record_low"):
+                if p.get(f) is not None:
+                    p[f] = _round(conv(p[f]))
             p["stddev"] = _round(spread(p["stddev"])) if p["stddev"] is not None else None
             if p["stddev"] is not None:
                 p["lower"], p["upper"] = _round(p["value"] - p["stddev"]), _round(p["value"] + p["stddev"])
@@ -283,7 +311,7 @@ def build_series(
     normals = _normals(entry, base_result, notes) if entry.get("baseline") else None
     if entry.get("baseline"):
         for p in points:
-            key = p["month"] if unit == "month" else None
+            key = p["x"][5:] if unit == "day" else p["month"] if unit == "month" else None
             if normals and key in normals:
                 normal, sd = normals[key]
                 p["normal"] = _round(conv(normal))
@@ -320,11 +348,11 @@ def group_charts(series_list: list[dict]) -> list[dict]:
         grain = {
             "day": "daily", "month": "monthly", "year": "yearly", "season": f"{members[0]['season'] or ''}s",
             "snow_season": "by snow season" if members[0]["metric"] == "SNOW" else "by cold season (Jul-Jun)",
-            "month_of_year": "by month", "season_of_year": "by season",
+            "month_of_year": "by month", "season_of_year": "by season", "day_of_year": "by day of year",
         }[unit]
         period = members[0]["baseline"]
         if kind == "climatology":
-            heading = f"{what} — {'monthly' if unit == 'month_of_year' else 'seasonal'} climatology"
+            heading = f"{what} — {({'month_of_year': 'monthly', 'season_of_year': 'seasonal'}).get(unit, 'daily')} climatology"
             heading += f" ({period})" if period else ""
         elif kind == "overlay":
             heading = f"{what}, {grain} vs. {period} normal"
@@ -356,7 +384,7 @@ def group_charts(series_list: list[dict]) -> list[dict]:
             "series": members,
             "notes": notes,
         }
-        if kind == "climatology":
+        if kind == "climatology" and unit != "day_of_year":  # 366 rows isn't a table
             chart["table"] = _climatology_table(members, units)
         charts.append(chart)
     return charts
@@ -383,6 +411,7 @@ def phrasing_summary(series: dict) -> dict:
             "day": "daily values", "month": "monthly values", "year": "yearly values", "snow_season": "snow-season totals" if series["metric"] == "SNOW" else "values per Jul-Jun season",
             "season": f"{series['season']} values, one per year", "month_of_year": "averages for each calendar month",
             "season_of_year": "averages for each season",
+            "day_of_year": "averages for each calendar day, smoothed over +/- 7 days",
         }[series["unit"]],
         "metric": series["metric"],
         "what": series["metric_label"],

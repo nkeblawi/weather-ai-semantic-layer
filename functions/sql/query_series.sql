@@ -21,6 +21,7 @@ p_unit:
 - year: one point per year. p_year_start_month shifts the year (7 = snow season Jul-Jun; 12 with p_month_filter [12, 1, 2] = winter, Dec-Feb kept together), labeled by the year it ends in. p_month_filter keeps only those months in each year, which is how a season (e.g. summer = [6, 7, 8]) becomes one point per year. Returns {years, values, n_days}.
 - month_of_year: monthly climatology, 12 points. Each month (year, month) is collapsed first, then averaged across years. Returns {months, values, stddev, n_years}; stddev is the spread of the monthly values across years.
 - season_of_year: seasonal climatology, 4 points (winter DJF, spring MAM, summer JJA, fall SON). Each season (year, season) is collapsed first, then averaged across years; a winter takes December from the year before (winter 1991 = Dec 1990 - Feb 1991). Returns {seasons, values, stddev, n_years}.
+- day_of_year: daily climatology and records, 366 points (Feb 29 from leap years only). Each calendar day collects its values across the years in the range. Returns {days ("MM-DD"), values (mean), stddev, n_years, max, max_year, min, min_year}; on a tie the most recent year is the record year. p_period_aggregation is ignored. Normals are this over a baseline range (smoothed by the caller); records are this over the whole record.
 - day: one point per day, for a span of 366 days or less (daily points are never plotted over longer spans). Returns {dates, values}, skipping days with no value; p_period_aggregation is ignored. A longer span returns {"error": "span_too_long"}.
 
 p_period_aggregation collapses each month/year/season from its daily values: mean, sum, or count (the number of days meeting p_threshold_operator p_threshold_value, one of >, >=, <, <=, =; e.g. days >= 90). In a climatology, count averages the per-year counts (e.g. the average number of 90-degree days in July).
@@ -255,6 +256,51 @@ RETURN (
                       END
                     GROUP BY season
                 ) by_season
+            ) pts_query
+        )
+
+        WHEN p_unit = 'day_of_year' THEN (
+            SELECT to_json(named_struct(
+                'days', transform(pts, p -> p.d),
+                'values', transform(pts, p -> p.v),
+                'stddev', transform(pts, p -> p.s),
+                'n_years', transform(pts, p -> p.n),
+                'max', transform(pts, p -> p.hi.v),
+                'max_year', transform(pts, p -> p.hi.y),
+                'min', transform(pts, p -> p.lo.v),
+                'min_year', transform(pts, p -> -p.lo.ny)
+            ))
+            FROM (
+                SELECT array_sort(collect_list(named_struct('d', d, 'v', v, 's', s, 'n', n, 'hi', hi, 'lo', lo))) AS pts
+                FROM (
+                    SELECT
+                        d,
+                        IF(p_metric IN ('PRCP', 'SNOW', 'SNWD'), ROUND(AVG(value), 2), ROUND(AVG(value), 1)) AS v,
+                        IF(p_metric IN ('PRCP', 'SNOW', 'SNWD'), ROUND(STDDEV(value), 2), ROUND(STDDEV(value), 1)) AS s,
+                        CAST(COUNT(value) AS INT) AS n,
+                        -- struct max/min: the value, then the most recent year on a tie
+                        MAX(named_struct('v', value, 'y', y)) AS hi,
+                        MIN(named_struct('v', value, 'ny', -y)) AS lo
+                    FROM (
+                        SELECT DATE_FORMAT(obs_date, 'MM-dd') AS d, YEAR(obs_date) AS y,
+                            CASE p_metric
+                                WHEN 'TAVG' THEN TAVG
+                                WHEN 'TMAX' THEN TMAX
+                                WHEN 'TMIN' THEN TMIN
+                                WHEN 'PRCP' THEN PRCP
+                                WHEN 'SNOW' THEN SNOW
+                                WHEN 'SNWD' THEN SNWD
+                                WHEN 'AWND' THEN AWND
+                                WHEN 'HDD' THEN HDD
+                                WHEN 'CDD' THEN CDD
+                            END AS value
+                        FROM weather.analytics.observations
+                        WHERE station_id = p_station_id
+                          AND obs_date BETWEEN p_start_date AND p_end_date
+                    ) raw
+                    WHERE value IS NOT NULL
+                    GROUP BY d
+                ) by_day
             ) pts_query
         )
 
