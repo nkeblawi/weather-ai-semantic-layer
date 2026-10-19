@@ -111,9 +111,14 @@ def _x(chart: dict, df: pd.DataFrame):
     if unit == "day":
         return alt.X("x:T", title=None, scale=alt.Scale(type="utc"), axis=alt.Axis(format="%b %-d"))
     fmt = "%b %Y" if unit == "month" else "%Y"
+    # A short span gets one tick per month (or year); left to Vega, it puts
+    # weekly ticks that all read "Jun 2026". Long spans keep Vega's spacing.
+    n = df["x"].nunique() if "x" in df else 0
+    short = n <= (24 if unit == "month" else 15)
+    ticks = {"interval": "month" if unit == "month" else "year", "step": 1} if short else None
     # Dates are UTC midnight; a local-time scale would show 2024-07-01 as
     # June 30 (and label it "Jun") anywhere west of Greenwich.
-    return alt.X("x:T", title=None, scale=alt.Scale(type="utc"), axis=alt.Axis(format=fmt))
+    return alt.X("x:T", title=None, scale=alt.Scale(type="utc"), axis=alt.Axis(format=fmt, **({"tickCount": ticks} if ticks else {})))
 
 
 def _tooltip(chart: dict, extra: list[str] | None = None) -> list:

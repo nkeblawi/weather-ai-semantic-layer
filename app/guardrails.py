@@ -453,6 +453,11 @@ def coerce_series(resolved: dict, question: str = "") -> None:
             del q["period_aggregation"]
         elif q.get("unit") == "month" and long_span and DAILY_WORDS.search(question):
             q.setdefault("notes", []).append(DAILY_LIMIT_NOTE)
+        elif q.get("unit") == "month" and start and end and not long_span and DAILY_WORDS.search(question):
+            # asked for daily values over a year or less, resolved as monthly anyway
+            q["unit"] = "day"
+            q.pop("period_aggregation", None)
+            q.pop("trend", None)
         if q.get("unit") == "month" and start and end and (end.year - start.year + 1) > MAX_MONTHLY_SERIES_YEARS:
             q["unit"] = "year"
             q.setdefault("notes", []).append(
