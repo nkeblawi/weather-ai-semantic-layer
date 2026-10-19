@@ -260,3 +260,10 @@ touching production data:
   which include adjustments and gap-filling. Charts note this.
 - **Trend lines on uncorrected data.** Trends include station artifacts
   (instrument changes, site moves) as well as climate signal.
+- **Observation data falls one day behind.** Ingest processes on the backend
+  run at different times of day for different data sources, so observations
+  typically run a day behind meaning "yesterday's" observations may not yet
+  be available.
+- **No teleconnections.** Teleconnections need to be ingested from
+  different data source(s). This has not been developed and is outside of
+  the current scope. That may change in the future, however.
