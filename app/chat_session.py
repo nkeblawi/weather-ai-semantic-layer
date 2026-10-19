@@ -282,6 +282,8 @@ def get_answer(
             answer_payloads = []
             for entry in resolved["queries"]:
                 result = pipeline.call_answer_query(session.conn, entry)
+                if days := pipeline.matching_days(session.conn, entry, result):
+                    result = {**result, "matching_days": days}
                 answer_payloads.append(
                     pipeline.build_answer_payload(
                         entry, result, session.station_info, session.temp_unit

@@ -380,6 +380,30 @@ def season_label(entry: dict, bucket_year: int) -> str | None:
     return None
 
 
+MATCHING_DAYS_MAX = 5  # a day count this small also names the days
+
+
+def matching_days(conn, entry: dict, result: dict | None) -> list[dict] | None:
+    """
+    The days behind a small daily count ("has DCA ever hit 80 in January?"
+    -> 1, on Jan 26, 2024), so the answer can name them. A count only
+    returns the number; this ranks the days the threshold points at (top for
+    >/>=, bottom for </<=) and keeps those that meet it. None when the count
+    is 0, too large, or not a day count.
+    """
+    t = entry.get("threshold") or {}
+    n = (result or {}).get("value")
+    if (entry["aggregation"] != "count" or entry.get("unit", "day") != "day" or t.get("operator") not in (">", ">=", "<", "<=")
+            or not isinstance(n, (int, float)) or not 1 <= n <= MATCHING_DAYS_MAX):
+        return None
+    ranked = {k: v for k, v in entry.items() if k != "threshold"} | {
+        "aggregation": "top" if t["operator"] in (">", ">=") else "bottom", "limit": int(n)}
+    rows = (call_answer_query(conn, ranked) or {}).get("rows") or []
+    meets = {">": lambda v: v > t["value"], ">=": lambda v: v >= t["value"],
+             "<": lambda v: v < t["value"], "<=": lambda v: v <= t["value"]}[t["operator"]]
+    return [{"obs_date": r["obs_date"], "value": r["value"]} for r in rows if r.get("value") is not None and meets(r["value"])]
+
+
 def _converted_rows(entry: dict, rows: list[dict]) -> list[dict]:
     """
     A top/bottom result's rows with output_unit applied to each value and
@@ -449,6 +473,9 @@ def build_answer_payload(
         if "bucket_year" in payload and (label := season_label(entry, payload["bucket_year"])):
             del payload["bucket_year"]
             payload["season"] = label
+        if result.get("matching_days"):
+            # rounded/converted like a single reading of the metric, not a count
+            payload["matching_days"] = _converted_rows({**entry, "aggregation": "max"}, result["matching_days"])
         # top/bottom: value is null and the ranking is in rows (rank, then
         # date). Ties share a rank, so rows can outnumber the requested ranks.
         if entry["aggregation"] in RANKING_AGGREGATIONS:
