@@ -354,9 +354,15 @@ def cap_rank_limits(resolved: dict) -> None:
     ("top 20" -> 15 ranks). Runs before validate_resolved, so an over-cap
     limit is answered instead of rejected; anything else odd about limit
     (not an integer, below 1) is still left for validation to reject.
+    A limit of 1 on max/min ("which year was wettest" resolved as max with
+    limit 1) is dropped: max/min already is the single top value.
     """
     for q in resolved.get("queries") or []:
-        if not isinstance(q, dict) or q.get("aggregation") not in RANKING_AGGREGATIONS:
+        if not isinstance(q, dict):
+            continue
+        if q.get("aggregation") in {"max", "min"} and q.get("limit") == 1:
+            del q["limit"]
+        if q.get("aggregation") not in RANKING_AGGREGATIONS:
             continue
         lim = q.get("limit")
         if isinstance(lim, int) and not isinstance(lim, bool) and lim > MAX_RANK_LIMIT:

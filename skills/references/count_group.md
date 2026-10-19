@@ -60,12 +60,17 @@ record" means every individual December/January/February, not one pooled average
 
 ### Climate averages for a month name ("average January high")
 
-A month name with **no year**, asked as an average / typical / normal value ("What is the average high in January at Dulles?", "How much snow does
-Chicago usually get in February?"), is a climate average over the **whole record** — resolve it, don't ask:
+A month name with **no year**, asked as an average / typical / usual value ("What is the average high in January at Dulles?", "How much snow does
+Chicago usually get in February?"), is a climate average over the **whole record** (never 1991-2020 unless the user says "normal" or names
+years) — resolve it, don't ask:
 
 - date range: `all_time` (SKILL.md Step 5)
 - `unit: "month"`, `month_filter: [<that month>]`
 - `period_aggregation`: `mean` for temperatures/wind, `sum` for PRCP/SNOW (a January's total), then `aggregation: "mean"` across those Januaries
+
+**"Normal" is different:** "normal", "normals", "compared to / above / below normal" mean the **1991-2020** average (or the period the user
+names), never the whole record. Same shape as above, but with `start_date` 1991-01-01 and `end_date` 2020-12-31 (`absolute_year_range`
+1991-2020). "Was July 2024 warmer than normal?" is two queries: July 2024 itself, and the July normal.
 
 A month name with no year that asks for one period's value instead ("How much snow fell in January?", "What was the high in March?") is the most
 recent such month — use `recent_month` (SKILL.md Step 5), never a future month.
@@ -162,6 +167,21 @@ No time period stated, so search the whole record (SKILL.md Step 5). "Last" → 
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "mean", "unit": "month", "start_date": "1800-01-01", "end_date": "2026-08-04", "period_aggregation": "mean", "month_filter": [1]},
   {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "mean", "unit": "month", "start_date": "1800-01-01", "end_date": "2026-08-04", "period_aggregation": "mean", "month_filter": [1]}
+]}
+```
+
+**Q:** What's the normal July high at Dulles? ("normal" → 1991-2020, not the whole record)
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "mean", "unit": "month", "start_date": "1991-01-01", "end_date": "2020-12-31", "period_aggregation": "mean", "month_filter": [7]}
+]}
+```
+
+**Q:** Was July 2024 warmer than normal at Reagan National? (the month itself, plus its 1991-2020 normal)
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00013743", "metric": "TAVG", "aggregation": "mean", "start_date": "2024-07-01", "end_date": "2024-07-31"},
+  {"station_id": "USW00013743", "metric": "TAVG", "aggregation": "mean", "unit": "month", "start_date": "1991-01-01", "end_date": "2020-12-31", "period_aggregation": "mean", "month_filter": [7]}
 ]}
 ```
 

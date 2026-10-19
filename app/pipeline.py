@@ -787,11 +787,15 @@ def build_system_prompt(
     station_info: dict | None = None,
     home_location: str | None = None,
     plot_mode: str | None = None,
-) -> str:
-    today = date.today().isoformat()
+) -> list[dict]:
+    """
+    The resolver's system prompt as two blocks: the skill text (the same for
+    every question of a kind, so it's cached -- repeat reads cost a tenth),
+    then this turn's details (date, plot mode, home city, conversation),
+    which must come after the cache point or every call would miss.
+    """
     skill_text = SKILL_PATH.read_text()
     skill_text = re.sub(r"^---\n.*?\n---\n\n", "", skill_text, count=1, flags=re.DOTALL)
-    skill_text = skill_text.replace("{{CURRENT_DATE}}", today)
     if plot_mode:
         # Up front, not only after the long skill text: without it the model
         # sometimes applies SKILL.md's single-value rules to a chart request
@@ -816,7 +820,11 @@ def build_system_prompt(
         skill_text += "\n\n---\n\n" + COUNT_GROUP_PATH.read_text()
     if plot_mode:
         skill_text += "\n\n---\n\n" + PLOTTING_PATH.read_text()
-        skill_text += "\n\n---\n\n## Plot mode\n\n" + (
+
+    # Per-turn details: after the cache point
+    turn_text = f"## Today's date\n\n{date.today().isoformat()}"
+    if plot_mode:
+        turn_text += "\n\n---\n\n## Plot mode\n\n" + (
             "This is a `/plot` turn: the user asked for a chart (plotting.md Step 1)."
             if plot_mode == "plot"
             else "This is a follow-up to a chart (no `/plot`): chart it if it asks for another "
@@ -825,7 +833,7 @@ def build_system_prompt(
 
     # Fallback location when the question names none (SKILL.md Step 2).
     if home_location:
-        skill_text += f'\n\n---\n\n## User home city\n\n"{home_location}"'
+        turn_text += f'\n\n---\n\n## User home city\n\n"{home_location}"'
 
     # Replay recent turns as a transcript. SKILL.md's "Follow-up questions"
     # section tells the resolver how to use it: inherit from the most recent
@@ -853,11 +861,14 @@ def build_system_prompt(
             if turn.get("answer"):
                 lines.append(f"Answer given: {turn['answer']}")
             blocks.append("\n".join(lines))
-        skill_text += (
+        turn_text += (
             "\n\n---\n\n## Conversation context\n\n"
             "Earlier turns in this session, oldest first; the last is the "
             'most recent resolved query. Apply the "Follow-up questions" '
             "rules above.\n\n" + "\n\n".join(blocks)
         )
 
-    return skill_text
+    return [
+        {"type": "text", "text": skill_text, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": turn_text},
+    ]
