@@ -197,6 +197,7 @@ result into chart data (unit conversion, normals, trend fits) and
 | Ranked bars | `/plot the 10 biggest snowstorms at Dulles` |
 | Station difference | `/plot how much colder Dulles lows are than Reagan National's, by year` |
 | Climograph | `/plot a climograph for Reagan National` |
+| Dates by year (freezes, first 90°F day), growing season | `/plot the last spring and first fall freeze at Dulles each year with a trend line` |
 
 - **Normals** are computed from the station's own observations, 1991-2020
   by default (10-50 years allowed). Daily normals are smoothed over +/- 7
@@ -209,7 +210,8 @@ result into chart data (unit conversion, normals, trend fits) and
 
 Single values use the same data without a chart: "the record high for July
 4", "the normal low on Christmas" (normal = 1991-2020; "average" = the whole
-record), "the odds of a white Christmas".
+record), "the odds of a white Christmas", "the last spring freeze in 2025", "when the first
+measurable snow usually comes".
 
 ## Environments
 
@@ -258,8 +260,3 @@ touching production data:
   which include adjustments and gap-filling. Charts note this.
 - **Trend lines on uncorrected data.** Trends include station artifacts
   (instrument changes, site moves) as well as climate signal.
-
-## Coming soon
-
-- **Timing.** First and last freeze dates, growing-season length, the first
-  90°F day, and the first measurable snow of each year.

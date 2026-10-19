@@ -26,6 +26,8 @@ p_unit:
 - day_of_year: daily climatology and records, 366 points (Feb 29 from leap years only). Each calendar day collects its values across the years in the range. Returns {days ("MM-DD"), values (mean), stddev, n_years, max, max_year, min, min_year}; on a tie the most recent year is the record year. p_period_aggregation is ignored. Normals are this over a baseline range (smoothed by the caller); records are this over the whole record.
 - day: one point per day, for a span of 366 days or less (daily points are never plotted over longer spans). Returns {dates, values}, skipping days with no value; p_period_aggregation is ignored. A longer span returns {"error": "span_too_long"}.
 
+first_date / last_date (unit year, with p_year_start_month and p_month_filter as for year buckets): the first and last day each year meeting the threshold, e.g. the last spring freeze (TMIN <= 32, months 1-6) or the first measurable snow of a Jul-Jun season. Returns {years, first, last, n_days}; a year with no such day has nulls.
+
 p_period_aggregation collapses each month/year/season/week (and, for any, each calendar day) from its daily values: mean, sum, any (1 if at least one day meets the threshold, else 0 -- averaged across years by a climatology, that is the share of years), or count (the number of days meeting p_threshold_operator p_threshold_value, one of >, >=, <, <=, =; e.g. days >= 90). In a climatology, count averages the per-year counts (e.g. the average number of 90-degree days in July).
 
 Coverage rule: a month, year, or season counts only if at least 90% of its calendar days have a non-null value (for a filtered year, counting only the p_month_filter months), so partial periods never enter a series or a climatology. n_days / n_years let the caller apply its own completeness checks (e.g. a 30-year normal needing at least 24 years).
@@ -34,6 +36,68 @@ Values are rounded: 2 decimals for PRCP/SNOW/SNWD, 1 for everything else.
 '
 RETURN (
     CASE
+        WHEN p_unit = 'year' AND p_period_aggregation IN ('first_date', 'last_date') THEN (
+            SELECT to_json(named_struct(
+                'years', transform(pts, p -> p.y),
+                'first', transform(pts, p -> p.f),
+                'last', transform(pts, p -> p.l),
+                'n_days', transform(pts, p -> p.n)
+            ))
+            FROM (
+                SELECT array_sort(collect_list(named_struct('y', bucket_year, 'f', first_hit, 'l', last_hit, 'n', n_days))) AS pts
+                FROM (
+                    SELECT
+                        bucket_year,
+                        MIN(IF(hit = 1, obs_date, NULL)) AS first_hit,
+                        MAX(IF(hit = 1, obs_date, NULL)) AS last_hit,
+                        CAST(COUNT(value) AS INT) AS n_days,
+                        MAKE_DATE(bucket_year - IF(COALESCE(p_year_start_month, 1) > 1, 1, 0), COALESCE(p_year_start_month, 1), 1) AS bucket_start
+                    FROM (
+                        -- hit computed below the aggregate: aggregates can't reference parameters
+                        SELECT *, CASE
+                                WHEN value IS NULL THEN NULL
+                                WHEN (p_threshold_operator = '>'  AND value > p_threshold_value)
+                                  OR (p_threshold_operator = '>=' AND value >= p_threshold_value)
+                                  OR (p_threshold_operator = '<'  AND value < p_threshold_value)
+                                  OR (p_threshold_operator = '<=' AND value <= p_threshold_value)
+                                  OR (p_threshold_operator = '='  AND value = p_threshold_value)
+                                THEN 1 ELSE 0
+                            END AS hit
+                        FROM (
+                        SELECT obs_date,
+                            CASE WHEN COALESCE(p_year_start_month, 1) > 1
+                                 THEN YEAR(ADD_MONTHS(obs_date, 13 - p_year_start_month)) ELSE YEAR(obs_date)
+                            END AS bucket_year,
+                            CASE p_metric
+                                WHEN 'TAVG' THEN TAVG
+                                WHEN 'TMAX' THEN TMAX
+                                WHEN 'TMIN' THEN TMIN
+                                WHEN 'PRCP' THEN PRCP
+                                WHEN 'SNOW' THEN SNOW
+                                WHEN 'SNWD' THEN SNWD
+                                WHEN 'AWND' THEN AWND
+                                WHEN 'HDD' THEN HDD
+                                WHEN 'CDD' THEN CDD
+                            END AS value
+                        FROM weather.analytics.observations
+                        WHERE station_id = p_station_id
+                          AND obs_date BETWEEN p_start_date AND p_end_date
+                          AND (p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(obs_date)))
+                        ) raw
+                    ) days
+                    GROUP BY bucket_year
+                ) buckets
+                -- coverage rule, as for year buckets: >= 90% of the window's days observed
+                WHERE n_days >= 0.9 * AGGREGATE(
+                    SEQUENCE(0, 11), 0,
+                    (acc, i) -> acc + IF(
+                        p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(ADD_MONTHS(bucket_start, i))),
+                        DAY(LAST_DAY(ADD_MONTHS(bucket_start, i))), 0
+                    )
+                )
+            ) pts_query
+        )
+
         WHEN p_unit IN ('month', 'year') THEN (
             SELECT to_json(named_struct(
                 'years', transform(pts, p -> p.y),

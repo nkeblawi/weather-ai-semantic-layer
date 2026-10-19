@@ -40,6 +40,8 @@ Rules:
   `points` of 0 has no data: say so plainly. When `units` is `days`, each value is a number of days (`what` says 
   which days, e.g. "Days with high ≥ 90°F"): say "days", and say a departure as more or fewer days than normal — 
   never "warmer" or "colder".
+- First/last dates across years: `typical_date` is the usual date (the median: "usually around December 13"); `earliest_on_record` /
+  `latest_on_record` are the most extreme years' dates (a list means a tie: name every year); `data_years` is the span of the record.
 - A count with `matching_days` names those days and their values.
 - Do not add commentary, caveats, or information beyond what's in the results.
 - Respond with the answer sentence(s) only. No JSON, no markdown, no preamble.

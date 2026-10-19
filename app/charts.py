@@ -287,6 +287,29 @@ CLIMATE_PARTS = ["Record range", "Normal range", "Daily range", "Record high set
 CLIMATE_COLORS = ["#B8C0CC", "#D9C8A9", "#4F6FA8", "#E4572E", "#2E86DE"]
 
 
+def dates_chart(chart: dict) -> alt.Chart:
+    """First/last dates by year (freeze dates): the y axis is the time of year on a reference year."""
+    df = _frame(chart)
+    names, colors = _colors(chart)
+    several = len(names) > 1
+    hidden = _toggle("series") if several else None
+    color = alt.Color("series:N", scale=alt.Scale(domain=names, range=colors), legend=_legend(names))
+    x = _x(chart, df)
+    y = alt.Y("y_ref:T", title=None, scale=alt.Scale(type="utc"), axis=alt.Axis(format="%b %-d"))
+    lines = alt.Chart(df).mark_line(point=True, strokeWidth=1.5).encode(
+        x=x, y=y, color=color, opacity=_fade(hidden, 1.0) if several else alt.value(1.0),
+        tooltip=[alt.Tooltip("series:N", title="Series"), alt.Tooltip("when:N", title="Date")])
+    layers = [lines.add_params(hidden) if several else lines]
+    rows = [{"x": s["trend"][e]["x"], "y_ref": s["trend"][e]["y_ref"],
+             "trend": f"{s['name']} trend ({s['trend']['per_decade']:+} days/decade)"}
+            for s in chart["series"] if s.get("trend") for e in ("start", "end")]
+    if rows:
+        layers.append(alt.Chart(pd.DataFrame(rows)).mark_line(strokeDash=[2, 3], strokeWidth=2, color="#888888").encode(
+            x=alt.X("x:T", scale=alt.Scale(type="utc")), y=alt.Y("y_ref:T", scale=alt.Scale(type="utc")), detail="trend:N",
+            tooltip=[alt.Tooltip("trend:N", title="Trend")]))
+    return alt.layer(*layers).properties(height=HEIGHT)
+
+
 def ranking_bar_chart(chart: dict) -> alt.Chart:
     """A ranking (/plot of top/bottom) as horizontal bars, rank 1 on top, values at the bar ends."""
     df = _frame(chart)
@@ -503,7 +526,9 @@ def _title(chart: dict) -> alt.TitleParams:
 
 def build_chart(chart: dict) -> alt.Chart:
     """The Altair chart for a chart dict from series.group_charts."""
-    if chart["kind"] == "ranking":
+    if chart["kind"] == "dates":
+        built = dates_chart(chart)
+    elif chart["kind"] == "ranking":
         built = ranking_bar_chart(chart)
     elif chart["kind"] == "difference":
         built = difference_chart(chart)

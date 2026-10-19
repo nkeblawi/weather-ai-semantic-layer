@@ -119,6 +119,13 @@ January days below 0 since 2000", "the 5 warmest February days"): `unit: "day"` 
 with `>= N` (0 means never). This is about days; an *average* January ("average January high", "warmest January on average") is
 `unit: "month"` (`references/count_group.md`). A month name is never a `calendar_day`.
 
+**The first or last date a threshold is met** ("the last spring freeze", "the first fall freeze", "the first 90-degree day", "the first
+measurable snow of the season", "the earliest last freeze on record"): `aggregation: "first_date"` or `"last_date"` + `threshold`, with
+`unit: "year"` — plus `month_filter: [1, 2, 3, 4, 5, 6]` for a spring date or `[7, 8, 9, 10, 11, 12]` for a fall date — or
+`unit: "snow_season"` for snow (Jul-Jun). Freeze = TMIN `<= 32` (hard freeze `<= 28`); measurable snow = SNOW `>= 0.1`. A named year
+→ that year; "on record" / "ever" / "usually" → `all_time` (the app reports the earliest, latest, and median dates). "The earliest first
+freeze" / "the latest last freeze" are still `first_date` / `last_date` — `earliest` / `latest` are only for events.
+
 **One calendar day across years** ("the record high for July 4", "the normal low on Christmas", "the most rain ever on New Year's Day"):
 `unit: "day_of_year"` plus `calendar_day: "MM-DD"`, with `max` for a record high / most, `min` for a record low, `mean` for a normal or
 average. Records use `all_time`; a normal uses 1991-2020 (or the years named), an average the whole record. Odds of a condition on that
@@ -188,7 +195,7 @@ Once every prior step has resolved (or Step 2/3/4/5 has stopped early to ask the
     {
       "station_id": "GHCN station ID",
       "metric": "TAVG | TMAX | TMIN | PRCP | SNOW | SNWD | AWND | HDD | CDD",
-      "aggregation": "mean | median | sum | max | min | stddev | count | latest | earliest | top | bottom",
+      "aggregation": "mean | median | sum | max | min | stddev | count | latest | earliest | top | bottom | first_date | last_date",
       "unit": "day | event | month | year | snow_season | season | day_of_year, omit if day",
       "season": "winter | spring | summer | fall, only present when unit is season",
       "calendar_day": "MM-DD, only present when unit is day_of_year",
@@ -305,6 +312,20 @@ Examples involving events, storms, or month/year aggregates are in `references/c
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "USW00013743", "metric": "SNWD", "aggregation": "mean", "unit": "day_of_year", "calendar_day": "12-25", "period_aggregation": "any", "threshold": {"operator": ">=", "value": 1}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
+]}
+```
+
+**Q:** When was the last spring freeze at Dulles in 2025?
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "last_date", "unit": "year", "month_filter": [1, 2, 3, 4, 5, 6], "threshold": {"operator": "<=", "value": 32}, "start_date": "2025-01-01", "end_date": "2025-12-31"}
+]}
+```
+
+**Q:** When does Reagan National usually get its first measurable snow?
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00013743", "metric": "SNOW", "aggregation": "first_date", "unit": "snow_season", "threshold": {"operator": ">=", "value": 0.1}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
 ]}
 ```
 

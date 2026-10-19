@@ -56,7 +56,11 @@ MIN_BASELINE_YEARS, MAX_BASELINE_YEARS = 10, 50
 # ---------------------------------------------------------------------------
 
 METRICS = {"TAVG", "TMAX", "TMIN", "PRCP", "SNOW", "SNWD", "AWND", "HDD", "CDD"}
-AGGREGATIONS = {"mean", "median", "sum", "max", "min", "stddev", "count", "latest", "earliest", "top", "bottom", "series"}
+AGGREGATIONS = {"mean", "median", "sum", "max", "min", "stddev", "count", "latest", "earliest", "top", "bottom", "series",
+                "first_date", "last_date"}
+# the first/last day each year (or Jul-Jun season) meeting a threshold: freeze dates, first 90-degree day
+DATE_AGGREGATIONS = {"first_date", "last_date"}
+DATE_UNITS = {"year", "snow_season"}
 RANKING_AGGREGATIONS = {"top", "bottom"}
 UNITS = {"day", "event", "month", "year", "snow_season", "season", "month_of_year", "season_of_year", "day_of_year",
          "week_of_year", "value"}
@@ -64,7 +68,7 @@ CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year", "day_of_year", "week_of_
 # day_of_year outside a series: one calendar day's record (max/min) or normal (mean)
 CALENDAR_DAY_AGGREGATIONS = {"max", "min", "mean"}
 SERIES_UNITS = {"day", "month", "year", "season", "snow_season", "value"} | CLIMATOLOGY_UNITS
-DISPLAYS = {"overlay", "anomaly", "climate", "cumulative", "histogram", "difference", "climograph"}
+DISPLAYS = {"overlay", "anomaly", "climate", "cumulative", "histogram", "difference", "climograph", "growing_season"}
 # difference: two stations' series as one A - B line; climograph: monthly temps + precip in one chart
 CLIMOGRAPH_METRICS = {"TMAX", "TMIN", "TAVG", "PRCP", "SNOW"}
 # histogram of per-period values (the spread of annual snowfall); unit value is always one
@@ -79,7 +83,7 @@ EVENT_ONLY_AGGREGATIONS = {"latest", "earliest"}
 EVENT_VALUES = {"total", "duration"}
 PERIOD_AGGREGATIONS = {"mean", "sum"}
 # a series bucket can also count the days meeting its threshold (90F+ days per year)
-SERIES_PERIOD_AGGREGATIONS = PERIOD_AGGREGATIONS | {"count", "any"}
+SERIES_PERIOD_AGGREGATIONS = PERIOD_AGGREGATIONS | {"count", "any"} | DATE_AGGREGATIONS
 # any: 1 if a day in the bucket meets the threshold -- a climatology of it is the share of years
 OUTPUT_UNITS = {"C", "F"}
 STATUSES = {"resolved", "needs_clarification", "off_topic"}
@@ -313,6 +317,11 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         problems.append(f"unit 'season' requires season winter, spring, summer, or fall, got {q.get('season')!r}")
     if "calendar_day" in q and (unit != "day_of_year" or aggregation == "series"):
         problems.append("calendar_day only applies to a day_of_year record or normal")
+    if aggregation in DATE_AGGREGATIONS:
+        if unit not in DATE_UNITS:
+            problems.append(f"aggregation {aggregation!r} needs unit year or snow_season")
+        if "threshold" not in q:
+            problems.append(f"aggregation {aggregation!r} requires a threshold")
     if aggregation == "series":
         _validate_series(q, unit, today, problems)
     elif unit == "day_of_year":
@@ -332,7 +341,7 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         for name in ("trend", "baseline", "display"):
             if name in q:
                 problems.append(f"{name} only applies to series")
-    if unit in {"month", "year", "snow_season", "season", "month_of_year", "season_of_year", "week_of_year"}:
+    if unit in {"month", "year", "snow_season", "season", "month_of_year", "season_of_year", "week_of_year"} and aggregation not in DATE_AGGREGATIONS:
         allowed = SERIES_PERIOD_AGGREGATIONS if aggregation == "series" else PERIOD_AGGREGATIONS
         if q.get("period_aggregation") not in allowed:
             problems.append(f"unit {unit!r} requires period_aggregation {' or '.join(sorted(allowed))}")
@@ -353,7 +362,8 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         # summers" as unit year + [6, 7, 8] would silently rank whole years
         # unit day: daily rows in those months across years ("the hottest
         # January day"); not for a daily series, which query_series doesn't filter
-        if unit not in ("month", "value") and not (unit == "day" and aggregation != "series"):
+        dates = aggregation in DATE_AGGREGATIONS or q.get("period_aggregation") in DATE_AGGREGATIONS
+        if unit not in ("month", "value") and not (unit == "day" and aggregation != "series") and not (dates and unit == "year"):
             problems.append(f"month_filter only applies to unit 'month' or 'day', not {unit!r}")
 
     start, end = _parse_date(q.get("start_date")), _parse_date(q.get("end_date"))
@@ -370,6 +380,21 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         if start > today:
             problems.append("start_date is in the future")
     return problems
+
+
+def coerce_dates(resolved: dict, question: str = "") -> None:
+    """
+    "The earliest first fall freeze" sometimes comes back as aggregation
+    earliest/latest (the event aggregations) on a yearly query. With a
+    threshold on year/snow_season buckets it can only mean a first/last date:
+    which one follows the question's "first"/"last", else earliest -> first.
+    """
+    words = question.lower()
+    for q in resolved.get("queries") or []:
+        if (isinstance(q, dict) and q.get("aggregation") in EVENT_ONLY_AGGREGATIONS
+                and q.get("unit") in DATE_UNITS and "threshold" in q):
+            first = "first" in words if ("first" in words) != ("last" in words) else q["aggregation"] == "earliest"
+            q["aggregation"] = "first_date" if first else "last_date"
 
 
 def cap_rank_limits(resolved: dict) -> None:
@@ -412,10 +437,12 @@ def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> No
         for name in ("period_aggregation", "baseline", "display", "trend", "threshold"):
             if name in q:
                 problems.append(f"{name} doesn't apply to a histogram of daily values")
-    elif q.get("period_aggregation") in ("count", "any") and "threshold" not in q:
+    elif q.get("period_aggregation") in {"count", "any"} | DATE_AGGREGATIONS and "threshold" not in q:
         problems.append(f"period_aggregation {q['period_aggregation']} requires a threshold")
-    if "threshold" in q and q.get("period_aggregation") not in ("count", "any"):
-        problems.append("a series threshold requires period_aggregation count or any")
+    if "threshold" in q and q.get("period_aggregation") not in {"count", "any"} | DATE_AGGREGATIONS:
+        problems.append("a series threshold requires period_aggregation count, any, first_date, or last_date")
+    if q.get("period_aggregation") in DATE_AGGREGATIONS and unit not in DATE_UNITS:
+        problems.append(f"{q['period_aggregation']} needs unit year or snow_season")
     if q.get("period_aggregation") == "any" and unit not in CLIMATOLOGY_UNITS:
         problems.append("period_aggregation any (odds) needs a climatology unit")
     if "trend" in q:
@@ -439,6 +466,9 @@ def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> No
     if "display" in q:
         if q["display"] not in DISPLAYS:
             problems.append(f"display {q['display']!r} not allowed")
+        elif q["display"] == "growing_season":
+            if q.get("period_aggregation") not in DATE_AGGREGATIONS or q.get("metric") != "TMIN":
+                problems.append("display 'growing_season' pairs TMIN last_date (spring) and first_date (fall) series")
         elif q["display"] == "difference":
             if "baseline" in q or unit == "value":
                 problems.append("display 'difference' compares two series as they are: no baseline or histogram")
@@ -510,6 +540,9 @@ def _cross_query_displays(queries: list[dict]) -> list[str]:
     if diff and (len(diff) != 2 or len({q.get("metric") for q in diff}) != 1 or len({q.get("unit") for q in diff}) != 1
                  or len({q.get("station_id") for q in diff}) != 2):
         problems.append("display 'difference' needs exactly two queries: same metric and unit, two stations")
+    grow = [q for q in queries if q.get("display") == "growing_season"]
+    if grow and sorted(q.get("period_aggregation") for q in grow) != ["first_date", "last_date"]:
+        problems.append("display 'growing_season' needs a last_date (spring) and a first_date (fall) query")
     clim = [q for q in queries if q.get("display") == "climograph"]
     if clim and not ({q.get("metric") for q in clim} & {"TMAX", "TMIN", "TAVG"} and {q.get("metric") for q in clim} & {"PRCP", "SNOW"}):
         problems.append("display 'climograph' needs a temperature query and a PRCP/SNOW query")

@@ -222,11 +222,56 @@ def _calendar_day_result(entry: dict, result: dict | None) -> dict | None:
     return out
 
 
+def season_day(iso: str, snow_season: bool = False) -> int:
+    """
+    The date's day in its bucket, for comparing years: days since Jan 1, or
+    since Jul 1 for a Jul-Jun season (an October snow is earlier than a
+    January one).
+    """
+    d = date.fromisoformat(iso)
+    if snow_season:
+        start = date(d.year if d.month >= 7 else d.year - 1, 7, 1)
+    else:
+        start = date(d.year, 1, 1)
+    return (d - start).days
+
+
+def _date_result(entry: dict, result: dict | None) -> dict:
+    """
+    first_date / last_date answers: one year -> that date; several -> the
+    earliest and latest (by time of year) with their years, the median date,
+    and how many years had no such day.
+    """
+    field = "first" if entry["aggregation"] == "first_date" else "last"
+    if not result or result.get("error"):
+        return {"value": None}
+    pairs = [(y, d) for y, d in zip(result.get("years", []), result.get(field, []))]
+    found = [(y, d) for y, d in pairs if d]
+    if len(pairs) == 1:
+        return {"value": found[0][1] if found else None, "bucket_year": pairs[0][0]}
+    if not found:
+        return {"value": None, "years_counted": len(pairs)}
+    snow = entry.get("unit") == "snow_season"
+    by_day = sorted(found, key=lambda yd: season_day(yd[1], snow))
+    mid = by_day[len(by_day) // 2][1]
+    # every year that shares the earliest (or latest) day: a tie is reported, not broken
+    tied = lambda end: [d for _, d in found if season_day(d, snow) == season_day(end, snow)]
+    one_or_all = lambda ds: ds[0] if len(ds) == 1 else sorted(ds)
+    years = [y for y, _ in pairs]
+    return {"value": None, "typical_date": date.fromisoformat(mid).strftime("%B %-d"),
+            "earliest_on_record": one_or_all(tied(by_day[0][1])), "latest_on_record": one_or_all(tied(by_day[-1][1])),
+            "data_years": f"{min(years)}-{max(years)}", "years_counted": len(pairs), "years_without": len(pairs) - len(found)}
+
+
 def call_answer_query(conn, entry: dict):
     # A record or normal for one calendar day ("record high on July 4") is a
     # day_of_year series in SQL, reduced to that day here
     if entry.get("unit") == "day_of_year" and entry["aggregation"] != "series":
         return _calendar_day_result(entry, call_answer_query(conn, {**entry, "aggregation": "series"}))
+    # First/last date ("last spring freeze in 2025"): a dates series, reduced here
+    if entry["aggregation"] in ("first_date", "last_date"):
+        return _date_result(entry, call_answer_query(
+            conn, {**entry, "aggregation": "series", "period_aggregation": entry["aggregation"]}))
     sql_unit, month_filter, year_start_month = _sql_bucketing(entry)
     threshold = entry.get("threshold") or {}
     event_day_threshold = entry.get("event_day_threshold") or {}
@@ -446,7 +491,8 @@ def build_answer_payload(
 
     station = station_info.get(entry["station_id"], {})
     odds = entry.get("period_aggregation") == "any"
-    value = (result or {}).get("value") if odds else _round_value(
+    dates = entry["aggregation"] in ("first_date", "last_date")
+    value = (result or {}).get("value") if odds or dates else _round_value(
         entry, convert_value(entry, result.get("value") if result else None)
     )
 
@@ -455,7 +501,7 @@ def build_answer_payload(
         "place": station.get("city") or station.get("name") or entry["station_id"],
         "metric": entry["metric"],
         "aggregation": entry["aggregation"],
-        "units": "percent of years" if odds else answer_units(entry),
+        "units": "percent of years" if odds else "date" if dates else answer_units(entry),
         "start_date": entry["start_date"],
         "end_date": entry["end_date"],
         "value": value,
@@ -470,6 +516,12 @@ def build_answer_payload(
             "calendar_day",
             "record_year",
             "n_years",
+            "typical_date",
+            "earliest_on_record",
+            "latest_on_record",
+            "data_years",
+            "years_counted",
+            "years_without",
         ):
             if result.get(key) is not None:
                 payload[key] = result[key]
@@ -477,7 +529,7 @@ def build_answer_payload(
         if "bucket_year" in payload and (label := season_label(entry, payload["bucket_year"])):
             del payload["bucket_year"]
             payload["season"] = label
-        if odds:
+        if odds or dates:
             payload["condition"] = entry.get("threshold")
         if result.get("matching_days"):
             # rounded/converted like a single reading of the metric, not a count

@@ -114,6 +114,28 @@ def _is_count(entry: dict) -> bool:
     return entry.get("period_aggregation") == "count"
 
 
+def _is_dates(entry: dict) -> bool:
+    """A series of the first or last date each year a threshold is met (freeze dates)."""
+    return entry.get("period_aggregation") in ("first_date", "last_date")
+
+
+def _dates_label(entry: dict, temp_unit: str) -> str:
+    """'Last spring freeze', 'First fall freeze', or 'First day with high ≥ 90°F'."""
+    t = entry["threshold"]
+    first = entry["period_aggregation"] == "first_date"
+    months = set(entry.get("month_filter") or [])
+    half = " spring" if months and months <= set(range(1, 7)) else " fall" if months and months <= set(range(7, 13)) else ""
+    if entry["metric"] == "TMIN" and t["operator"] in ("<", "<=") and t["value"] == 32:
+        return f"{'First' if first else 'Last'}{half} freeze"
+    return f"{'First' if first else 'Last'}{half} " + _count_label(entry, temp_unit).replace("Days with", "day with")
+
+
+def _ref_date(iso: str, snow_season: bool) -> date:
+    """The date moved onto a reference year (2000; 1999-2000 for a Jul-Jun season) so years share one axis."""
+    d = date.fromisoformat(iso)
+    return date(1999 if snow_season and d.month >= 7 else 2000, d.month, d.day)
+
+
 def _is_odds(entry: dict) -> bool:
     """A climatology of the share of years with at least one day meeting a threshold."""
     return entry.get("period_aggregation") == "any"
@@ -142,6 +164,8 @@ def _count_label(entry: dict, temp_unit: str) -> str:
 def _units(entry: dict, temp_unit: str) -> str:
     if _is_count(entry):
         return "days"
+    if _is_dates(entry):
+        return "date"
     if _is_odds(entry):
         return "% of years"
     if entry["metric"] in _TEMPS:
@@ -339,7 +363,8 @@ def build_series(
     unit = entry["unit"]
     climatology = unit in CLIMATOLOGY_UNITS
     kind = (
-        "climograph" if entry.get("display") == "climograph"
+        "dates" if _is_dates(entry)
+        else "climograph" if entry.get("display") == "climograph"
         else "histogram" if unit == "value" or entry.get("display") == "histogram"
         else "climatology" if climatology
         else entry["display"] if entry.get("display") in ("climate", "cumulative")
@@ -354,7 +379,8 @@ def build_series(
         "unit": unit,
         "metric": entry["metric"],
         "metric_label": (
-            _count_label(entry, temp_unit) if _is_count(entry)
+            _dates_label(entry, temp_unit) if _is_dates(entry)
+            else _count_label(entry, temp_unit) if _is_count(entry)
             else _count_label(entry, temp_unit).replace("Days with", "Chance of a day with") if _is_odds(entry)
             else pipeline._METRIC_LABELS.get(entry["metric"], entry["metric"])
         ),
@@ -380,6 +406,28 @@ def build_series(
         "notes": notes,
     }
     if not result or result.get("error"):
+        return series
+
+    if kind == "dates":
+        snow = unit == "snow_season"
+        field = "first" if entry["period_aggregation"] == "first_date" else "last"
+        points, missing = [], 0
+        for y, d in zip(result.get("years", []), result.get(field, [])):
+            if not d:
+                missing += 1
+                continue
+            ref = _ref_date(d, snow)
+            points.append({"x": f"{y}-01-01", "x_num": float(y), "label": pipeline.season_label(entry, y) or str(y),
+                           "year": y, "date": d, "y_ref": ref.isoformat(), "value": pipeline.season_day(d, snow),
+                           "when": date.fromisoformat(d).strftime("%b %-d, %Y")})
+        if missing:
+            notes.append(f"{missing} year(s) had no such day.")
+        series["points"] = points
+        if entry.get("trend") and (t := _trend(points, "value")):
+            origin = date(1999, 7, 1) if snow else date(2000, 1, 1)
+            for end in ("start", "end"):
+                t[end]["y_ref"] = (origin + timedelta(days=round(t[end]["value"]))).isoformat()
+            series["trend"] = t
         return series
 
     if unit == "value":
@@ -488,6 +536,21 @@ def _difference(a: dict, b: dict) -> dict:
             "name": f"{a['place']} minus {b['place']}", "minus_place": b["place"]}
 
 
+def _growing_season(a: dict, b: dict) -> dict:
+    """Days between the last spring freeze and the first fall freeze, per year."""
+    spring, fall = (a, b) if a["metric_label"].startswith("Last") else (b, a)
+    fall_by_year = {p["year"]: p["date"] for p in fall["points"]}
+    pts = []
+    for p in spring["points"]:
+        if p["year"] in fall_by_year:
+            days = (date.fromisoformat(fall_by_year[p["year"]]) - date.fromisoformat(p["date"])).days
+            pts.append({"x": p["x"], "x_num": p["x_num"], "label": p["label"], "year": p["year"], "value": days})
+    out = {**spring, "kind": "time_series", "units": "days", "metric_label": "Growing season (days between freezes)",
+           "points": pts, "display": None, "bars": False}
+    out["trend"] = _trend(pts, "value") if (spring.get("trend") or fall.get("trend")) else None
+    return out
+
+
 def _climograph_chart(members: list[dict]) -> dict:
     """Monthly temperatures (lines) and precipitation (bars) in one two-axis chart."""
     for m in members:
@@ -512,6 +575,9 @@ def group_charts(series_list: list[dict]) -> list[dict]:
     if clim:
         charts.append(_climograph_chart(clim))
     series_list = [s for s in series_list if s["kind"] != "climograph"]
+    grow = [s for s in series_list if s.get("display") == "growing_season" and s["points"]]
+    if len(grow) == 2:
+        series_list = [s for s in series_list if s.get("display") != "growing_season"] + [_growing_season(*grow)]
     diff = [s for s in series_list if s.get("display") == "difference" and s["points"]]
     if len(diff) == 2:
         series_list = [s for s in series_list if s.get("display") != "difference"] + [_difference(*diff)]
@@ -665,6 +731,20 @@ def phrasing_summary(series: dict) -> dict:
         out["period_label"] = series.get("period")
     if series.get("display") == "difference":
         out["chart"] = "one line: the first station's values minus the second's, around zero"
+    if series["kind"] == "dates":
+        # dates: earliest/latest by time of year, not highest/lowest numbers
+        for k in ("highest", "lowest", "mean"):
+            out.pop(k, None)
+        if pts:
+            by_day = sorted(pts, key=lambda p: p["value"])
+            tied = lambda end: [p["when"] for p in pts if p["value"] == end["value"]]  # ties reported, not broken
+            out.update(grain="the date each year", what=series["metric_label"],
+                       earliest={"dates": tied(by_day[0])}, latest={"dates": tied(by_day[-1])},
+                       median_date=_ref_date(by_day[len(by_day) // 2]["date"], series["unit"] == "snow_season").strftime("%B %-d"))
+        if series["trend"]:
+            out["trend_days_per_decade"] = series["trend"]["per_decade"]
+            out["trend_meaning"] = "negative = earlier over time"
+            out.pop("trend_per_decade", None)
     if series["kind"] == "histogram":
         # a distribution: its shape and middle, not a highest/lowest over time
         for k in ("highest", "lowest", "mean", "period"):

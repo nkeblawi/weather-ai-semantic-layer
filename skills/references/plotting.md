@@ -40,6 +40,11 @@ totals (as in `count_group.md`), or `count` for a number of days (below).
 30). For a longer span, use `unit: "month"`; the app notes that daily points are limited to a year or less. A daily series takes no
 `trend`, but it may take `baseline`/`display` ("daily highs in 2024 against normal"): it's compared with smoothed daily normals.
 
+**Dates by year** ("last spring freeze each year", "first fall freeze since 1970 with a trend", "first 90-degree day by year"): a
+`year` (or `snow_season`) series with `period_aggregation: "first_date"` / `"last_date"` + `threshold` (+ `month_filter` for spring/fall,
+as in SKILL.md Step 4). Both freezes on one chart → one query each. **Growing season length** ("growing season by year") → those two
+TMIN freeze queries, both with `display: "growing_season"`.
+
 **Comparing two stations directly** ("Dulles minus Reagan", "how much colder are Dulles nights than DC's", "the difference between
 Dulles and Reagan lows"): two series queries, same metric and unit, one per station, both with `display: "difference"` — the first
 station's values minus the second's. **A climograph** ("climograph", "monthly temperature and precipitation together"): `month_of_year`
@@ -104,12 +109,12 @@ On top of SKILL.md Step 6's query fields:
 {
   "aggregation": "series",
   "unit": "day | month | year | season | snow_season | month_of_year | season_of_year | day_of_year | week_of_year | value",
-  "period_aggregation": "mean | sum | count | any (required, except omitted for unit day, day_of_year, value; any only on climatologies)",
+  "period_aggregation": "mean | sum | count | any | first_date | last_date (required, except omitted for unit day, day_of_year, value; any only on climatologies; first/last_date on year or snow_season)",
   "threshold": {"operator": "> | >= | < | <= | =", "value": "number, only with period_aggregation count or any"},
   "season": "winter | spring | summer | fall, only with unit season",
   "trend": "true, only when a trend is asked for; omit otherwise",
   "baseline": {"start_year": "first year of the normals period", "end_year": "last year"},
-  "display": "overlay | anomaly | climate | cumulative | histogram | difference | climograph (overlay/anomaly/climate need baseline; climate/cumulative need unit day)"
+  "display": "overlay | anomaly | climate | cumulative | histogram | difference | climograph | growing_season (overlay/anomaly/climate need baseline; climate/cumulative need unit day)"
 }
 ```
 
@@ -274,6 +279,22 @@ On top of SKILL.md Step 6's query fields:
   {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "mean", "display": "climograph", "start_date": "1800-01-01", "end_date": "2026-08-04"},
   {"station_id": "USW00013743", "metric": "TMIN", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "mean", "display": "climograph", "start_date": "1800-01-01", "end_date": "2026-08-04"},
   {"station_id": "USW00013743", "metric": "PRCP", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "sum", "display": "climograph", "start_date": "1800-01-01", "end_date": "2026-08-04"}
+]}
+```
+
+**Q:** /plot the last spring and first fall freeze at Dulles each year with a trend line
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "series", "unit": "year", "period_aggregation": "last_date", "month_filter": [1, 2, 3, 4, 5, 6], "threshold": {"operator": "<=", "value": 32}, "start_date": "1800-01-01", "end_date": "2026-08-04", "trend": true},
+  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "series", "unit": "year", "period_aggregation": "first_date", "month_filter": [7, 8, 9, 10, 11, 12], "threshold": {"operator": "<=", "value": 32}, "start_date": "1800-01-01", "end_date": "2026-08-04", "trend": true}
+]}
+```
+
+**Q:** /plot the growing season length at Reagan National by year (the same two queries, as one series of days)
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00013743", "metric": "TMIN", "aggregation": "series", "unit": "year", "period_aggregation": "last_date", "month_filter": [1, 2, 3, 4, 5, 6], "threshold": {"operator": "<=", "value": 32}, "start_date": "1800-01-01", "end_date": "2026-08-04", "display": "growing_season"},
+  {"station_id": "USW00013743", "metric": "TMIN", "aggregation": "series", "unit": "year", "period_aggregation": "first_date", "month_filter": [7, 8, 9, 10, 11, 12], "threshold": {"operator": "<=", "value": 32}, "start_date": "1800-01-01", "end_date": "2026-08-04", "display": "growing_season"}
 ]}
 ```
 

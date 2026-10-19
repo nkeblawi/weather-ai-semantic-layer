@@ -223,6 +223,7 @@ def get_answer(
         except Exception as exc:  # noqa: BLE001 -- unchecked ids are rejected below
             logger.warning("station id check failed session=%s: %s", session.session_id, exc)
         guardrails.cap_rank_limits(resolved)
+        guardrails.coerce_dates(resolved, text)
         guardrails.coerce_series(resolved, text)
         problems = guardrails.validate_resolved(resolved, session.station_info, plot_mode=plot_mode)
         if problems:
