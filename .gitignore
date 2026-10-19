@@ -25,3 +25,6 @@ tests/
 
 # Build artifacts
 skills.zip
+
+# Local notes (issues log, etc.)
+logs/
