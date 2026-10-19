@@ -52,6 +52,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SKILL_PATH = PROJECT_ROOT / "skills" / "SKILL.md"
 COUNT_GROUP_PATH = PROJECT_ROOT / "skills" / "references" / "count_group.md"
 ANSWER_PHRASING_PATH = PROJECT_ROOT / "skills" / "references" / "answer_phrasing.md"
+PLOTTING_PATH = PROJECT_ROOT / "skills" / "references" / "plotting.md"
 SCRIPTS_PATH = PROJECT_ROOT / "skills" / "scripts"
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
@@ -98,6 +99,33 @@ def call_lookup_station(conn, location_text: str):
     if not row or row[0] is None:
         return None
     return json.loads(row[0])
+
+
+def fill_station_info(conn, resolved: dict, station_info: dict) -> None:
+    """
+    Adds stations the resolver used without calling lookup_station this
+    session, when the id is a real station. The skill's worked examples use
+    real ids (Dulles above all), so the model sometimes reuses one from memory;
+    the id is right, but validate_resolved only trusts lookup results. An id
+    that isn't in the stations table stays missing and is still rejected.
+    """
+    missing = {
+        q.get("station_id")
+        for q in resolved.get("queries") or []
+        if isinstance(q, dict) and isinstance(q.get("station_id"), str)
+    } - set(station_info)
+    if not missing:
+        return
+    params = {f"id{i}": sid for i, sid in enumerate(sorted(missing))}
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT ghcn_id, name, city FROM {CATALOG}.analytics.stations "
+            f"WHERE ghcn_id IN ({', '.join(':' + k for k in params)})",
+            parameters=params,
+        )
+        rows = cur.fetchall()
+    for ghcn_id, name, city in rows:
+        station_info[ghcn_id] = {"ghcn_id": ghcn_id, "name": name, "city": city}
 
 
 def list_home_locations(conn) -> dict[str, str]:
@@ -535,6 +563,7 @@ def resolve_question(
     history: list | None = None,
     station_info: dict | None = None,
     home_location: str | None = None,
+    plot_mode: str | None = None,
 ) -> dict:
     """
     Runs the Claude tool-use loop until the model returns its final JSON,
@@ -551,7 +580,7 @@ def resolve_question(
     """
     if station_info is None:
         station_info = {}
-    system_prompt = build_system_prompt(question, history, station_info, home_location)
+    system_prompt = build_system_prompt(question, history, station_info, home_location, plot_mode)
     messages: list[dict[str, Any]] = [{"role": "user", "content": question}]
 
     while True:
@@ -757,14 +786,42 @@ def build_system_prompt(
     history: list | None = None,
     station_info: dict | None = None,
     home_location: str | None = None,
+    plot_mode: str | None = None,
 ) -> str:
     today = date.today().isoformat()
     skill_text = SKILL_PATH.read_text()
     skill_text = re.sub(r"^---\n.*?\n---\n\n", "", skill_text, count=1, flags=re.DOTALL)
     skill_text = skill_text.replace("{{CURRENT_DATE}}", today)
+    if plot_mode:
+        # Up front, not only after the long skill text: without it the model
+        # sometimes applies SKILL.md's single-value rules to a chart request
+        skill_text = (
+            "# PLOT MODE\n\n"
+            + (
+                "This turn is a `/plot` request. Follow `references/plotting.md` (appended below): every "
+                "resolved query must use `aggregation: \"series\"`. If nothing can be charted, return "
+                "`needs_clarification` asking what to chart. Never return `reason: \"needs_plot\"`.\n\n"
+                if plot_mode == "plot"
+                else "This turn follows a chart. Follow `references/plotting.md` (appended below): chart it "
+                "with `series` if it asks for another chart, otherwise answer it as a regular question. "
+                "Never return `reason: \"needs_plot\"`.\n\n"
+            )
+            + "---\n\n"
+            + skill_text
+        )
 
-    if needs_count_group(question, history):
+    # plotting.md builds on count_group.md's season/snow_season units, so a
+    # plot turn loads both
+    if plot_mode or needs_count_group(question, history):
         skill_text += "\n\n---\n\n" + COUNT_GROUP_PATH.read_text()
+    if plot_mode:
+        skill_text += "\n\n---\n\n" + PLOTTING_PATH.read_text()
+        skill_text += "\n\n---\n\n## Plot mode\n\n" + (
+            "This is a `/plot` turn: the user asked for a chart (plotting.md Step 1)."
+            if plot_mode == "plot"
+            else "This is a follow-up to a chart (no `/plot`): chart it if it asks for another "
+            "chart, otherwise answer it as a regular question (plotting.md Step 1)."
+        )
 
     # Fallback location when the question names none (SKILL.md Step 2).
     if home_location:

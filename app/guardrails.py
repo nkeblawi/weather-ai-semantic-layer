@@ -43,15 +43,23 @@ RATE_LIMIT_MESSAGES = 5
 RATE_LIMIT_WINDOW_SECS = 60
 MAX_QUERIES_PER_QUESTION = 4  # each query is a warehouse call
 MAX_RANK_LIMIT = 15  # top/bottom ranks per query; answer_query clamps to the same
+# /plot: a monthly series longer than this becomes yearly points, which keeps
+# 4 series under Altair's 5,000-row default (4 x 1,200 points)
+MAX_MONTHLY_SERIES_YEARS = 100
+MIN_BASELINE_YEARS, MAX_BASELINE_YEARS = 10, 50
 
 # ---------------------------------------------------------------------------
-# Allowed values (SKILL.md Step 6)
+# Allowed values (SKILL.md Step 6, plus references/plotting.md for series)
 # ---------------------------------------------------------------------------
 
 METRICS = {"TAVG", "TMAX", "TMIN", "PRCP", "SNOW", "SNWD", "AWND", "HDD", "CDD"}
-AGGREGATIONS = {"mean", "median", "sum", "max", "min", "stddev", "count", "latest", "earliest", "top", "bottom"}
+AGGREGATIONS = {"mean", "median", "sum", "max", "min", "stddev", "count", "latest", "earliest", "top", "bottom", "series"}
 RANKING_AGGREGATIONS = {"top", "bottom"}
-UNITS = {"day", "event", "month", "year", "snow_season", "season"}
+UNITS = {"day", "event", "month", "year", "snow_season", "season", "month_of_year", "season_of_year"}
+CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year"}  # series only
+SERIES_UNITS = {"month", "year", "season", "snow_season"} | CLIMATOLOGY_UNITS
+DISPLAYS = {"overlay", "anomaly"}
+CLARIFICATION_REASONS = {"needs_plot"}
 SEASONS = {"winter", "spring", "summer", "fall"}
 OPERATORS = {">", ">=", "<", "<=", "="}
 EVENT_METRICS = {"PRCP", "SNOW"}
@@ -60,6 +68,11 @@ EVENT_VALUES = {"total", "duration"}
 PERIOD_AGGREGATIONS = {"mean", "sum"}
 OUTPUT_UNITS = {"C", "F"}
 STATUSES = {"resolved", "needs_clarification", "off_topic"}
+
+# Plot modes (see chat_session.get_answer): an explicit /plot turn must chart
+# or ask; a follow-up to a chart may chart or answer normally; any other turn
+# may not chart.
+PLOT_EXPLICIT, PLOT_INHERITED, PLOT_OFF = "plot", "plot_inherited", None
 MIN_DATE = date(1800, 1, 1)
 
 # ---------------------------------------------------------------------------
@@ -83,9 +96,30 @@ INVALID_MSG = (
     "Sorry, I couldn't turn that into a weather query. Could you rephrase it, "
     "with a city and a time period? Type /help for examples."
 )
+# Shown (with a "Plot it" button) for a chart request without /plot
+NEEDS_PLOT_MSG = (
+    "That needs a chart. Charts use the /plot command: click **Plot it** to "
+    "chart this question, or start a message with /plot."
+)
+# A /plot turn the resolver couldn't turn into a chart
+NOT_CHARTABLE_MSG = (
+    "I couldn't turn that into a chart. Charts show values by month, season, or year, "
+    "e.g. `/plot average high and low for each month at Dulles` or "
+    "`/plot summer highs at Reagan National with a trend line`."
+)
 GENERIC_CLARIFICATION_MSG = (
     "Could you rephrase that with a city and a time period? "
     "Type /help for examples."
+)
+
+# Explicit chart words. Outside plot mode these get NEEDS_PLOT_MSG without a
+# model call; implicit chart requests ("for each month") are left to the
+# resolver's needs_plot clarification. Narrow on purpose: "normal" or
+# "trend" alone isn't here, so "the normal July high" still answers.
+CHART_WORDS = re.compile(
+    r"\b(plot|plots|plotting|plotted|chart|charts|charting|graph|graphs|graphing"
+    r"|visuali[sz]e|visuali[sz]ation|trend ?lines?)\b",
+    re.IGNORECASE,
 )
 
 # Prompt-injection phrasings. Kept narrow to avoid false positives on real
@@ -262,7 +296,15 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
             problems.append(f"limit {lim!r} must be an integer 1-{MAX_RANK_LIMIT}")
     if unit == "season" and q.get("season") not in SEASONS:
         problems.append(f"unit 'season' requires season winter, spring, summer, or fall, got {q.get('season')!r}")
-    if unit in ("month", "year", "snow_season", "season") and q.get("period_aggregation") not in PERIOD_AGGREGATIONS:
+    if aggregation == "series":
+        _validate_series(q, unit, today, problems)
+    elif unit in CLIMATOLOGY_UNITS:
+        problems.append(f"unit {unit!r} only applies to series")
+    else:
+        for name in ("trend", "baseline", "display"):
+            if name in q:
+                problems.append(f"{name} only applies to series")
+    if unit in {"month", "year", "snow_season", "season"} | CLIMATOLOGY_UNITS and q.get("period_aggregation") not in PERIOD_AGGREGATIONS:
         problems.append(f"unit {unit!r} requires period_aggregation mean or sum")
     if unit == "snow_season" and metric != "SNOW":
         problems.append(f"unit 'snow_season' requires SNOW, got {metric!r}")
@@ -314,10 +356,73 @@ def cap_rank_limits(resolved: dict) -> None:
             q["limit"] = MAX_RANK_LIMIT
 
 
-def validate_resolved(resolved: dict, station_info: dict, today: date | None = None) -> list[str]:
+def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> None:
+    """Fields only a series (a /plot query, references/plotting.md) may carry."""
+    if unit not in SERIES_UNITS:
+        problems.append(f"series unit {unit!r} not allowed (plots are monthly at the finest)")
+    if "trend" in q:
+        if q["trend"] is not True:
+            problems.append(f"trend {q['trend']!r} must be true or omitted")
+        elif unit in CLIMATOLOGY_UNITS:
+            problems.append("trend doesn't apply to a climatology")
+    if "baseline" in q:
+        b = q["baseline"]
+        start, end = (b.get("start_year"), b.get("end_year")) if isinstance(b, dict) else (None, None)
+        if not (isinstance(start, int) and isinstance(end, int)) or isinstance(start, bool) or isinstance(end, bool):
+            problems.append(f"baseline {b!r} needs integer start_year and end_year")
+        else:
+            years = end - start + 1
+            if not MIN_BASELINE_YEARS <= years <= MAX_BASELINE_YEARS:
+                problems.append(f"baseline is {years} years ({MIN_BASELINE_YEARS}-{MAX_BASELINE_YEARS} allowed)")
+            if end >= today.year:
+                problems.append(f"baseline must end before {today.year}")
+        if unit in CLIMATOLOGY_UNITS:
+            problems.append("baseline doesn't apply to a climatology (its dates are the period)")
+    if "display" in q:
+        if q["display"] not in DISPLAYS:
+            problems.append(f"display {q['display']!r} not allowed")
+        elif "baseline" not in q:
+            problems.append("display needs a baseline")
+
+
+DAILY_WORDS = re.compile(r"\b(daily|each day|every day|per day|day[- ]by[- ]day)\b", re.IGNORECASE)
+
+
+def coerce_series(resolved: dict, question: str = "") -> None:
+    """
+    Fixes series queries that ask for more than plots allow, in place, before
+    validation -- a chart instead of an error, like cap_rank_limits. Daily
+    points become monthly; a monthly series over MAX_MONTHLY_SERIES_YEARS
+    becomes yearly. Each change leaves a note under the chart (notes).
+    `question` is the user's text: a request for daily values gets the note
+    even when the resolver already picked monthly itself (plotting.md says to).
+    """
+    for q in resolved.get("queries") or []:
+        if not isinstance(q, dict) or q.get("aggregation") != "series":
+            continue
+        was_day = q.get("unit", "day") == "day"
+        if was_day:
+            q["unit"] = "month"
+        unit = q["unit"]
+        if was_day or DAILY_WORDS.search(question):
+            q.setdefault("notes", []).append("Plots show monthly values at the finest.")
+        start, end = _parse_date(q.get("start_date")), _parse_date(q.get("end_date"))
+        if unit == "month" and start and end and (end.year - start.year + 1) > MAX_MONTHLY_SERIES_YEARS:
+            q["unit"] = "year"
+            q.setdefault("notes", []).append(
+                f"Monthly points are limited to {MAX_MONTHLY_SERIES_YEARS} years, so this shows yearly values."
+            )
+
+
+def validate_resolved(
+    resolved: dict, station_info: dict, today: date | None = None, *, plot_mode: str | None = PLOT_OFF
+) -> list[str]:
     """
     Problems with the resolver's output, or [] if it's safe to act on.
     Clarifications are checked too, since their text is shown to the user.
+    plot_mode: PLOT_EXPLICIT (/plot: every query must be a series),
+    PLOT_INHERITED (a follow-up to a chart: either kind), or PLOT_OFF (no
+    series).
     """
     today = today or date.today()
     status = resolved.get("status")
@@ -330,7 +435,18 @@ def validate_resolved(resolved: dict, station_info: dict, today: date | None = N
             return ["resolved output has no queries"]
         if len(queries) > MAX_QUERIES_PER_QUESTION:
             return [f"{len(queries)} queries (max {MAX_QUERIES_PER_QUESTION})"]
-        return [p for q in queries for p in _validate_query(q, station_info, today)]
+        problems = [p for q in queries for p in _validate_query(q, station_info, today)]
+        series = [isinstance(q, dict) and q.get("aggregation") == "series" for q in queries]
+        if plot_mode == PLOT_OFF and any(series):
+            problems.append("series outside plot mode")
+        elif plot_mode == PLOT_EXPLICIT and not all(series):
+            problems.append("/plot answered without a series")
+        elif any(series) and not all(series):
+            problems.append("series mixed with single-value queries")
+        return problems
+
+    if "reason" in resolved and resolved["reason"] not in CLARIFICATION_REASONS:
+        return [f"reason {resolved['reason']!r} not allowed"]
 
     if status == "needs_clarification":
         text = resolved.get("clarification_question")

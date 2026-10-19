@@ -6,6 +6,7 @@ import pipeline
 import chat_session
 import chat_store
 import guardrails
+import charts
 
 st.set_page_config(page_title="Weather Observations Chatbot", page_icon="🌤️")
 
@@ -70,6 +71,7 @@ def get_home_locations(_conn):
 
 CLEAR_COMMAND = "/clear"
 HELP_COMMAND = "/help"
+PLOT_COMMAND = chat_session.PLOT_COMMAND
 
 WELCOME_MSG = (
     "Welcome to the Weather Observations Chat! I answer questions about past weather observations "
@@ -83,6 +85,11 @@ HELP_EXAMPLES = [
     "How much snow did Dulles Airport get in its last snowstorm over 6 inches?",
     "How many days did it rain in Miami in 2025?",
 ]
+PLOT_EXAMPLES = [
+    "/plot average high and low temperature for each month at Dulles",
+    "/plot monthly temperatures at Dulles in 2025 against normal",
+    "/plot summer highs at Reagan National with a trend line",
+]
 
 
 def render_help():
@@ -90,10 +97,13 @@ def render_help():
     st.markdown(
         "Ask about past weather for any of the cities in the **Home city** list. "
         f"Some examples to try:\n\n{examples}\n\n"
-        "**Tip:** pick a **Home city** at the top and press **Update** to leave the city "
+        "**Tip:** open the settings bar at the top, pick a **Home city**, and press **Update** to leave the city "
         'out of your questions (e.g. "What was the average high temperature in July 2025?"). '
         "You can also switch the temperature **Units** between °F and °C there.\n\n"
-        f"`{HELP_COMMAND}` doesn't count toward your question limit."
+        f"**Charts:** start a question with `{PLOT_COMMAND}` to get a chart — monthly, yearly, or "
+        "seasonal values, climatologies, comparisons with the 1991-2020 normals, and trend lines:\n\n"
+        + "\n".join(f"- {q}" for q in PLOT_EXAMPLES)
+        + f"\n\n`{HELP_COMMAND}` doesn't count toward your question limit."
     )
 
 
@@ -119,8 +129,8 @@ PAGE_BG = "#FFFFFF" if st.context.theme.type == "light" else "#0E1117"
 # - Preferences header: sticky just under Streamlit's 3.75rem top bar. Set on
 #   the form's wrapper, whose parent is the main column that grows with the
 #   chat (sticky only works within its parent's height).
-# - Update button: sky blue when clickable. Only the enabled state is
-#   restyled, so Streamlit's own gray disabled style shows while saving.
+# - Update and Plot it buttons: sky blue when clickable. Only the enabled
+#   state is restyled, so Streamlit's own gray disabled style shows while saving.
 # - Chat: user messages on the right (avatar flipped to the right, bubble
 #   shrunk to its text), answers stay left -- messaging-app layout. Emoji
 #   avatars carry no role test id, so rows are matched by the content's
@@ -151,12 +161,14 @@ st.html(f"""
         background-color: #87CEEB;
         border-color: #87CEEB;
     }}
-    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled) {{
+    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled),
+    [data-testid="stBaseButton-primary"]:not(:disabled) {{
         background-color: #87CEEB;
         border-color: #87CEEB;
         color: #0E1117;
     }}
-    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled):hover {{
+    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled):hover,
+    [data-testid="stBaseButton-primary"]:not(:disabled):hover {{
         background-color: #5DB8DE;
         border-color: #5DB8DE;
         color: #0E1117;
@@ -172,7 +184,11 @@ def _start_saving():
 
 
 def render_preferences(session, locations):
-    """Header: home city + units, saved only when Update is pressed."""
+    """
+    Header: home city + units, saved only when Update is pressed. Collapsed
+    to a one-line summary until opened; saving a change updates the summary,
+    and the new label closes it again.
+    """
     # Options are station codes (what gets saved); format_func shows the name.
     options = list(locations)
     current = session.home_location
@@ -181,8 +197,10 @@ def render_preferences(session, locations):
     if current and current not in options:
         options.insert(0, current)
 
+    city = locations.get(current, current) if current else "not set"
+    summary = f"Home city: {city} · °{session.temp_unit or 'F'}"
     # st.form: widget changes don't rerun the app until Update is pressed
-    with st.form("preferences"):
+    with st.expander(summary, icon=":material/settings:"), st.form("preferences", border=False):
         loc_col, unit_col, btn_col = st.columns([3, 2, 1], vertical_alignment="bottom")
         loc_col.selectbox(
             "Home city",
@@ -252,16 +270,41 @@ def daily_limit_reached(conn) -> bool:
         return False
 
 
-def render_answer(answer: str, tables: list[dict] | None = None):
+def _plot_it(turn: dict):
+    # on_click runs before the rerun: queue the same question as /plot, once
+    turn["plot_it_used"] = True
+    st.session_state.pending_question = f"{PLOT_COMMAND} {turn['question']}"
+
+
+def render_answer(turn: dict, index: int):
+    answer = turn["answer"]
     if answer.startswith("[error]"):
         st.error(friendly_error(answer))
         return
     st.write(answer)
-    for table in tables or []:
+    if turn.get("needs_plot") and not turn.get("plot_it_used"):
+        st.button("Plot it", key=f"plot_it_{index}", type="primary", on_click=_plot_it, args=(turn,))
+    for table in turn.get("tables") or []:
         st.markdown(f"**{table['title']}**")
         st.dataframe(table["rows"], hide_index=True)
         if table["note"]:
             st.caption(table["note"])
+    for j, chart in enumerate(turn.get("charts") or []):
+        st.vega_lite_chart(charts.chart_spec(chart), width="stretch")
+        if chart.get("table"):
+            # collapsed: the chart is the answer, the numbers are on request
+            with st.expander("Show table", icon=":material/table:"):
+                st.dataframe(chart["table"], hide_index=True)
+        for note in chart["notes"]:
+            st.caption(note)
+        if sum(len(s["points"]) for s in chart["series"]) > 24:
+            st.download_button(
+                "Download data (CSV)",
+                charts.to_csv(chart),
+                file_name="weather_chart.csv",
+                mime="text/csv",
+                key=f"csv_{index}_{j}",
+            )
 
 
 # Page order: header, welcome, then the connecting spinner. The header needs
@@ -305,7 +348,8 @@ try:
                 f"Type {CLEAR_COMMAND} to reset the chat context · "
                 f"{guardrails.questions_remaining(session)} of "
                 f"{guardrails.SESSION_QUESTION_LIMIT} questions left  \n"
-                f"Type {HELP_COMMAND} for example questions and tips"
+                f"Type {HELP_COMMAND} for example questions and tips · "
+                f"start with {PLOT_COMMAND} for a chart"
             )
 except (
     Exception
@@ -321,6 +365,9 @@ with header_slot:
 # conversation context) as the history lengths they were shown at, so each
 # card stays in place in the transcript across reruns.
 help_after = st.session_state.setdefault("help_after", [])
+# A Plot it click queued its question for this run (the input stays empty)
+if pending := st.session_state.pop("pending_question", None):
+    question = pending
 command = question.strip().lower() if question else None
 
 # /clear: wipe the on-screen chat and the context sent to the model. Turns
@@ -341,7 +388,7 @@ for i, turn in enumerate(session.history):
     with chat_message("user"):
         st.write(turn["question"])
     with chat_message("assistant"):
-        render_answer(turn["answer"], turn.get("tables"))
+        render_answer(turn, i)
 render_help_cards_at(len(session.history))
 
 if question:

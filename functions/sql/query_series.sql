@@ -1,0 +1,222 @@
+CREATE OR REPLACE FUNCTION weather.analytics.query_series(
+    p_station_id STRING,
+    p_metric STRING,
+    p_start_date DATE,
+    p_end_date DATE,
+    p_unit STRING,
+    p_period_aggregation STRING,
+    p_month_filter ARRAY<INT> DEFAULT NULL,
+    p_year_start_month INT DEFAULT 1
+)
+RETURNS STRING
+COMMENT '
+Answers a p_aggregation = series query (a /plot request) from the weather query resolver skill against weather.analytics.observations. Called only by answer_query.
+
+Returns every bucket as JSON columns (parallel arrays, ordered by date) rather than one value, so a chart can be drawn from it.
+
+p_unit:
+- month: one point per calendar month. Returns {years, months, values, n_days}.
+- year: one point per year. p_year_start_month shifts the year (7 = snow season Jul-Jun; 12 with p_month_filter [12, 1, 2] = winter, Dec-Feb kept together), labeled by the year it ends in. p_month_filter keeps only those months in each year, which is how a season (e.g. summer = [6, 7, 8]) becomes one point per year. Returns {years, values, n_days}.
+- month_of_year: monthly climatology, 12 points. Each month (year, month) is collapsed first, then averaged across years. Returns {months, values, stddev, n_years}; stddev is the spread of the monthly values across years.
+- season_of_year: seasonal climatology, 4 points (winter DJF, spring MAM, summer JJA, fall SON). Each season (year, season) is collapsed first, then averaged across years; a winter takes December from the year before (winter 1991 = Dec 1990 - Feb 1991). Returns {seasons, values, stddev, n_years}.
+- day: not supported (daily points are never plotted). Returns {"error": "unsupported_unit"}.
+
+p_period_aggregation (mean or sum) collapses each month/year/season from its daily values.
+
+Coverage rule: a month, year, or season counts only if at least 90% of its calendar days have a non-null value (for a filtered year, counting only the p_month_filter months), so partial periods never enter a series or a climatology. n_days / n_years let the caller apply its own completeness checks (e.g. a 30-year normal needing at least 24 years).
+
+Values are rounded: 2 decimals for PRCP/SNOW/SNWD, 1 for everything else.
+'
+RETURN (
+    CASE
+        WHEN p_unit IN ('month', 'year') THEN (
+            SELECT to_json(named_struct(
+                'years', transform(pts, p -> p.y),
+                'months', transform(pts, p -> p.m),
+                'values', transform(pts, p -> p.v),
+                'n_days', transform(pts, p -> p.n)
+            ))
+            FROM (
+                SELECT array_sort(collect_list(named_struct(
+                    'y', bucket_year, 'm', bucket_month, 'v', bucket_value, 'n', n_days
+                ))) AS pts
+                FROM (
+                    SELECT
+                        bucket_year,
+                        CASE WHEN p_unit = 'month' THEN MAX(bucket_month) END AS bucket_month,
+                        -- ROUND needs a literal scale, so branch on the metric
+                        IF(p_metric IN ('PRCP', 'SNOW', 'SNWD'),
+                           ROUND(CASE WHEN p_period_aggregation = 'mean' THEN AVG(value)
+                                      WHEN p_period_aggregation = 'sum'  THEN SUM(value) END, 2),
+                           ROUND(CASE WHEN p_period_aggregation = 'mean' THEN AVG(value)
+                                      WHEN p_period_aggregation = 'sum'  THEN SUM(value) END, 1)
+                        ) AS bucket_value,
+                        CAST(COUNT(value) AS INT) AS n_days,
+                        -- first day of a year bucket's 12-month window (for coverage)
+                        MAKE_DATE(
+                            bucket_year - IF(COALESCE(p_year_start_month, 1) > 1, 1, 0),
+                            COALESCE(p_year_start_month, 1), 1
+                        ) AS bucket_start
+                    FROM (
+                        SELECT
+                            -- year buckets that start mid-year are labeled by the year they end in
+                            CASE WHEN p_unit = 'year' AND COALESCE(p_year_start_month, 1) > 1
+                                 THEN YEAR(ADD_MONTHS(obs_date, 13 - p_year_start_month))
+                                 ELSE YEAR(obs_date)
+                            END AS bucket_year,
+                            MONTH(obs_date) AS bucket_month,
+                            CASE p_metric
+                                WHEN 'TAVG' THEN TAVG
+                                WHEN 'TMAX' THEN TMAX
+                                WHEN 'TMIN' THEN TMIN
+                                WHEN 'PRCP' THEN PRCP
+                                WHEN 'SNOW' THEN SNOW
+                                WHEN 'SNWD' THEN SNWD
+                                WHEN 'AWND' THEN AWND
+                                WHEN 'HDD' THEN HDD
+                                WHEN 'CDD' THEN CDD
+                            END AS value
+                        FROM weather.analytics.observations
+                        WHERE station_id = p_station_id
+                          AND obs_date BETWEEN p_start_date AND p_end_date
+                          AND (p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(obs_date)))
+                    ) days
+                    GROUP BY
+                        bucket_year,
+                        CASE WHEN p_unit = 'month' THEN bucket_month END
+                ) buckets
+                -- coverage rule: >= 90% of the bucket's calendar days observed
+                WHERE bucket_value IS NOT NULL
+                  AND n_days >= 0.9 * CASE
+                    WHEN p_unit = 'month' THEN DAY(LAST_DAY(MAKE_DATE(bucket_year, bucket_month, 1)))
+                    -- days in the 12-month window, counting only p_month_filter months
+                    ELSE AGGREGATE(
+                        SEQUENCE(0, 11), 0,
+                        (acc, i) -> acc + IF(
+                            p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(ADD_MONTHS(bucket_start, i))),
+                            DAY(LAST_DAY(ADD_MONTHS(bucket_start, i))), 0
+                        )
+                    )
+                  END
+            ) pts_query
+        )
+
+        WHEN p_unit = 'month_of_year' THEN (
+            SELECT to_json(named_struct(
+                'months', transform(pts, p -> p.m),
+                'values', transform(pts, p -> p.v),
+                'stddev', transform(pts, p -> p.s),
+                'n_years', transform(pts, p -> p.n)
+            ))
+            FROM (
+                SELECT array_sort(collect_list(named_struct('m', m, 'v', v, 's', s, 'n', n))) AS pts
+                FROM (
+                    SELECT
+                        bucket_month AS m,
+                        IF(p_metric IN ('PRCP', 'SNOW', 'SNWD'), ROUND(AVG(bucket_value), 2), ROUND(AVG(bucket_value), 1)) AS v,
+                        IF(p_metric IN ('PRCP', 'SNOW', 'SNWD'), ROUND(STDDEV(bucket_value), 2), ROUND(STDDEV(bucket_value), 1)) AS s,
+                        CAST(COUNT(*) AS INT) AS n
+                    FROM (
+                        SELECT
+                            YEAR(obs_date) AS bucket_year,
+                            MONTH(obs_date) AS bucket_month,
+                            CASE WHEN p_period_aggregation = 'mean' THEN AVG(value)
+                                 WHEN p_period_aggregation = 'sum'  THEN SUM(value)
+                            END AS bucket_value,
+                            COUNT(value) AS n_days
+                        FROM (
+                            SELECT obs_date,
+                                CASE p_metric
+                                    WHEN 'TAVG' THEN TAVG
+                                    WHEN 'TMAX' THEN TMAX
+                                    WHEN 'TMIN' THEN TMIN
+                                    WHEN 'PRCP' THEN PRCP
+                                    WHEN 'SNOW' THEN SNOW
+                                    WHEN 'SNWD' THEN SNWD
+                                    WHEN 'AWND' THEN AWND
+                                    WHEN 'HDD' THEN HDD
+                                    WHEN 'CDD' THEN CDD
+                                END AS value
+                            FROM weather.analytics.observations
+                            WHERE station_id = p_station_id
+                              AND obs_date BETWEEN p_start_date AND p_end_date
+                        ) d
+                        GROUP BY YEAR(obs_date), MONTH(obs_date)
+                    ) monthly
+                    -- coverage rule: >= 90% of the month's days observed
+                    WHERE bucket_value IS NOT NULL
+                      AND n_days >= 0.9 * DAY(LAST_DAY(MAKE_DATE(bucket_year, bucket_month, 1)))
+                    GROUP BY bucket_month
+                ) by_month
+            ) pts_query
+        )
+
+        WHEN p_unit = 'season_of_year' THEN (
+            SELECT to_json(named_struct(
+                'seasons', transform(pts, p -> element_at(array('winter', 'spring', 'summer', 'fall'), p.k)),
+                'values', transform(pts, p -> p.v),
+                'stddev', transform(pts, p -> p.s),
+                'n_years', transform(pts, p -> p.n)
+            ))
+            FROM (
+                SELECT array_sort(collect_list(named_struct('k', k, 'v', v, 's', s, 'n', n))) AS pts
+                FROM (
+                    SELECT
+                        season AS k,
+                        IF(p_metric IN ('PRCP', 'SNOW', 'SNWD'), ROUND(AVG(bucket_value), 2), ROUND(AVG(bucket_value), 1)) AS v,
+                        IF(p_metric IN ('PRCP', 'SNOW', 'SNWD'), ROUND(STDDEV(bucket_value), 2), ROUND(STDDEV(bucket_value), 1)) AS s,
+                        CAST(COUNT(*) AS INT) AS n
+                    FROM (
+                        SELECT
+                            season_year,
+                            season,
+                            CASE WHEN p_period_aggregation = 'mean' THEN AVG(value)
+                                 WHEN p_period_aggregation = 'sum'  THEN SUM(value)
+                            END AS bucket_value,
+                            COUNT(value) AS n_days
+                        FROM (
+                            SELECT
+                                -- December belongs to the following year's winter
+                                YEAR(ADD_MONTHS(obs_date, 1)) AS season_year,
+                                CASE
+                                    WHEN MONTH(obs_date) IN (12, 1, 2) THEN 1
+                                    WHEN MONTH(obs_date) IN (3, 4, 5) THEN 2
+                                    WHEN MONTH(obs_date) IN (6, 7, 8) THEN 3
+                                    ELSE 4
+                                END AS season,
+                                CASE p_metric
+                                    WHEN 'TAVG' THEN TAVG
+                                    WHEN 'TMAX' THEN TMAX
+                                    WHEN 'TMIN' THEN TMIN
+                                    WHEN 'PRCP' THEN PRCP
+                                    WHEN 'SNOW' THEN SNOW
+                                    WHEN 'SNWD' THEN SNWD
+                                    WHEN 'AWND' THEN AWND
+                                    WHEN 'HDD' THEN HDD
+                                    WHEN 'CDD' THEN CDD
+                                END AS value
+                            FROM weather.analytics.observations
+                            WHERE station_id = p_station_id
+                              -- one month early so the first winter gets its December
+                              AND obs_date BETWEEN ADD_MONTHS(p_start_date, -1) AND p_end_date
+                        ) d
+                        WHERE season_year BETWEEN YEAR(p_start_date) AND YEAR(p_end_date)
+                        GROUP BY season_year, season
+                    ) seasonal
+                    -- coverage rule: >= 90% of the season's days observed
+                    WHERE bucket_value IS NOT NULL
+                      AND n_days >= 0.9 * CASE season
+                        WHEN 1 THEN DATEDIFF(MAKE_DATE(season_year, 3, 1), MAKE_DATE(season_year - 1, 12, 1))
+                        ELSE DATEDIFF(
+                            ADD_MONTHS(MAKE_DATE(season_year, 3 * season - 3, 1), 3),
+                            MAKE_DATE(season_year, 3 * season - 3, 1)
+                        )
+                      END
+                    GROUP BY season
+                ) by_season
+            ) pts_query
+        )
+
+        ELSE to_json(named_struct('error', 'unsupported_unit', 'unit', p_unit))
+    END
+);

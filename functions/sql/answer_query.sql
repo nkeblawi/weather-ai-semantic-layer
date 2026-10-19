@@ -19,7 +19,7 @@ RETURNS STRING
 COMMENT '
 Single entry point for answering one resolved query entry from the weather query resolver skill. 
 
-Dispatches internally based on p_unit ("day", "event", "month", or "year") to query_by_day, query_by_event, or query_by_period, and returns that function''s JSON result directly. 
+Dispatches internally based on p_unit ("day", "event", "month", or "year") to query_by_day, query_by_event, or query_by_period, and returns that function''s JSON result directly. p_aggregation = series (a /plot request) goes to query_series instead, for any p_unit (month, year, month_of_year, season_of_year). 
 
 Pass every field from the resolved query entry that applies; leave the rest null. 
 
@@ -31,6 +31,13 @@ p_limit is used only when p_aggregation is top or bottom: how many ranks to retu
 '
 RETURN (
     CASE
+        -- /plot requests: every bucket as a series, checked before the unit
+        -- branches so a series is never answered as a single value
+        WHEN p_aggregation = 'series' THEN
+            weather.analytics.query_series(
+                p_station_id, p_metric, p_start_date, p_end_date,
+                p_unit, p_period_aggregation, p_month_filter, COALESCE(p_year_start_month, 1)
+            )
         WHEN p_unit = 'day' THEN
             weather.analytics.query_by_day(
                 p_station_id, p_metric, p_aggregation, p_start_date, p_end_date,

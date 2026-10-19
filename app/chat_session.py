@@ -26,8 +26,29 @@ if _APP_DIR not in sys.path:
 import pipeline  # noqa: E402
 import chat_store  # noqa: E402
 import guardrails  # noqa: E402
+import series  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+PLOT_COMMAND = "/plot"
+PLOT_USAGE_MSG = (
+    "Add a question after /plot, e.g. `/plot average high and low for each month at Dulles`."
+)
+
+
+def plot_mode_for(session: "QuerySession", question: str) -> tuple[str | None, str]:
+    """
+    (plot mode, question text without /plot). /plot -> an explicit plot
+    turn; otherwise a follow-up to a chart (the last turn the model saw was a
+    plot turn) inherits plot mode; anything else is a regular turn.
+    """
+    text = question.strip()
+    if text.lower() == PLOT_COMMAND or text.lower().startswith(PLOT_COMMAND + " "):
+        return guardrails.PLOT_EXPLICIT, text[len(PLOT_COMMAND):].strip()
+    last = next((t for t in reversed(session.history) if not t.get("ui_only")), None)
+    if last and last.get("plot_turn"):
+        return guardrails.PLOT_INHERITED, text
+    return guardrails.PLOT_OFF, text
 
 
 @dataclass
@@ -160,6 +181,16 @@ def get_answer(
             session.off_topic_streak += 1
         session.history.append({"question": question, "answer": blocked.reply, "query": None, "ui_only": True})
         return blocked.reply
+    plot_mode, text = plot_mode_for(session, question)
+    if plot_mode == guardrails.PLOT_EXPLICIT and not text:
+        session.history.append({"question": question, "answer": PLOT_USAGE_MSG, "query": None, "ui_only": True})
+        return PLOT_USAGE_MSG
+    # Explicit chart words without /plot: offer the Plot it button, no model call
+    if plot_mode == guardrails.PLOT_OFF and guardrails.CHART_WORDS.search(text):
+        session.history.append(
+            {"question": question, "answer": guardrails.NEEDS_PLOT_MSG, "query": None, "ui_only": True, "needs_plot": True}
+        )
+        return guardrails.NEEDS_PLOT_MSG
     if over_daily_limit and over_daily_limit():
         session.history.append(
             {"question": question, "answer": guardrails.DAILY_LIMIT_MSG, "query": None, "ui_only": True}
@@ -169,6 +200,8 @@ def get_answer(
     resolved: dict = {}
     answer_text: str | None = None
     tables: list[dict] = []
+    charts: list[dict] = []
+    needs_plot = False
     status = "error"
     # Display-only turns are never replayed to the model as context
     model_history = [t for t in session.history if not t.get("ui_only")]
@@ -177,18 +210,31 @@ def get_answer(
         resolved = pipeline.resolve_question(
             session.client,
             session.conn,
-            question,
+            text,
             testing=False,
             history=model_history,
             station_info=session.station_info,
             home_location=session.home_location,
+            plot_mode=plot_mode,
         )
 
+        try:
+            pipeline.fill_station_info(session.conn, resolved, session.station_info)
+        except Exception as exc:  # noqa: BLE001 -- unchecked ids are rejected below
+            logger.warning("station id check failed session=%s: %s", session.session_id, exc)
         guardrails.cap_rank_limits(resolved)
-        problems = guardrails.validate_resolved(resolved, session.station_info)
+        guardrails.coerce_series(resolved, text)
+        problems = guardrails.validate_resolved(resolved, session.station_info, plot_mode=plot_mode)
         if problems:
             logger.warning("invalid resolver output session=%s: %s", session.session_id, problems)
-            if resolved.get("status") == "needs_clarification":
+            if plot_mode == guardrails.PLOT_EXPLICIT and problems == ["/plot answered without a series"]:
+                # a single value for a /plot request: say what can be charted
+                answer_text = guardrails.NOT_CHARTABLE_MSG
+                status = "needs_clarification"
+            elif resolved.get("status") == "needs_clarification" and plot_mode == guardrails.PLOT_EXPLICIT:
+                answer_text = guardrails.NOT_CHARTABLE_MSG
+                status = "needs_clarification"
+            elif resolved.get("status") == "needs_clarification":
                 # A bad clarification (too long, prose that isn't a question)
                 # still means "ask the user"; just don't show the model's text.
                 answer_text = guardrails.GENERIC_CLARIFICATION_MSG
@@ -199,11 +245,37 @@ def get_answer(
         elif resolved.get("status") == "off_topic":
             answer_text = guardrails.OFF_TOPIC_MSG
             status = "off_topic"
+        elif resolved.get("reason") == "needs_plot" and plot_mode == guardrails.PLOT_EXPLICIT:
+            # told it was a /plot turn but asked for /plot anyway
+            answer_text = guardrails.NOT_CHARTABLE_MSG
+            status = "needs_clarification"
+        elif resolved.get("reason") == "needs_plot" and plot_mode == guardrails.PLOT_OFF:
+            # a chart request without /plot (e.g. "for each month"): canned
+            # message plus the Plot it button
+            answer_text = guardrails.NEEDS_PLOT_MSG
+            status = "needs_clarification"
+            needs_plot = True
         elif resolved.get("status") != "resolved":
             answer_text = resolved.get(
                 "clarification_question", "I need more information to answer that."
             )
             status = resolved.get("status", "needs_clarification")
+        elif resolved["queries"][0].get("aggregation") == "series":
+            # /plot: every query is a series (validate_resolved); a query with
+            # a baseline also fetches its normals
+            series_list = []
+            for entry in resolved["queries"]:
+                result = pipeline.call_answer_query(session.conn, entry)
+                base_entry = series.baseline_entry(entry)
+                base = pipeline.call_answer_query(session.conn, base_entry) if base_entry else None
+                series_list.append(
+                    series.build_series(entry, result, base, session.station_info, session.temp_unit)
+                )
+            charts = series.group_charts(series_list)
+            answer_text = pipeline.generate_answer(
+                session.client, text, [series.phrasing_summary(x) for x in series_list], history=model_history
+            )
+            status = "resolved"
         else:
             answer_payloads = []
             for entry in resolved["queries"]:
@@ -255,6 +327,13 @@ def get_answer(
             # top/bottom results, shown under the answer; display only (not
             # replayed to the model, not saved in chat_history)
             "tables": tables,
+            "charts": charts,
+            "needs_plot": needs_plot,
+            # keeps the next turn in plot mode: a chart, or a /plot turn that
+            # asked a clarifying question (its answer is still a plot request)
+            "plot_turn": plot_mode is not guardrails.PLOT_OFF and (
+                bool(charts) or status == "needs_clarification"
+            ),
         }
     )
 

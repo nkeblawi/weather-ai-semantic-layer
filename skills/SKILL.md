@@ -150,8 +150,15 @@ rows than `limit`; that's expected. `top` = largest values first, `bottom` = sma
 (see `references/count_group.md`). Snow by winter or season ("the snowiest winters", "the least snowy seasons", "the snowiest winter on record") uses
 `unit: "snow_season"` — the July-June snow season, which also catches October and April-May snow. Every other metric by season ("the
 hottest summers", "the coldest winters", "the wettest springs", "an average summer") uses `unit: "season"` plus `season` (`winter`,
-`spring`, `summer`, or `fall` — "autumn" is `fall`) — see `references/count_group.md` for both. Plots, charts, and graphs aren't supported, and neither are per-day or per-month listings; for those, return `needs_clarification`
-saying charts aren't available and offering a ranking or a single summary value (like an average or total) instead.
+`spring`, `summer`, or `fall` — "autumn" is `fall`) — see `references/count_group.md` for both.
+
+**Charts (`/plot`).** A chart, plot, or graph — or any question wanting **one value per month, season, or year** ("average high and low
+for each month", "monthly climatology", "temperatures by year", "anomalies since 1950", "is it getting warmer") — is a `/plot` request.
+If a **Plot mode** section appears below, follow `references/plotting.md`. If it doesn't, never squash the request into one value:
+return `needs_clarification` with `"reason": "needs_plot"` (the app shows its own message and a button that resends the question as
+`/plot`). A **single** value compared with normal is not a chart: "the normal July high", "was July warmer than normal" → a regular
+query, where "normal" means the 1991-2020 mean (or the period the user names) — e.g. `unit: "month"`, `month_filter: [7]`,
+`aggregation: "mean"`, dates 1991-01-01 to 2020-12-31.
 
 Temperature extremes carry both a metric and an aggregation cue at once — resolve them together, not independently:
 
@@ -241,7 +248,8 @@ If any step above couldn't be resolved and the agent had to stop and ask the use
 {
   "current_date": "YYYY-MM-DD",
   "status": "needs_clarification",
-  "clarification_question": "..."
+  "clarification_question": "...",
+  "reason": "needs_plot — only for a chart request outside plot mode (Step 4); omit otherwise"
 }
 ```
 
@@ -304,6 +312,16 @@ Examples involving events, storms, or month/year aggregates are in `references/c
 ]}
 ```
 
+**Q:** What is the average high and low temperature for each month at Dulles? (one value per month, no Plot mode section)
+```json
+{"current_date": "2026-08-04", "status": "needs_clarification", "reason": "needs_plot", "clarification_question": "That needs a chart: use /plot."}
+```
+
+**Q:** Is Dulles getting warmer? (a trend over years: a chart, no Plot mode section)
+```json
+{"current_date": "2026-08-04", "status": "needs_clarification", "reason": "needs_plot", "clarification_question": "That needs a chart: use /plot."}
+```
+
 **Q:** What were the 5 hottest days ever recorded at Dulles?
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
@@ -325,9 +343,9 @@ Examples involving events, storms, or month/year aggregates are in `references/c
 ]}
 ```
 
-**Q:** Plot the temperature at Dulles from 1990 to 2000.
+**Q:** Plot the temperature at Dulles from 1990 to 2000. (no Plot mode section)
 ```json
-{"current_date": "2026-08-04", "status": "needs_clarification", "clarification_question": "I can't make charts yet. Would you like a single value for 1990-2000 (like the average temperature), or a ranking, such as the hottest years in that period?"}
+{"current_date": "2026-08-04", "status": "needs_clarification", "reason": "needs_plot", "clarification_question": "That needs a chart: use /plot."}
 ```
 
 **Q:** How many snow days did we have in the winter of 2025-26?
@@ -368,5 +386,4 @@ the user can rephrase. When unsure, prefer `needs_clarification`.
 
 ## Out of scope
 
-- Charts and plots. This is a separate skill to be developed in the near future.
 - Forecasts or future dates. This application only provides answers about historical observations only.
