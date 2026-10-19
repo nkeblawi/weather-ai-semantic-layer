@@ -287,6 +287,53 @@ CLIMATE_PARTS = ["Record range", "Normal range", "Daily range", "Record high set
 CLIMATE_COLORS = ["#B8C0CC", "#D9C8A9", "#4F6FA8", "#E4572E", "#2E86DE"]
 
 
+def ranking_bar_chart(chart: dict) -> alt.Chart:
+    """A ranking (/plot of top/bottom) as horizontal bars, rank 1 on top, values at the bar ends."""
+    df = _frame(chart)
+    metric = chart["series"][0]["metric"]
+    color = METRIC_COLORS.get(metric, PALETTE[0])
+    totals = metric in ("PRCP", "SNOW", "SNWD") or chart["units"] in ("days",)
+    y = alt.Y("label:N", sort=alt.SortField("x"), title=None)
+    x = alt.X("value:Q", title=chart["units"], scale=alt.Scale(zero=totals))
+    bars = alt.Chart(df).mark_bar(color=color).encode(
+        x=x, y=y, tooltip=[alt.Tooltip("rank:Q", title="Rank"), alt.Tooltip("label:N", title="When"),
+                           alt.Tooltip("value:Q", title=chart["units"])])
+    text = alt.Chart(df).mark_text(align="left", dx=4).encode(x=x, y=y, text=alt.Text("value:Q"))
+    return alt.layer(bars, text).properties(height=max(120, 26 * len(df)))
+
+
+def difference_chart(chart: dict) -> alt.Chart:
+    """One station minus another, around a zero line."""
+    df = _frame(chart)
+    x = _x(chart, df)
+    line = alt.Chart(df).mark_line(point=len(df) <= 120, strokeWidth=2, color=PALETTE[1]).encode(
+        x=x, y=alt.Y("value:Q", title=f"Difference ({chart['units']})"),
+        tooltip=[alt.Tooltip("label:N", title="When"), alt.Tooltip("value:Q", title=f"Difference ({chart['units']})")])
+    zero = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(strokeWidth=1).encode(y="y:Q")
+    return alt.layer(zero, line).properties(height=HEIGHT)
+
+
+def climograph_chart(chart: dict) -> alt.Chart:
+    """Monthly precipitation as bars (right axis) under temperature lines (left axis)."""
+    df = _frame(chart)
+    names, colors = _colors(chart)
+    hidden = _toggle("series")
+    color = alt.Color("series:N", scale=alt.Scale(domain=names, range=colors), legend=_legend(names))
+    order = df.sort_values("x")["label"].drop_duplicates().tolist()
+    x = alt.X("label:N", sort=order, title=None, axis=alt.Axis(labelAngle=0))
+    temps = [s["name"] for s in chart["series"] if s["metric"] in ("TMAX", "TMIN", "TAVG")]
+    temp_units = next(s["units"] for s in chart["series"] if s["name"] in temps)
+    wet = [s for s in chart["series"] if s["name"] not in temps]
+    base = alt.Chart(df)
+    bars = base.transform_filter(alt.FieldOneOfPredicate("series", [s["name"] for s in wet])).mark_bar(opacity=0.6).encode(
+        x=x, y=alt.Y("value:Q", title=f"{wet[0]['metric_label']} ({wet[0]['units']})", axis=alt.Axis(orient="right")),
+        color=color, opacity=_fade(hidden, 0.6), tooltip=_tooltip(chart))
+    lines = base.transform_filter(alt.FieldOneOfPredicate("series", temps)).mark_line(point=True, strokeWidth=2).encode(
+        x=x, y=alt.Y("value:Q", title=f"Temperature ({temp_units})", scale=alt.Scale(zero=False)),
+        color=color, opacity=_fade(hidden, 1.0), tooltip=_tooltip(chart))
+    return alt.layer(bars.add_params(hidden), lines).resolve_scale(y="independent").properties(height=HEIGHT)
+
+
 def histogram_chart(chart: dict) -> alt.Chart:
     """
     Counts per bin as touching bars, with the median marked. Several series
@@ -454,7 +501,13 @@ def _title(chart: dict) -> alt.TitleParams:
 
 def build_chart(chart: dict) -> alt.Chart:
     """The Altair chart for a chart dict from series.group_charts."""
-    if chart["kind"] == "histogram":
+    if chart["kind"] == "ranking":
+        built = ranking_bar_chart(chart)
+    elif chart["kind"] == "difference":
+        built = difference_chart(chart)
+    elif chart["kind"] == "climograph":
+        built = climograph_chart(chart)
+    elif chart["kind"] == "histogram":
         built = histogram_chart(chart)
     elif chart["kind"] == "climate":
         built = climate_chart(chart)

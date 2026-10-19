@@ -194,6 +194,9 @@ result into chart data (unit conversion, normals, trend fits) and
 | Running totals, several seasons overlaid | `/plot accumulated snowfall at Dulles in 2024-25 vs 2009-10` |
 | Histograms (daily or per-period values) | `/plot a histogram of July high temperatures at Dulles` |
 | Odds by month, week, season, or day | `/plot the chance of measurable snow by week at Dulles` |
+| Ranked bars | `/plot the 10 biggest snowstorms at Dulles` |
+| Station difference | `/plot how much colder Dulles lows are than Reagan National's, by year` |
+| Climograph | `/plot a climograph for Reagan National` |
 
 - **Normals** are computed from the station's own observations, 1991-2020
   by default (10-50 years allowed). Daily normals are smoothed over +/- 7
@@ -258,7 +261,5 @@ touching production data:
 
 ## Coming soon
 
-- **More chart types.** Ranked bar charts, station difference plots (KIAD -
-  KDCA), and a climograph (temperature lines with precipitation bars).
 - **Timing.** First and last freeze dates, growing-season length, the first
   90°F day, and the first measurable snow of each year.

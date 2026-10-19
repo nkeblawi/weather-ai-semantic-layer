@@ -8,7 +8,8 @@ defines the `season` and `snow_season` units used here.
 
 ## Step 1 — Is this a chart?
 
-- **`/plot` turn** (the user typed `/plot`): the answer must be a chart. Emit `series` queries. If the request can't be charted — a single
+- **`/plot` turn** (the user typed `/plot`): the answer must be a chart. Emit `series` queries — except a **ranking** ("/plot the 10
+  biggest snowstorms", "/plot the hottest summers"), which stays the usual SKILL.md `top`/`bottom` query; the app draws its rows as bars. If the request can't be charted — a single
   value ("/plot the hottest day ever"), or nothing that varies over days, months, years, or seasons — return `needs_clarification` asking
   what to chart (e.g. "A single day can't be charted. Would you like the number of 90°F days each year, or the average high for each
   month?").
@@ -38,6 +39,11 @@ totals (as in `count_group.md`), or `count` for a number of days (below).
 **Daily points only over a year or less** — a span of at most 366 days: a calendar year, a few months, or one snow season (Jul 1 to Jun
 30). For a longer span, use `unit: "month"`; the app notes that daily points are limited to a year or less. A daily series takes no
 `trend`, but it may take `baseline`/`display` ("daily highs in 2024 against normal"): it's compared with smoothed daily normals.
+
+**Comparing two stations directly** ("Dulles minus Reagan", "how much colder are Dulles nights than DC's", "the difference between
+Dulles and Reagan lows"): two series queries, same metric and unit, one per station, both with `display: "difference"` — the first
+station's values minus the second's. **A climograph** ("climograph", "monthly temperature and precipitation together"): `month_of_year`
+queries for TMAX and TMIN (`mean`) and PRCP (`sum`), all with `display: "climograph"`, drawn as one chart.
 
 **Distributions and odds.** The spread of per-period values ("distribution of annual snowfall", "histogram of summer average
 temperatures") is the usual series (`snow_season` / `year` / `season` / `month`) with `display: "histogram"`. Odds thresholds follow the
@@ -103,7 +109,7 @@ On top of SKILL.md Step 6's query fields:
   "season": "winter | spring | summer | fall, only with unit season",
   "trend": "true, only when a trend is asked for; omit otherwise",
   "baseline": {"start_year": "first year of the normals period", "end_year": "last year"},
-  "display": "overlay | anomaly | climate | cumulative | histogram (overlay/anomaly/climate need baseline; climate/cumulative need unit day)"
+  "display": "overlay | anomaly | climate | cumulative | histogram | difference | climograph (overlay/anomaly/climate need baseline; climate/cumulative need unit day)"
 }
 ```
 
@@ -244,6 +250,30 @@ On top of SKILL.md Step 6's query fields:
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "any", "threshold": {"operator": ">=", "value": 100}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
+]}
+```
+
+**Q:** /plot the 10 biggest snowstorms at Dulles (a ranking: the usual top query; the app draws bars)
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "SNOW", "aggregation": "top", "limit": 10, "unit": "event", "event_day_threshold": {"operator": ">=", "value": 0.5}, "event_value": "total", "start_date": "1800-01-01", "end_date": "2026-08-04"}
+]}
+```
+
+**Q:** /plot how much colder Dulles lows are than Reagan National's, by year
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "series", "unit": "year", "period_aggregation": "mean", "display": "difference", "start_date": "1800-01-01", "end_date": "2026-08-04"},
+  {"station_id": "USW00013743", "metric": "TMIN", "aggregation": "series", "unit": "year", "period_aggregation": "mean", "display": "difference", "start_date": "1800-01-01", "end_date": "2026-08-04"}
+]}
+```
+
+**Q:** /plot a climograph for Reagan National
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "mean", "display": "climograph", "start_date": "1800-01-01", "end_date": "2026-08-04"},
+  {"station_id": "USW00013743", "metric": "TMIN", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "mean", "display": "climograph", "start_date": "1800-01-01", "end_date": "2026-08-04"},
+  {"station_id": "USW00013743", "metric": "PRCP", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "sum", "display": "climograph", "start_date": "1800-01-01", "end_date": "2026-08-04"}
 ]}
 ```
 

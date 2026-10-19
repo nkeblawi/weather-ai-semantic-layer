@@ -293,6 +293,9 @@ def get_answer(
                 session.client, question, answer_payloads, history=model_history
             )
             tables = [t for p in answer_payloads if (t := pipeline.ranking_table(p))]
+            if plot_mode == guardrails.PLOT_EXPLICIT and tables:
+                # /plot of a ranking: bars, with the table still under them
+                charts = [pipeline.ranking_chart(p, t) for p in answer_payloads if (t := pipeline.ranking_table(p))]
             status = "resolved"
     except Exception as exc:  # noqa: BLE001 -- parity with the CLI's main()
         answer_text = f"[error] {exc}"

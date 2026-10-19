@@ -287,17 +287,22 @@ def render_answer(turn: dict, index: int):
     st.write(answer)
     if turn.get("needs_plot") and not turn.get("plot_it_used"):
         st.button("Plot it", key=f"plot_it_{index}", type="primary", on_click=_plot_it, args=(turn,))
+    # a ranking drawn as a chart (/plot) keeps its table, collapsed under it
+    charted = bool(turn.get("charts"))
     for table in turn.get("tables") or []:
+        if charted:
+            continue
         st.markdown(f"**{table['title']}**")
         st.dataframe(table["rows"], hide_index=True)
         if table["note"]:
             st.caption(table["note"])
     for j, chart in enumerate(turn.get("charts") or []):
         st.vega_lite_chart(charts.chart_spec(chart), width="stretch")
-        if chart.get("table"):
+        rows = chart.get("table") or (turn["tables"][j]["rows"] if chart["kind"] == "ranking" and turn.get("tables") else None)
+        if rows:
             # collapsed: the chart is the answer, the numbers are on request
             with st.expander("Show table", icon=":material/table:"):
-                st.dataframe(chart["table"], hide_index=True)
+                st.dataframe(rows, hide_index=True)
         for note in chart["notes"]:
             st.caption(note)
         if sum(len(s["points"]) for s in chart["series"]) > 24:

@@ -527,6 +527,26 @@ def _fmt_span(start: str, end: str) -> str:
     return f"{_fmt_day(start)} – {_fmt_day(end)}"
 
 
+def ranking_chart(payload: dict, table: dict) -> dict:
+    """
+    A /plot of a ranking: its rows as horizontal bars, labeled the way the
+    table labels them (date, event dates, month, season, or year).
+    """
+    label_col = next(k for k in table["rows"][0] if k not in ("Rank", "Value", "Total", "Days")) if table["rows"] else "Date"
+    points = [
+        {"x": i, "label": row[label_col], "rank": r["rank"],
+         "value": r.get("duration") if payload.get("event_value") == "duration" else r["value"]}
+        for i, (r, row) in enumerate(zip(payload.get("rows", []), table["rows"]))
+    ]
+    units = "days" if payload.get("event_value") == "duration" else payload["units"]
+    return {
+        "kind": "ranking", "unit": payload.get("unit", "day"), "units": units,
+        "title": table["title"], "heading": table["title"].split(" · ")[0], "subtitle": payload["place"],
+        "series": [{"name": payload["metric"], "metric": payload["metric"], "bars": True, "trend": None, "points": points}],
+        "notes": [table["note"]] if table.get("note") else [],
+    }
+
+
 def ranking_table(payload: dict) -> dict | None:
     """
     A display table for one top/bottom answer payload, or None for any other

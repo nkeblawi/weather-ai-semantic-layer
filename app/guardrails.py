@@ -64,7 +64,9 @@ CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year", "day_of_year", "week_of_
 # day_of_year outside a series: one calendar day's record (max/min) or normal (mean)
 CALENDAR_DAY_AGGREGATIONS = {"max", "min", "mean"}
 SERIES_UNITS = {"day", "month", "year", "season", "snow_season", "value"} | CLIMATOLOGY_UNITS
-DISPLAYS = {"overlay", "anomaly", "climate", "cumulative", "histogram"}
+DISPLAYS = {"overlay", "anomaly", "climate", "cumulative", "histogram", "difference", "climograph"}
+# difference: two stations' series as one A - B line; climograph: monthly temps + precip in one chart
+CLIMOGRAPH_METRICS = {"TMAX", "TMIN", "TAVG", "PRCP", "SNOW"}
 # histogram of per-period values (the spread of annual snowfall); unit value is always one
 HISTOGRAM_UNITS = {"month", "year", "season", "snow_season"}
 # climate: NWS-style daily graph (normals + records); cumulative: running total
@@ -437,6 +439,12 @@ def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> No
     if "display" in q:
         if q["display"] not in DISPLAYS:
             problems.append(f"display {q['display']!r} not allowed")
+        elif q["display"] == "difference":
+            if "baseline" in q or unit == "value":
+                problems.append("display 'difference' compares two series as they are: no baseline or histogram")
+        elif q["display"] == "climograph":
+            if unit != "month_of_year" or q.get("metric") not in CLIMOGRAPH_METRICS:
+                problems.append("display 'climograph' is monthly climatologies (month_of_year) of temperature and PRCP/SNOW")
         elif q["display"] == "histogram":
             if unit not in HISTOGRAM_UNITS:
                 problems.append(f"display 'histogram' needs unit month, year, season, or snow_season, not {unit!r}")
@@ -495,6 +503,19 @@ def coerce_series(resolved: dict, question: str = "") -> None:
             )
 
 
+def _cross_query_displays(queries: list[dict]) -> list[str]:
+    """Displays that need a set of queries: a difference pairs two, a climograph needs both kinds of line."""
+    problems = []
+    diff = [q for q in queries if q.get("display") == "difference"]
+    if diff and (len(diff) != 2 or len({q.get("metric") for q in diff}) != 1 or len({q.get("unit") for q in diff}) != 1
+                 or len({q.get("station_id") for q in diff}) != 2):
+        problems.append("display 'difference' needs exactly two queries: same metric and unit, two stations")
+    clim = [q for q in queries if q.get("display") == "climograph"]
+    if clim and not ({q.get("metric") for q in clim} & {"TMAX", "TMIN", "TAVG"} and {q.get("metric") for q in clim} & {"PRCP", "SNOW"}):
+        problems.append("display 'climograph' needs a temperature query and a PRCP/SNOW query")
+    return problems
+
+
 def validate_resolved(
     resolved: dict, station_info: dict, today: date | None = None, *, plot_mode: str | None = PLOT_OFF
 ) -> list[str]:
@@ -518,12 +539,15 @@ def validate_resolved(
             return [f"{len(queries)} queries (max {MAX_QUERIES_PER_QUESTION})"]
         problems = [p for q in queries for p in _validate_query(q, station_info, today)]
         series = [isinstance(q, dict) and q.get("aggregation") == "series" for q in queries]
+        rankings = [isinstance(q, dict) and q.get("aggregation") in RANKING_AGGREGATIONS for q in queries]
         if plot_mode == PLOT_OFF and any(series):
             problems.append("series outside plot mode")
-        elif plot_mode == PLOT_EXPLICIT and not all(series):
+        # a /plot of a ranking ("the 10 biggest snowstorms") draws its rows as bars
+        elif plot_mode == PLOT_EXPLICIT and not (all(series) or all(rankings)):
             problems.append("/plot answered without a series")
         elif any(series) and not all(series):
             problems.append("series mixed with single-value queries")
+        problems += _cross_query_displays([q for q in queries if isinstance(q, dict)])
         return problems
 
     if "reason" in resolved and resolved["reason"] not in CLARIFICATION_REASONS:

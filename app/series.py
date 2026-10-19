@@ -339,7 +339,8 @@ def build_series(
     unit = entry["unit"]
     climatology = unit in CLIMATOLOGY_UNITS
     kind = (
-        "histogram" if unit == "value" or entry.get("display") == "histogram"
+        "climograph" if entry.get("display") == "climograph"
+        else "histogram" if unit == "value" or entry.get("display") == "histogram"
         else "climatology" if climatology
         else entry["display"] if entry.get("display") in ("climate", "cumulative")
         else entry.get("display", "overlay") if entry.get("baseline")
@@ -373,6 +374,7 @@ def build_series(
         ),
         "season": entry.get("season"),
         "period": _period_label(entry) if unit == "day" else None,
+        "display": entry.get("display"),
         "points": [],
         "trend": None,
         "notes": notes,
@@ -389,7 +391,7 @@ def build_series(
         series["points"], series["hist_stats"] = _histogram(pairs, width, series["units"])
         return series
 
-    if climatology:
+    if climatology:  # (a climograph's parts are climatologies too)
         points = _climatology_points(entry, result)
         for p in points:
             if _is_odds(entry):
@@ -471,22 +473,61 @@ def build_series(
     return series
 
 
+TREND_CAVEAT = "Trend lines use the station's raw record, so they include station changes (instrument swaps, site moves) as well as climate."
+
+
+def _difference(a: dict, b: dict) -> dict:
+    """Two stations' series as one: a minus b at each shared point."""
+    bv = {p["x"]: p["value"] for p in b["points"]}
+    pts = [{**p, "value": round(p["value"] - bv[p["x"]], 2)} for p in a["points"]
+           if p["value"] is not None and bv.get(p["x"]) is not None]
+    for p in pts:
+        for k in ("normal", "lower", "upper", "anomaly", "stddev", "record_high", "record_low"):
+            p.pop(k, None)
+    return {**a, "kind": "difference", "points": pts, "trend": None, "baseline": None,
+            "name": f"{a['place']} minus {b['place']}", "minus_place": b["place"]}
+
+
+def _climograph_chart(members: list[dict]) -> dict:
+    """Monthly temperatures (lines) and precipitation (bars) in one two-axis chart."""
+    for m in members:
+        m["name"] = m["metric_label"]
+    place = members[0]["place"]
+    period = members[0]["baseline"]
+    return {"kind": "climograph", "unit": "month_of_year", "units": members[0]["units"],
+            "title": f"Climograph · {place}", "heading": "Climograph" + (f" ({period})" if period else ""),
+            "subtitle": place, "series": members,
+            "notes": list(dict.fromkeys(n for m in members for n in m["notes"])) + ["Click a legend item to hide or show it."]}
+
+
 def group_charts(series_list: list[dict]) -> list[dict]:
     """
     Series that share a chart kind, grain, and unit of measure go on one
     chart (e.g. high and low together); anything else gets its own chart.
+    A climograph's parts share one two-axis chart; a difference pair becomes
+    one A - B series.
     """
+    charts = []
+    clim = [s for s in series_list if s["kind"] == "climograph" and s["points"]]
+    if clim:
+        charts.append(_climograph_chart(clim))
+    series_list = [s for s in series_list if s["kind"] != "climograph"]
+    diff = [s for s in series_list if s.get("display") == "difference" and s["points"]]
+    if len(diff) == 2:
+        series_list = [s for s in series_list if s.get("display") != "difference"] + [_difference(*diff)]
+
     groups: dict[tuple, list[dict]] = {}
     for s in series_list:
         if s["points"]:
             groups.setdefault((s["kind"], s["unit"], s["units"], s["season"]), []).append(s)
 
-    charts = []
     for (kind, unit, units, _), members in groups.items():
         places = list(dict.fromkeys(m["place"] for m in members))
         metrics = list(dict.fromkeys(m["metric_label"] for m in members))
         periods = list(dict.fromkeys(m.get("period") for m in members))
         for m in members:
+            if m["kind"] == "difference":
+                continue  # named in _difference
             # name each line by what differs between the lines
             parts = ([m["metric_label"]] if len(metrics) > 1 else []) + ([m["place"]] if len(places) > 1 else [])
             if len(periods) > 1:
@@ -514,6 +555,8 @@ def group_charts(series_list: list[dict]) -> list[dict]:
             per = {"year": "yearly", "snow_season": "snow-season", "month": "monthly", "season": members[0]["season"] or "seasonal"}
             kind_of = "totals" if members[0]["bars"] else "averages"
             heading = f"{what}, distribution of {'daily values' if unit == 'value' else per.get(unit, '') + ' ' + kind_of}{months}"
+        elif kind == "difference":
+            heading = f"{what}, {grain}: {members[0]['place']} minus {members[0]['minus_place']}"
         elif kind == "climate":
             heading = f"{what}, daily vs. {period} normals and records"
         elif kind == "cumulative":
@@ -523,6 +566,8 @@ def group_charts(series_list: list[dict]) -> list[dict]:
         notes = list(dict.fromkeys(n for m in members for n in m["notes"]))
         if len(members) > 1 or kind == "climate":
             notes.insert(0, "Click a legend item to hide or show it.")
+        if any(m.get("trend") for m in members):
+            notes.append(TREND_CAVEAT)
         if kind in ("overlay", "anomaly", "climate") or (kind in ("climatology", "cumulative") and members[0]["baseline"]):
             notes.append(
                 "Normals are computed from this station's observations and may differ slightly from NOAA's official normals."
@@ -618,6 +663,8 @@ def phrasing_summary(series: dict) -> dict:
             out["normal_total_to_date"] = pts[-1]["normal"]
             out["departure_from_normal"] = pts[-1]["anomaly"]
         out["period_label"] = series.get("period")
+    if series.get("display") == "difference":
+        out["chart"] = "one line: the first station's values minus the second's, around zero"
     if series["kind"] == "histogram":
         # a distribution: its shape and middle, not a highest/lowest over time
         for k in ("highest", "lowest", "mean", "period"):
