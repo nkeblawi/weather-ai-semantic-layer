@@ -293,13 +293,15 @@ def ranking_bar_chart(chart: dict) -> alt.Chart:
     metric = chart["series"][0]["metric"]
     color = METRIC_COLORS.get(metric, PALETTE[0])
     totals = metric in ("PRCP", "SNOW", "SNWD") or chart["units"] in ("days",)
-    y = alt.Y("label:N", sort=alt.SortField("x"), title=None)
+    # every label shown: Vega otherwise drops alternate ones when the font is larger
+    y = alt.Y("label:N", sort=alt.SortField("x"), title=None, axis=alt.Axis(labelOverlap=False, labelLimit=200))
     x = alt.X("value:Q", title=chart["units"], scale=alt.Scale(zero=totals))
     bars = alt.Chart(df).mark_bar(color=color).encode(
         x=x, y=y, tooltip=[alt.Tooltip("rank:Q", title="Rank"), alt.Tooltip("label:N", title="When"),
                            alt.Tooltip("value:Q", title=chart["units"])])
-    text = alt.Chart(df).mark_text(align="left", dx=4).encode(x=x, y=y, text=alt.Text("value:Q"))
-    return alt.layer(bars, text).properties(height=max(120, 26 * len(df)))
+    # mid gray reads on light and dark themes
+    text = alt.Chart(df).mark_text(align="left", dx=4, color=NORMAL_GRAY).encode(x=x, y=y, text=alt.Text("value:Q"))
+    return alt.layer(bars, text).properties(height=max(120, 34 * len(df)))
 
 
 def difference_chart(chart: dict) -> alt.Chart:
