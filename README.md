@@ -252,9 +252,6 @@ touching production data:
   which include adjustments and gap-filling. Charts note this.
 - **Trend lines on uncorrected data.** Trends include station artifacts
   (instrument changes, site moves) as well as climate signal.
-- **Daily extremes within a month.** "The hottest January day on record" is
-  answered as the January with the highest *average* high, not the hottest
-  single January day. A fix is planned.
 
 ## Coming soon
 

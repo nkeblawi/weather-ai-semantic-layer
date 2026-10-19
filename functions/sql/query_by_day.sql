@@ -6,7 +6,8 @@ CREATE OR REPLACE FUNCTION weather.analytics.query_by_day(
     p_end_date DATE,
     p_threshold_operator STRING DEFAULT NULL,
     p_threshold_value DOUBLE DEFAULT NULL,
-    p_limit INT DEFAULT NULL
+    p_limit INT DEFAULT NULL,
+    p_month_filter ARRAY<INT> DEFAULT NULL
 )
 RETURNS STRING
 COMMENT '
@@ -20,6 +21,7 @@ p_metric is one of TAVG/TMAX/TMIN/PRCP/SNOW/SNWD/AWND/HDD/CDD.
 p_aggregation is one of mean/median/sum/max/min/stddev/count/top/bottom. 
 p_threshold_operator (one of >, >=, <, <=, =).
 p_threshold_value are required together only when p_aggregation is count.
+p_month_filter (optional) keeps only days in those calendar months, across every year in the range: "the hottest January day on record" is max with [1] over the whole record.
 
 p_aggregation top/bottom ranks days by value (highest first / lowest first) with DENSE_RANK, so tied days share a rank. rows holds every day ranked 1..p_limit as {rank, obs_date, value}, ordered by rank then date; value/obs_date are null. p_limit defaults to 3 and is clamped to 1-15; rows is capped at 15 entries, and rows_truncated is true when ties pushed more than 15 days into the ranks. rows is null for every other aggregation.
 '
@@ -80,6 +82,7 @@ RETURN ((
             FROM weather.analytics.observations
             WHERE station_id = p_station_id
               AND obs_date BETWEEN p_start_date AND p_end_date
+              AND (p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(obs_date)))
             ) v
         ) base
         WHERE

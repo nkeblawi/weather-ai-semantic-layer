@@ -60,6 +60,9 @@ record" means every individual December/January/February, not one pooled average
 
 ### Climate averages for a month name ("average January high")
 
+(Single *days* within a month name — "the hottest January day", "ever hit 80 in January" — aren't climate averages: they're `unit: "day"`
+with `month_filter`, as in SKILL.md Step 4.)
+
 A month name with **no year**, asked as an average / typical / usual value ("What is the average high in January at Dulles?", "How much snow does
 Chicago usually get in February?"), is a climate average over the **whole record** (never 1991-2020 unless the user says "normal" or names
 years) — resolve it, don't ask:

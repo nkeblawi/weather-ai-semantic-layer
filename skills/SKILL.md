@@ -113,6 +113,12 @@ If the question asks "how many days" but doesn't match one of these idioms and d
 thing counted, compared, or aggregated ("how many months…", "which year was wettest", "the snowiest winter", "the hottest summers") →
 follow `references/count_group.md`. Every other question, including plain "how many days…", stays `unit: "day"` (omit it).
 
+**Single days within a month name, across years** ("the hottest January day on record", "has it ever hit 80 in January", "how many
+January days below 0 since 2000", "the 5 warmest February days"): `unit: "day"` (omit it) plus `month_filter` with that month, and
+`max` / `min` / `count` + `threshold` / `top` / `bottom` over the whole record unless years are named. "Ever hit or exceeded N" is a `count`
+with `>= N` (0 means never). This is about days; an *average* January ("average January high", "warmest January on average") is
+`unit: "month"` (`references/count_group.md`). A month name is never a `calendar_day`.
+
 **One calendar day across years** ("the record high for July 4", "the normal low on Christmas", "the most rain ever on New Year's Day"):
 `unit: "day_of_year"` plus `calendar_day: "MM-DD"`, with `max` for a record high / most, `min` for a record low, `mean` for a normal or
 average. Records use `all_time`; a normal uses 1991-2020 (or the years named), an average the whole record.
@@ -191,7 +197,7 @@ Once every prior step has resolved (or Step 2/3/4/5 has stopped early to ask the
       "event_day_threshold": {"operator": "> | >= | < | <= | =", "value": "number, only present when unit is event"},
       "event_value": "total | duration, only present when unit is event",
       "period_aggregation": "mean | sum, only present when unit is month or year",
-      "month_filter": "array of month numbers 1-12, optional, only meaningful when unit is month",
+      "month_filter": "array of month numbers 1-12, optional, only when unit is month or day",
       "limit": "integer 1-15, only present when aggregation is top or bottom (default 3)"
     }
   ]
@@ -277,6 +283,20 @@ Examples involving events, storms, or month/year aggregates are in `references/c
 **Q:** Is Dulles getting warmer? (a trend over years: a chart, no Plot mode section)
 ```json
 {"current_date": "2026-08-04", "status": "needs_clarification", "reason": "needs_plot", "clarification_question": "That needs a chart: use /plot."}
+```
+
+**Q:** What was the hottest January day ever at Reagan National? (single days in a month name → `unit: "day"` + `month_filter`)
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "max", "month_filter": [1], "start_date": "1800-01-01", "end_date": "2026-08-04"}
+]}
+```
+
+**Q:** Has Reagan National ever hit 80 degrees in January? (a count of those days: 0 means never)
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "count", "month_filter": [1], "threshold": {"operator": ">=", "value": 80}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
+]}
 ```
 
 **Q:** What's the record high for July 4 at Reagan National?

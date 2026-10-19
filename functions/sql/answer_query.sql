@@ -42,7 +42,7 @@ RETURN (
         WHEN p_unit = 'day' THEN
             weather.analytics.query_by_day(
                 p_station_id, p_metric, p_aggregation, p_start_date, p_end_date,
-                p_threshold_operator, p_threshold_value, p_limit
+                p_threshold_operator, p_threshold_value, p_limit, p_month_filter
             )
         WHEN p_unit = 'event' THEN
             weather.analytics.query_by_event(

@@ -342,8 +342,10 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
             problems.append(f"month_filter {mf!r} must be a list of months 1-12")
         # query_by_period ignores it for any other unit, so e.g. "hottest
         # summers" as unit year + [6, 7, 8] would silently rank whole years
-        if unit != "month":
-            problems.append(f"month_filter only applies to unit 'month', not {unit!r}")
+        # unit day: daily rows in those months across years ("the hottest
+        # January day"); not for a daily series, which query_series doesn't filter
+        if unit != "month" and not (unit == "day" and aggregation != "series"):
+            problems.append(f"month_filter only applies to unit 'month' or 'day', not {unit!r}")
 
     start, end = _parse_date(q.get("start_date")), _parse_date(q.get("end_date"))
     if start is None or end is None:
