@@ -86,11 +86,9 @@ HELP_EXAMPLES = [
     "How many days did it rain in Miami in 2025?",
 ]
 PLOT_EXAMPLES = [
-    "/plot average high and low temperature for each month at Dulles",
-    "/plot monthly temperatures at Dulles in 2025 against normal",
-    "/plot summer highs at Reagan National with a trend line",
-    "/plot daily highs and lows at Dulles in 2024",
-    "/plot the number of 90-degree days per year at Dulles",
+    "/plot average high and low temperature for each month at Chicago",
+    "/plot monthly temperatures at New York City in 2025 against normal",
+    "/plot the number of 90-degree days per year at Washington DC",
 ]
 
 
@@ -99,14 +97,13 @@ def render_help():
     st.markdown(
         "Ask about past weather for any of the cities in the **Home city** list. "
         f"Some examples to try:\n\n{examples}\n\n"
-        "**Tip:** open the settings bar at the top, pick a **Home city**, and press **Update** to leave the city "
-        'out of your questions (e.g. "What was the average high temperature in July 2025?"). '
-        "You can also switch the temperature **Units** between °F and °C there.\n\n"
-        f"**Charts:** start a question with `{PLOT_COMMAND}` to get a chart — daily values (a year or "
-        "less), monthly, yearly, or seasonal values, counts of days (e.g. 90-degree days), climatologies, "
-        "comparisons with the 1991-2020 normals, and trend lines:\n\n"
+        f"**Charts:** You can also create charts and graphs! Just start a question with `{PLOT_COMMAND}`. "
+        "You can plot daily values (up to a year or less), monthly, yearly, or seasonal values, counts of days "
+        "(e.g. 90-degree days), climatologies, comparisons with the 1991-2020 normals, and trend lines:\n\n"
         + "\n".join(f"- {q}" for q in PLOT_EXAMPLES)
-        + f"\n\n`{HELP_COMMAND}` doesn't count toward your question limit."
+        + "\n\n**Tip:** open the settings bar at the top, pick a **Home city**, and press **Update** to omit the city "
+        "from your questions. You can also switch the temperature **Units** between °F and °C there.\n\n"
+        + f"`{HELP_COMMAND}` doesn't count toward your question limit."
     )
 
 
@@ -205,7 +202,9 @@ def render_preferences(session, locations):
     city = locations.get(current, current) if current else "not set"
     summary = f"Home city: {city} · °{session.temp_unit or 'F'}"
     # st.form: widget changes don't rerun the app until Update is pressed
-    with st.expander(summary, icon=":material/settings:"), st.form("preferences", border=False):
+    with st.expander(summary, icon=":material/settings:"), st.form(
+        "preferences", border=False
+    ):
         loc_col, unit_col, btn_col = st.columns([3, 2, 1], vertical_alignment="bottom")
         loc_col.selectbox(
             "Home city",
@@ -288,7 +287,13 @@ def render_answer(turn: dict, index: int):
         return
     st.write(answer)
     if turn.get("needs_plot") and not turn.get("plot_it_used"):
-        st.button("Plot it", key=f"plot_it_{index}", type="primary", on_click=_plot_it, args=(turn,))
+        st.button(
+            "Plot it",
+            key=f"plot_it_{index}",
+            type="primary",
+            on_click=_plot_it,
+            args=(turn,),
+        )
     # a ranking drawn as a chart (/plot) keeps its table, collapsed under it
     charted = bool(turn.get("charts"))
     for table in turn.get("tables") or []:
@@ -300,7 +305,11 @@ def render_answer(turn: dict, index: int):
             st.caption(table["note"])
     for j, chart in enumerate(turn.get("charts") or []):
         st.vega_lite_chart(charts.chart_spec(chart), width="stretch")
-        rows = chart.get("table") or (turn["tables"][j]["rows"] if chart["kind"] == "ranking" and turn.get("tables") else None)
+        rows = chart.get("table") or (
+            turn["tables"][j]["rows"]
+            if chart["kind"] == "ranking" and turn.get("tables")
+            else None
+        )
         if rows:
             # collapsed: the chart is the answer, the numbers are on request
             with st.expander("Show table", icon=":material/table:"):
@@ -358,8 +367,8 @@ try:
                 f"Type {CLEAR_COMMAND} to reset the chat context · "
                 f"{guardrails.questions_remaining(session)} of "
                 f"{guardrails.SESSION_QUESTION_LIMIT} questions left  \n"
-                f"Type {HELP_COMMAND} for example questions and tips · "
-                f"start with {PLOT_COMMAND} for a chart"
+                f"Type {HELP_COMMAND} for example questions and tips  \n"
+                f"Type {PLOT_COMMAND} with a question for a chart"
             )
 except (
     Exception
