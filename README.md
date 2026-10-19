@@ -11,7 +11,8 @@ The chat app is live at **https://weather-obs-chat.streamlit.app/**. It's
 public: no account or sign-in needed.
 
 Each session gets 10 questions, and the app as a whole answers up to 100 a
-day. Type `/help` in the chat for example questions.
+day. Type `/help` in the chat for example questions, and start a question
+with `/plot` to get a chart (see [Charts](#charts-plot)).
 
 ## Architecture
 
@@ -25,6 +26,9 @@ day. Type `/help` in the chat for example questions.
   parameters; the app then calls fixed Unity Catalog SQL functions with them.
 - **User interface**: Streamlit sends the question in, and a second Claude
   call turns the query result into a plain-English answer.
+- **Charts**: a `/plot` question resolves the same way, but the SQL returns
+  a series of points, and fixed Altair templates in the app draw it. Claude
+  picks *what* to chart, never *how* it's drawn.
 - Everything runs on Databricks Free Edition and Streamlit Community Cloud,
   with no hyperscaler account.
 
@@ -63,8 +67,12 @@ time against the analytics tables:
   station
 - `query_by_day` / `query_by_event` / `query_by_period` — answer a query at
   the daily, event (e.g. a rain event), or monthly/yearly grain
+- `query_series` — returns every point of a chart instead of one value:
+  daily (a year or less), monthly, yearly, seasonal, and snow-season series
+  (means, sums, or counts of days past a threshold), plus climatologies by
+  month, season, and calendar day (with each day's records)
 - `answer_query` — the single entry point the app calls; dispatches to
-  whichever of the three above applies
+  whichever of the above applies
 
 These are version-controlled here as a local mirror of what's deployed; 
 kept in sync via a small CI/CD export tool.
@@ -132,6 +140,9 @@ Supporting files:
   (storms, rain spells), month/year aggregates, and climate averages such
   as "average January high". The app adds it to the system prompt only when
   the question needs it, to keep the base prompt small.
+- `references/plotting.md`: rules and worked examples for `/plot`
+  questions: picking the grain, normals and anomalies, trend lines, daily
+  climate graphs, and running totals. Loaded only on chart turns.
 - `references/answer_phrasing.md`: the prompt for the second Claude call,
   which turns query results into a 1-2 sentence answer.
 - `assets/obs_schema.md`, `assets/stations_schema.md`: column-level schemas
@@ -156,6 +167,44 @@ behind the Streamlit chat UI (`app/streamlit_app.py`), with input and usage
 guardrails in `app/guardrails.py`. All of them import the same functions from
 `app/pipeline.py` rather than duplicating any of this logic.
 
+The skill text is sent as a cached system-prompt block, with the date, home
+city, and conversation after it, so the 2-3 resolver calls per question
+re-read the skill at a tenth of the input cost.
+
+### Charts
+
+Command: `/plot`
+
+Start a question with the `/plot` command. A chart question without it ("average high
+and low for each month at Dulles") gets a **Plot it** button that resends
+it as `/plot`, and a follow-up to a chart ("now do Reagan National") stays
+a chart unless it asks for a single value. `app/series.py` turns the SQL
+result into chart data (unit conversion, normals, trend fits) and
+`app/charts.py` holds the Altair templates.
+
+| Chart | Example |
+|---|---|
+| Time series, monthly / yearly / seasonal | `/plot summer highs at Reagan National with a trend line` |
+| Counts of days per period | `/plot the number of 90-degree days per year at Dulles` |
+| Climatology by month, season, or calendar day | `/plot average high and low for each month at Dulles` |
+| Against normal (overlay or departure) | `/plot monthly temperatures at Dulles in 2024 against normal` |
+| Daily values, a year or less | `/plot daily rainfall at Reagan National in 2023` |
+| Daily climate graph (normals and records) | `/plot a climate graph for Dulles in 2024` |
+| Running totals, several seasons overlaid | `/plot accumulated snowfall at Dulles in 2024-25 vs 2009-10` |
+
+- **Normals** are computed from the station's own observations, 1991-2020
+  by default (10-50 years allowed). Daily normals are smoothed over +/- 7
+  days. **Records** cover the whole station record.
+- **Limits**: daily points only over a year or less, monthly points up to
+  100 years (yearly beyond), and at most 4 series per question. Longer
+  requests are reduced, with a note under the chart.
+- Charts with 2+ series have a **clickable legend** to hide or show each
+  one; charts with many points offer a CSV download.
+
+Single values use the same data without a chart: "the record high for July
+4", "the normal low on Christmas" (normal = 1991-2020; "average" = the whole
+record).
+
 ## Environments
 
 The Databricks Asset Bundle deploys to two targets, each pointing at a
@@ -175,7 +224,8 @@ touching production data:
   (or grant `EXECUTE` once on the `analytics` schema).
 - **App:** Streamlit Community Cloud redeploys on every push to `main`, but
   it doesn't reliably reload changed Python modules (`app/guardrails.py`,
-  `app/pipeline.py`, `app/chat_session.py`); the running app keeps the old
+  `app/pipeline.py`, `app/chat_session.py`, `app/series.py`,
+  `app/charts.py`); the running app keeps the old
   versions. After pushing changes to any of them, **reboot the app** from
   the Community Cloud dashboard. Skill files (`skills/`) are read on every
   question, so they take effect without a reboot.
@@ -197,9 +247,20 @@ touching production data:
 - **Display details.** Some ranking-table titles show the city without its
   state ("Sterling"), and answers capitalize season labels mid-sentence
   ("in Summer 2024").
+- **Station-derived normals.** Normals come from the station's raw GHCN-D
+  observations, so they can differ slightly from NOAA's official normals,
+  which include adjustments and gap-filling. Charts note this.
+- **Trend lines on uncorrected data.** Trends include station artifacts
+  (instrument changes, site moves) as well as climate signal.
+- **Daily extremes within a month.** "The hottest January day on record" is
+  answered as the January with the highest *average* high, not the hottest
+  single January day. A fix is planned.
 
 ## Coming soon
 
-- **Plots and time series.** Charts such as "plot the temperature at
-  Dulles from 1990 to 2000". Today the app answers these with a
-  clarification offering a single value or a ranking instead.
+- **Distributions.** Histograms ("July highs at Dulles") and odds charts
+  ("percent of years with measurable snow by week", "white Christmas odds").
+- **More chart types.** Ranked bar charts, station difference plots (KIAD -
+  KDCA), and a climograph (temperature lines with precipitation bars).
+- **Timing.** First and last freeze dates, growing-season length, the first
+  90°F day, and the first measurable snow of each year.
