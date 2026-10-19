@@ -18,13 +18,15 @@ Chart drawing itself lives in charts.py; nothing here imports Altair.
 from __future__ import annotations
 
 import calendar
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 
 import pipeline
 
-CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year", "day_of_year"}
+CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year", "day_of_year", "week_of_year"}
+# daily histogram bin widths in the data's units (temperatures: 2°F, 1°C)
+HISTOGRAM_BIN = {"PRCP": 0.1, "SNOW": 1.0, "SNWD": 1.0, "AWND": 2.0, "HDD": 2.0, "CDD": 2.0}
 SEASON_NAMES = ["winter", "spring", "summer", "fall"]
 # A normal needs at least this share of the baseline's years (24 of 30)
 NORMAL_COMPLETENESS = 0.8
@@ -97,7 +99,7 @@ def _period_label(entry: dict) -> str:
 def _convert(entry: dict, temp_unit: str):
     """(value converter, spread converter) for the entry's output unit."""
     to_c = (
-        not _is_count(entry)
+        not _is_count(entry) and not _is_odds(entry)
         and entry["metric"] in _TEMPS
         and (entry.get("output_unit") or temp_unit) == "C"
     )
@@ -110,6 +112,11 @@ def _convert(entry: dict, temp_unit: str):
 def _is_count(entry: dict) -> bool:
     """A series of the number of days per bucket meeting a threshold."""
     return entry.get("period_aggregation") == "count"
+
+
+def _is_odds(entry: dict) -> bool:
+    """A climatology of the share of years with at least one day meeting a threshold."""
+    return entry.get("period_aggregation") == "any"
 
 
 _OPERATOR_SIGNS = {">": ">", ">=": "≥", "<": "<", "<=": "≤", "=": "="}
@@ -135,6 +142,8 @@ def _count_label(entry: dict, temp_unit: str) -> str:
 def _units(entry: dict, temp_unit: str) -> str:
     if _is_count(entry):
         return "days"
+    if _is_odds(entry):
+        return "% of years"
     if entry["metric"] in _TEMPS:
         return "°C" if (entry.get("output_unit") or temp_unit) == "C" else "°F"
     return pipeline._METRIC_UNITS.get(entry["metric"], "")
@@ -191,6 +200,14 @@ def _climatology_points(entry: dict, result: dict) -> list[dict]:
                 result.get("max_year", []), result.get("min", []), result.get("min_year", []),
             )
         ]
+    if entry["unit"] == "week_of_year":
+        # 7-day weeks from Jan 1, drawn on a 2000 axis, labeled by their first day
+        out = []
+        for w, v, sd, n in zip(result.get("weeks", []), result.get("values", []), result.get("stddev", []), result.get("n_years", [])):
+            start = date(2000, 1, 1) + timedelta(days=7 * (w - 1))
+            out.append({"x": start.isoformat(), "x_end": (start + timedelta(days=7)).isoformat(),
+                        "label": f"week of {calendar.month_abbr[start.month]} {start.day}", "value": v, "stddev": sd, "n_years": n})
+        return out
     if entry["unit"] == "month_of_year":
         keys = result.get("months", [])
         labels = [calendar.month_abbr[m] for m in keys]
@@ -258,6 +275,43 @@ def _normals(entry: dict, base_result: dict | None, notes: list[str]) -> dict | 
     return out or None
 
 
+def _nice_width(raw: float) -> float:
+    """A bin width of 1, 2, or 5 times a power of ten, at least raw."""
+    if raw <= 0:
+        return 1.0
+    mag = 10 ** np.floor(np.log10(raw))
+    return float(next(m * mag for m in (1, 2, 5, 10) if m * mag >= raw))
+
+
+def _histogram(pairs: list[tuple[float, int]], width: float, units: str) -> tuple[list[dict], dict]:
+    """
+    (value, count) pairs binned into [lo, lo + width) bins, plus the median,
+    10th/90th percentiles, and count for the answer. Empty bins between the
+    first and last are kept so the shape reads true.
+    """
+    if not pairs:
+        return [], {"n": 0}
+    digits = 2 if width < 1 else 0 if float(width).is_integer() else 1
+    lo0 = np.floor(min(v for v, _ in pairs) / width) * width
+    bins: dict[int, int] = {}
+    for v, c in pairs:
+        bins[int(np.floor((v - lo0) / width + 1e-9))] = bins.get(int(np.floor((v - lo0) / width + 1e-9)), 0) + c
+    total = sum(bins.values())
+    unit = units if units.startswith("°") else f" {units}"
+    fmt = lambda x: f"{round(x, digits):g}" if digits else f"{int(round(x))}"
+    points = []
+    for k in range(max(bins) + 1):
+        lo, hi = lo0 + k * width, lo0 + (k + 1) * width
+        n = bins.get(k, 0)
+        points.append({"x": round(lo, 2), "x_end": round(hi, 2), "label": f"{fmt(lo)}-{fmt(hi)}{unit}",
+                       "value": n, "pct": round(100 * n / total, 1)})
+    flat = np.repeat([v for v, _ in pairs], [c for _, c in pairs])
+    r = lambda x: round(float(x), 2 if width < 1 else 1)
+    stats = {"n": int(total), "median": r(np.median(flat)), "p10": r(np.percentile(flat, 10)), "p90": r(np.percentile(flat, 90)),
+             "most_common": max(points, key=lambda p: p["value"])["label"]}
+    return points, stats
+
+
 def _trend(points: list[dict], key: str) -> dict | None:
     xs = [p["x_num"] for p in points if p.get(key) is not None]
     ys = [p[key] for p in points if p.get(key) is not None]
@@ -285,7 +339,8 @@ def build_series(
     unit = entry["unit"]
     climatology = unit in CLIMATOLOGY_UNITS
     kind = (
-        "climatology" if climatology
+        "histogram" if unit == "value" or entry.get("display") == "histogram"
+        else "climatology" if climatology
         else entry["display"] if entry.get("display") in ("climate", "cumulative")
         else entry.get("display", "overlay") if entry.get("baseline")
         else "time_series"
@@ -299,15 +354,18 @@ def build_series(
         "metric": entry["metric"],
         "metric_label": (
             _count_label(entry, temp_unit) if _is_count(entry)
+            else _count_label(entry, temp_unit).replace("Days with", "Chance of a day with") if _is_odds(entry)
             else pipeline._METRIC_LABELS.get(entry["metric"], entry["metric"])
         ),
         "count": _is_count(entry),
+        "odds": _is_odds(entry),
+        "month_filter": entry.get("month_filter"),
         "station_id": entry["station_id"],
         "place": station.get("city") or station.get("name") or entry["station_id"],
         "station_name": station.get("name") or entry["station_id"],
         "units": _units(entry, temp_unit),
         # totals and day counts are amounts per bucket: bars, from zero
-        "bars": _is_count(entry) or (
+        "bars": _is_count(entry) or _is_odds(entry) or unit == "value" or (
             entry["metric"] in _TOTALS and (entry.get("period_aggregation") == "sum" or unit == "day")
         ),
         "baseline": (
@@ -322,9 +380,23 @@ def build_series(
     if not result or result.get("error"):
         return series
 
+    if unit == "value":
+        pairs = [(conv(v), c) for v, c in zip(result.get("values", []), result.get("counts", []))]
+        if entry["metric"] in _TOTALS | {"SNWD"}:
+            pairs = [(v, c) for v, c in pairs if v > 0]
+            notes.append("Days with none are left out.")
+        width = HISTOGRAM_BIN.get(entry["metric"], 1.0 if series["units"] == "°C" else 2.0)
+        series["points"], series["hist_stats"] = _histogram(pairs, width, series["units"])
+        return series
+
     if climatology:
         points = _climatology_points(entry, result)
         for p in points:
+            if _is_odds(entry):
+                # a share of years: a percent, with no spread band
+                p["value"] = round(p["value"] * 100, 1) if p["value"] is not None else None
+                p["stddev"] = None
+                continue
             p["value"] = _round(conv(p["value"])) if p["value"] is not None else None
             for f in ("record_high", "record_low"):
                 if p.get(f) is not None:
@@ -340,6 +412,14 @@ def build_series(
     points = _time_points(entry, result)
     for p in points:
         p["value"] = _round(conv(p["value"]))
+
+    if kind == "histogram":
+        # the spread of the period values (annual snowfall, summer means)
+        vals = [p["value"] for p in points if p["value"] is not None]
+        span = (max(vals) - min(vals)) if vals else 0
+        series["points"], series["hist_stats"] = _histogram([(v, 1) for v in vals], _nice_width(span / 10), series["units"])
+        series["period_count"] = len(vals)
+        return series
 
     normals = _normals(entry, base_result, notes) if entry.get("baseline") else None
     if entry.get("baseline"):
@@ -414,18 +494,26 @@ def group_charts(series_list: list[dict]) -> list[dict]:
             m["name"] = " · ".join(parts) or m["metric_label"]
         what = " & ".join(metrics)
         grain = {
-            "day": "daily", "month": "monthly", "year": "yearly", "season": f"{members[0]['season'] or ''}s",
+            "day": "daily", "month": "monthly", "year": "yearly", "value": "daily", "week_of_year": "by week", "season": f"{members[0]['season'] or ''}s",
             "snow_season": "by snow season" if members[0]["metric"] == "SNOW" else "by cold season (Jul-Jun)",
             "month_of_year": "by month", "season_of_year": "by season", "day_of_year": "by day of year",
         }[unit]
         period = members[0]["baseline"]
         if kind == "climatology":
-            heading = f"{what} — {({'month_of_year': 'monthly', 'season_of_year': 'seasonal'}).get(unit, 'daily')} climatology"
+            heading = f"{what} — {({'month_of_year': 'monthly', 'season_of_year': 'seasonal', 'week_of_year': 'weekly'}).get(unit, 'daily')} climatology"
+            if members[0].get("odds"):
+                heading = f"{what} — {({'month_of_year': 'by month', 'season_of_year': 'by season', 'week_of_year': 'by week'}).get(unit, 'by day')}"
             heading += f" ({period})" if period else ""
         elif kind == "overlay":
             heading = f"{what}, {grain} vs. {period} normal"
         elif kind == "anomaly":
             heading = f"{what}, {grain} departure from {period} normal"
+        elif kind == "histogram":
+            mf = members[0].get("month_filter")
+            months = " in " + "/".join(calendar.month_name[m] for m in mf) if mf else ""
+            per = {"year": "yearly", "snow_season": "snow-season", "month": "monthly", "season": members[0]["season"] or "seasonal"}
+            kind_of = "totals" if members[0]["bars"] else "averages"
+            heading = f"{what}, distribution of {'daily values' if unit == 'value' else per.get(unit, '') + ' ' + kind_of}{months}"
         elif kind == "climate":
             heading = f"{what}, daily vs. {period} normals and records"
         elif kind == "cumulative":
@@ -441,7 +529,7 @@ def group_charts(series_list: list[dict]) -> list[dict]:
             )
         # Subtitle: where (one place) and when (first to last point of a time series)
         sub = [places[0]] if len(places) == 1 else []
-        if kind != "climatology" and len(periods) == 1:  # several periods: the legend names them
+        if kind not in ("climatology", "histogram") and len(periods) == 1:  # several periods: the legend names them
             pts = sorted((p for m in members for p in m["points"]), key=lambda p: p["x"])
             # the heading already names a season ("summers"), so just the years
             label = (lambda p: str(p["year"])) if unit == "season" else (lambda p: p["label"])
@@ -458,7 +546,7 @@ def group_charts(series_list: list[dict]) -> list[dict]:
             "series": members,
             "notes": notes,
         }
-        if kind == "climatology" and unit != "day_of_year":  # 366 rows isn't a table
+        if kind == "climatology" and unit not in ("day_of_year", "week_of_year"):  # too many rows for a table
             chart["table"] = _climatology_table(members, units)
         charts.append(chart)
     return charts
@@ -482,7 +570,8 @@ def phrasing_summary(series: dict) -> dict:
         "chart": series["kind"],
         # what each point is, so the sentence doesn't call monthly means "daily"
         "grain": ("number of days meeting the threshold, " if series.get("count") else "") + {
-            "day": "daily values", "month": "monthly values", "year": "yearly values", "snow_season": "snow-season totals" if series["metric"] == "SNOW" else "values per Jul-Jun season",
+            "day": "daily values", "month": "monthly values", "year": "yearly values", "value": "daily values",
+            "week_of_year": "values for each week of the year", "snow_season": "snow-season totals" if series["metric"] == "SNOW" else "values per Jul-Jun season",
             "season": f"{series['season']} values, one per year", "month_of_year": "averages for each calendar month",
             "season_of_year": "averages for each season",
             "day_of_year": "averages for each calendar day, smoothed over +/- 7 days",
@@ -529,6 +618,17 @@ def phrasing_summary(series: dict) -> dict:
             out["normal_total_to_date"] = pts[-1]["normal"]
             out["departure_from_normal"] = pts[-1]["anomaly"]
         out["period_label"] = series.get("period")
+    if series["kind"] == "histogram":
+        # a distribution: its shape and middle, not a highest/lowest over time
+        for k in ("highest", "lowest", "mean", "period"):
+            out.pop(k, None)
+        out["grain"] = "histogram of " + ("daily values" if series["unit"] == "value" else "per-period values")
+        out["distribution"] = series.get("hist_stats")
+    if series.get("odds"):
+        out["grain"] = "percent of years with at least one day meeting the condition"
+        out.pop("mean", None)  # an average of odds across months means nothing
+        if len(pts) <= 12:  # every month/season, so none is guessed at
+            out["by_period"] = {p["label"]: p["value"] for p in pts}
     if series["kind"] == "climate":
         out["records_set_or_tied"] = [f"{p['label']} ({p['record_set']})" for p in pts if p.get("record_set")]
     return out

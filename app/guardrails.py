@@ -58,12 +58,15 @@ MIN_BASELINE_YEARS, MAX_BASELINE_YEARS = 10, 50
 METRICS = {"TAVG", "TMAX", "TMIN", "PRCP", "SNOW", "SNWD", "AWND", "HDD", "CDD"}
 AGGREGATIONS = {"mean", "median", "sum", "max", "min", "stddev", "count", "latest", "earliest", "top", "bottom", "series"}
 RANKING_AGGREGATIONS = {"top", "bottom"}
-UNITS = {"day", "event", "month", "year", "snow_season", "season", "month_of_year", "season_of_year", "day_of_year"}
-CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year", "day_of_year"}  # series only, except day_of_year (below)
+UNITS = {"day", "event", "month", "year", "snow_season", "season", "month_of_year", "season_of_year", "day_of_year",
+         "week_of_year", "value"}
+CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year", "day_of_year", "week_of_year"}  # series only, except day_of_year (below)
 # day_of_year outside a series: one calendar day's record (max/min) or normal (mean)
 CALENDAR_DAY_AGGREGATIONS = {"max", "min", "mean"}
-SERIES_UNITS = {"day", "month", "year", "season", "snow_season"} | CLIMATOLOGY_UNITS
-DISPLAYS = {"overlay", "anomaly", "climate", "cumulative"}
+SERIES_UNITS = {"day", "month", "year", "season", "snow_season", "value"} | CLIMATOLOGY_UNITS
+DISPLAYS = {"overlay", "anomaly", "climate", "cumulative", "histogram"}
+# histogram of per-period values (the spread of annual snowfall); unit value is always one
+HISTOGRAM_UNITS = {"month", "year", "season", "snow_season"}
 # climate: NWS-style daily graph (normals + records); cumulative: running total
 DAILY_DISPLAYS = {"climate": {"TMAX", "TMIN", "TAVG"}, "cumulative": {"PRCP", "SNOW"}}
 CLARIFICATION_REASONS = {"needs_plot"}
@@ -74,7 +77,8 @@ EVENT_ONLY_AGGREGATIONS = {"latest", "earliest"}
 EVENT_VALUES = {"total", "duration"}
 PERIOD_AGGREGATIONS = {"mean", "sum"}
 # a series bucket can also count the days meeting its threshold (90F+ days per year)
-SERIES_PERIOD_AGGREGATIONS = PERIOD_AGGREGATIONS | {"count"}
+SERIES_PERIOD_AGGREGATIONS = PERIOD_AGGREGATIONS | {"count", "any"}
+# any: 1 if a day in the bucket meets the threshold -- a climatology of it is the share of years
 OUTPUT_UNITS = {"C", "F"}
 STATUSES = {"resolved", "needs_clarification", "off_topic"}
 
@@ -312,6 +316,9 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
     elif unit == "day_of_year":
         if aggregation not in CALENDAR_DAY_AGGREGATIONS:
             problems.append(f"a calendar-day query takes max, min, or mean, not {aggregation!r}")
+        pa = q.get("period_aggregation")
+        if pa is not None and not (pa == "any" and aggregation == "mean" and "threshold" in q):
+            problems.append("a calendar-day query takes period_aggregation only as any (odds), with mean and a threshold")
         cd = q.get("calendar_day")
         try:
             date.fromisoformat(f"2000-{cd}")  # a leap year, so 02-29 is valid
@@ -323,7 +330,7 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         for name in ("trend", "baseline", "display"):
             if name in q:
                 problems.append(f"{name} only applies to series")
-    if unit in {"month", "year", "snow_season", "season", "month_of_year", "season_of_year"}:
+    if unit in {"month", "year", "snow_season", "season", "month_of_year", "season_of_year", "week_of_year"}:
         allowed = SERIES_PERIOD_AGGREGATIONS if aggregation == "series" else PERIOD_AGGREGATIONS
         if q.get("period_aggregation") not in allowed:
             problems.append(f"unit {unit!r} requires period_aggregation {' or '.join(sorted(allowed))}")
@@ -344,7 +351,7 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         # summers" as unit year + [6, 7, 8] would silently rank whole years
         # unit day: daily rows in those months across years ("the hottest
         # January day"); not for a daily series, which query_series doesn't filter
-        if unit != "month" and not (unit == "day" and aggregation != "series"):
+        if unit not in ("month", "value") and not (unit == "day" and aggregation != "series"):
             problems.append(f"month_filter only applies to unit 'month' or 'day', not {unit!r}")
 
     start, end = _parse_date(q.get("start_date")), _parse_date(q.get("end_date"))
@@ -399,10 +406,16 @@ def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> No
             problems.append("trend doesn't apply to a daily series")
         if "period_aggregation" in q:
             problems.append("a daily series has no period_aggregation")
-    elif q.get("period_aggregation") == "count" and "threshold" not in q:
-        problems.append("period_aggregation count requires a threshold")
-    if "threshold" in q and q.get("period_aggregation") != "count":
-        problems.append("a series threshold requires period_aggregation count")
+    elif unit == "value":
+        for name in ("period_aggregation", "baseline", "display", "trend", "threshold"):
+            if name in q:
+                problems.append(f"{name} doesn't apply to a histogram of daily values")
+    elif q.get("period_aggregation") in ("count", "any") and "threshold" not in q:
+        problems.append(f"period_aggregation {q['period_aggregation']} requires a threshold")
+    if "threshold" in q and q.get("period_aggregation") not in ("count", "any"):
+        problems.append("a series threshold requires period_aggregation count or any")
+    if q.get("period_aggregation") == "any" and unit not in CLIMATOLOGY_UNITS:
+        problems.append("period_aggregation any (odds) needs a climatology unit")
     if "trend" in q:
         if q["trend"] is not True:
             problems.append(f"trend {q['trend']!r} must be true or omitted")
@@ -424,6 +437,12 @@ def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> No
     if "display" in q:
         if q["display"] not in DISPLAYS:
             problems.append(f"display {q['display']!r} not allowed")
+        elif q["display"] == "histogram":
+            if unit not in HISTOGRAM_UNITS:
+                problems.append(f"display 'histogram' needs unit month, year, season, or snow_season, not {unit!r}")
+            for name in ("baseline", "trend"):
+                if name in q:
+                    problems.append(f"{name} doesn't apply to a histogram")
         elif q["display"] in DAILY_DISPLAYS:
             if unit != "day":
                 problems.append(f"display {q['display']!r} needs unit day")

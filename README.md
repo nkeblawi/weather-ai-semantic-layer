@@ -69,8 +69,9 @@ time against the analytics tables:
   the daily, event (e.g. a rain event), or monthly/yearly grain
 - `query_series` — returns every point of a chart instead of one value:
   daily (a year or less), monthly, yearly, seasonal, and snow-season series
-  (means, sums, or counts of days past a threshold), plus climatologies by
-  month, season, and calendar day (with each day's records)
+  (means, sums, or counts of days past a threshold), climatologies by
+  month, week, season, and calendar day (with each day's records), odds
+  (the share of years a condition occurs), and histograms of daily values
 - `answer_query` — the single entry point the app calls; dispatches to
   whichever of the above applies
 
@@ -191,6 +192,8 @@ result into chart data (unit conversion, normals, trend fits) and
 | Daily values, a year or less | `/plot daily rainfall at Reagan National in 2023` |
 | Daily climate graph (normals and records) | `/plot a climate graph for Dulles in 2024` |
 | Running totals, several seasons overlaid | `/plot accumulated snowfall at Dulles in 2024-25 vs 2009-10` |
+| Histograms (daily or per-period values) | `/plot a histogram of July high temperatures at Dulles` |
+| Odds by month, week, season, or day | `/plot the chance of measurable snow by week at Dulles` |
 
 - **Normals** are computed from the station's own observations, 1991-2020
   by default (10-50 years allowed). Daily normals are smoothed over +/- 7
@@ -203,7 +206,7 @@ result into chart data (unit conversion, normals, trend fits) and
 
 Single values use the same data without a chart: "the record high for July
 4", "the normal low on Christmas" (normal = 1991-2020; "average" = the whole
-record).
+record), "the odds of a white Christmas".
 
 ## Environments
 
@@ -255,8 +258,6 @@ touching production data:
 
 ## Coming soon
 
-- **Distributions.** Histograms ("July highs at Dulles") and odds charts
-  ("percent of years with measurable snow by week", "white Christmas odds").
 - **More chart types.** Ranked bar charts, station difference plots (KIAD -
   KDCA), and a climograph (temperature lines with precipitation bars).
 - **Timing.** First and last freeze dates, growing-season length, the first

@@ -121,7 +121,9 @@ with `>= N` (0 means never). This is about days; an *average* January ("average 
 
 **One calendar day across years** ("the record high for July 4", "the normal low on Christmas", "the most rain ever on New Year's Day"):
 `unit: "day_of_year"` plus `calendar_day: "MM-DD"`, with `max` for a record high / most, `min` for a record low, `mean` for a normal or
-average. Records use `all_time`; a normal uses 1991-2020 (or the years named), an average the whole record.
+average. Records use `all_time`; a normal uses 1991-2020 (or the years named), an average the whole record. Odds of a condition on that
+day ("the odds of a white Christmas", "how often does it rain on July 4") add `period_aggregation: "any"` + `threshold` with `mean`
+(white Christmas: SNWD `>= 1`; rain: PRCP `>= 0.01`), over the whole record.
 
 **Rankings** (`top` / `bottom`) only when the question asks for more than one result: a number ("top 5", "the 3 coldest"), a plural ("the
 biggest snowstorms", "the hottest days on record"), or "rank". A singular extreme ("the biggest snowstorm", "the hottest day") is
@@ -296,6 +298,13 @@ Examples involving events, storms, or month/year aggregates are in `references/c
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "count", "month_filter": [1], "threshold": {"operator": ">=", "value": 80}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
+]}
+```
+
+**Q:** What are the odds of a white Christmas at Reagan National?
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00013743", "metric": "SNWD", "aggregation": "mean", "unit": "day_of_year", "calendar_day": "12-25", "period_aggregation": "any", "threshold": {"operator": ">=", "value": 1}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
 ]}
 ```
 

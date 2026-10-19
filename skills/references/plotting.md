@@ -24,6 +24,8 @@ totals (as in `count_group.md`), or `count` for a number of days (below).
 | The user wants | `unit` | Notes |
 |---|---|---|
 | Normals or records for **each day of the year** ("daily normal highs and lows", "the normal high for every day") | `day_of_year` | 366 points, smoothed; no `period_aggregation`; dates as for any climatology |
+| A **histogram / distribution of daily values** ("histogram of July highs", "distribution of daily rainfall") | `value` | counts of days per value; `month_filter` for named months; no `period_aggregation`; no period stated → the whole record |
+| **Odds** — how often a condition happens, by month / week / season / calendar day ("how often does it hit 100 by month", "chance of measurable snow by week") | `month_of_year`, `week_of_year`, `season_of_year`, or `day_of_year` | `period_aggregation: "any"` + `threshold`: the percent of years with at least one such day |
 | Daily values over **a year or less** ("daily highs in 2024", "daily rainfall this summer", "snowfall day by day in winter 2009-10") | `day` | one point per day; no `period_aggregation` |
 | Values over time, range up to 30 years | `month` | one point per month |
 | Values over time, range over 30 years, or "annual"/"yearly" totals or averages | `year` | one point per year; no period stated → the whole record |
@@ -36,6 +38,10 @@ totals (as in `count_group.md`), or `count` for a number of days (below).
 **Daily points only over a year or less** — a span of at most 366 days: a calendar year, a few months, or one snow season (Jul 1 to Jun
 30). For a longer span, use `unit: "month"`; the app notes that daily points are limited to a year or less. A daily series takes no
 `trend`, but it may take `baseline`/`display` ("daily highs in 2024 against normal"): it's compared with smoothed daily normals.
+
+**Distributions and odds.** The spread of per-period values ("distribution of annual snowfall", "histogram of summer average
+temperatures") is the usual series (`snow_season` / `year` / `season` / `month`) with `display: "histogram"`. Odds thresholds follow the
+counting idioms; "measurable snow" → SNOW `>= 0.1`, "measurable rain" → PRCP `>= 0.01`, "a white Christmas" → SNWD `>= 1` on 12-25.
 
 **Counting days per period** ("90-degree days per year", "freeze days each winter", "how many 70-degree nights each summer", "days
 with snow each month"): `period_aggregation: "count"` plus `threshold`, with any unit except `day` — including the climatologies ("average
@@ -91,13 +97,13 @@ On top of SKILL.md Step 6's query fields:
 ```json
 {
   "aggregation": "series",
-  "unit": "day | month | year | season | snow_season | month_of_year | season_of_year | day_of_year",
-  "period_aggregation": "mean | sum | count (required, except omitted for unit day)",
-  "threshold": {"operator": "> | >= | < | <= | =", "value": "number, only with period_aggregation count"},
+  "unit": "day | month | year | season | snow_season | month_of_year | season_of_year | day_of_year | week_of_year | value",
+  "period_aggregation": "mean | sum | count | any (required, except omitted for unit day, day_of_year, value; any only on climatologies)",
+  "threshold": {"operator": "> | >= | < | <= | =", "value": "number, only with period_aggregation count or any"},
   "season": "winter | spring | summer | fall, only with unit season",
   "trend": "true, only when a trend is asked for; omit otherwise",
   "baseline": {"start_year": "first year of the normals period", "end_year": "last year"},
-  "display": "overlay | anomaly | climate | cumulative (overlay/anomaly/climate need baseline; climate/cumulative need unit day)"
+  "display": "overlay | anomaly | climate | cumulative | histogram (overlay/anomaly/climate need baseline; climate/cumulative need unit day)"
 }
 ```
 
@@ -210,6 +216,34 @@ On top of SKILL.md Step 6's query fields:
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "USW00093738", "metric": "SNOW", "aggregation": "series", "unit": "day", "start_date": "2009-07-01", "end_date": "2010-06-30", "display": "cumulative"},
   {"station_id": "USW00093738", "metric": "SNOW", "aggregation": "series", "unit": "day", "start_date": "2015-07-01", "end_date": "2016-06-30", "display": "cumulative"}
+]}
+```
+
+**Q:** /plot a histogram of July high temperatures at Dulles
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "value", "month_filter": [7], "start_date": "1800-01-01", "end_date": "2026-08-04"}
+]}
+```
+
+**Q:** /plot the distribution of annual snowfall at Dulles
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "SNOW", "aggregation": "series", "unit": "snow_season", "period_aggregation": "sum", "display": "histogram", "start_date": "1800-01-01", "end_date": "2026-08-04"}
+]}
+```
+
+**Q:** /plot the chance of measurable snow by week at Dulles
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "SNOW", "aggregation": "series", "unit": "week_of_year", "period_aggregation": "any", "threshold": {"operator": ">=", "value": 0.1}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
+]}
+```
+
+**Q:** /plot how often Reagan National hits 100 degrees, by month
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "any", "threshold": {"operator": ">=", "value": 100}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
 ]}
 ```
 

@@ -122,7 +122,7 @@ def _bars(chart: dict) -> bool:
     """
     if not chart["series"][0]["bars"]:
         return False
-    name_axis = (chart["kind"] == "climatology" and chart["unit"] != "day_of_year") or chart["unit"] == "month"
+    name_axis = (chart["kind"] == "climatology" and chart["unit"] not in ("day_of_year", "week_of_year")) or chart["unit"] == "month"
     return name_axis or len(chart["series"]) == 1
 
 
@@ -132,8 +132,8 @@ def _x(chart: dict, df: pd.DataFrame):
     Monthly bars also use names: on a date axis Vega sizes bars for daily
     spacing, so monthly bars would be slivers.
     """
-    if chart["unit"] == "day_of_year":
-        # calendar days on a leap-year (2000) axis; only the month shows
+    if chart["unit"] in ("day_of_year", "week_of_year"):
+        # calendar days/weeks on a leap-year (2000) axis; only the month shows
         return alt.X("x:T", title=None, scale=alt.Scale(type="utc"), axis=alt.Axis(format="%b"))
     monthly_bars = chart["unit"] == "month" and _bars(chart)
     if chart["kind"] == "climatology" or monthly_bars:
@@ -189,7 +189,7 @@ def time_series_chart(chart: dict) -> alt.Chart:
             # daily bars span their day (start to next day); otherwise Vega
             # draws them as hairlines on a date axis
             # (with x2, Vega needs the y baseline too, or it draws a square)
-            **({"x2": "x_end:T", "y2": alt.datum(0)} if chart["unit"] == "day" else {}),
+            **({"x2": "x_end:T", "y2": alt.datum(0)} if chart["unit"] in ("day", "week_of_year") else {}),
         )
     else:
         many = len(df) > 120
@@ -285,6 +285,33 @@ def anomaly_chart(chart: dict) -> alt.Chart:
 # Climate graph (NWS style): record range behind the normal range, daily bars on top
 CLIMATE_PARTS = ["Record range", "Normal range", "Daily range", "Record high set", "Record low set"]
 CLIMATE_COLORS = ["#B8C0CC", "#D9C8A9", "#4F6FA8", "#E4572E", "#2E86DE"]
+
+
+def histogram_chart(chart: dict) -> alt.Chart:
+    """
+    Counts per bin as touching bars, with the median marked. Several series
+    (two stations) overlap, semi-transparent, with a clickable legend.
+    """
+    df = _frame(chart)
+    names, colors = _colors(chart)
+    several = len(names) > 1
+    hidden = _toggle("series") if several else None
+    color = alt.Color("series:N", scale=alt.Scale(domain=names, range=colors), legend=_legend(names))
+    count_title = "years" if chart["unit"] != "value" else "days"
+    bars = alt.Chart(df).mark_bar(binSpacing=0, stroke="white", strokeWidth=0.3).encode(
+        x=alt.X("x:Q", title=chart["units"] if chart["units"].startswith("°") else chart["units"].capitalize(),
+                scale=alt.Scale(zero=False)),
+        x2="x_end:Q", y=alt.Y("value:Q", title=f"Number of {count_title}", stack=None), y2=alt.datum(0), color=color,
+        opacity=_fade(hidden, 0.6) if several else alt.value(0.9),
+        tooltip=[alt.Tooltip("series:N", title="Series"), alt.Tooltip("label:N", title="Range"),
+                 alt.Tooltip("value:Q", title=count_title.capitalize()), alt.Tooltip("pct:Q", title="% of all")])
+    layers = [bars.add_params(hidden) if several else bars]
+    medians = pd.DataFrame([{"series": s["name"], "median": s["hist_stats"]["median"]} for s in chart["series"]
+                            if (s.get("hist_stats") or {}).get("median") is not None])
+    if not medians.empty:
+        layers.append(alt.Chart(medians).mark_rule(strokeDash=[4, 3], strokeWidth=2).encode(
+            x="median:Q", color=color, tooltip=[alt.Tooltip("series:N", title="Series"), alt.Tooltip("median:Q", title="Median")]))
+    return alt.layer(*layers).properties(height=HEIGHT)
 
 
 def climate_chart(chart: dict) -> alt.Chart:
@@ -427,7 +454,9 @@ def _title(chart: dict) -> alt.TitleParams:
 
 def build_chart(chart: dict) -> alt.Chart:
     """The Altair chart for a chart dict from series.group_charts."""
-    if chart["kind"] == "climate":
+    if chart["kind"] == "histogram":
+        built = histogram_chart(chart)
+    elif chart["kind"] == "climate":
         built = climate_chart(chart)
     elif chart["kind"] == "cumulative":
         built = cumulative_chart(chart)

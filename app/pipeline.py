@@ -212,7 +212,10 @@ def _calendar_day_result(entry: dict, result: dict | None) -> dict | None:
     i = result["days"].index(entry["calendar_day"])
     agg = entry["aggregation"]
     out = {"calendar_day": calendar_day_label(entry["calendar_day"]), "n_years": result["n_years"][i]}
-    if agg in ("max", "min"):
+    if entry.get("period_aggregation") == "any":
+        # odds: the share of years the condition held on that day, as a percent
+        out["value"] = round(result["values"][i] * 100, 1)
+    elif agg in ("max", "min"):
         out.update(value=result[agg][i], record_year=result[f"{agg}_year"][i])
     else:
         out["value"] = smooth_day_of_year(result["values"])[i]
@@ -442,7 +445,8 @@ def build_answer_payload(
         entry = {**entry, "output_unit": "C"}
 
     station = station_info.get(entry["station_id"], {})
-    value = _round_value(
+    odds = entry.get("period_aggregation") == "any"
+    value = (result or {}).get("value") if odds else _round_value(
         entry, convert_value(entry, result.get("value") if result else None)
     )
 
@@ -451,7 +455,7 @@ def build_answer_payload(
         "place": station.get("city") or station.get("name") or entry["station_id"],
         "metric": entry["metric"],
         "aggregation": entry["aggregation"],
-        "units": answer_units(entry),
+        "units": "percent of years" if odds else answer_units(entry),
         "start_date": entry["start_date"],
         "end_date": entry["end_date"],
         "value": value,
@@ -473,6 +477,8 @@ def build_answer_payload(
         if "bucket_year" in payload and (label := season_label(entry, payload["bucket_year"])):
             del payload["bucket_year"]
             payload["season"] = label
+        if odds:
+            payload["condition"] = entry.get("threshold")
         if result.get("matching_days"):
             # rounded/converted like a single reading of the metric, not a count
             payload["matching_days"] = _converted_rows({**entry, "aggregation": "max"}, result["matching_days"])
