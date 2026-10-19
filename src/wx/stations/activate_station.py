@@ -13,9 +13,9 @@ no ambiguous-match handling needed. Look up the station_id first, e.g.:
 
 This is NOT part of any scheduled job. It is run on demand with usage:
 
-    python activate_station.py --station-id USW00093738 --activate --city "Sterling, VA"
+    python activate_station.py --station-id USW00014739 --activate --city "Boston"
     python activate_station.py --station-id USW00093738 --activate            # no city yet
-    python activate_station.py --station-id USW00093738 --city "Sterling, VA" # fix city on an already-active station
+    python activate_station.py --station-id USW00014922 --city "Minneapolis" # fix city on an already-active station
 
 Uses parameterized SQL (args=) to avoid string interpolation for
 user-supplied values, matching the pattern already used elsewhere in this
@@ -30,10 +30,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--workspace-root", default=os.environ.get("WX_WORKSPACE_ROOT"))
 args, _ = parser.parse_known_args()
 if not args.workspace_root:
-    parser.error("--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)")
+    parser.error(
+        "--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)"
+    )
 sys.path.append(args.workspace_root)
 
 from wx.utils.bootstrap import bootstrap  # noqa: E402
+
 bootstrap()
 
 from wx.utils.config import STATION_MERGED_TABLE
@@ -86,9 +89,7 @@ def main():
         help='GHCN station_id, e.g. "USW00093738". Look it up first in station_merged.',
     )
     parser.add_argument("--activate", action="store_true", help="Set selected=true.")
-    parser.add_argument(
-        "--city", default=None, help='City to set, e.g. "Sterling, VA".'
-    )
+    parser.add_argument("--city", default=None, help='City to set, e.g. "New York".')
 
     args, _ = parser.parse_known_args()
 
