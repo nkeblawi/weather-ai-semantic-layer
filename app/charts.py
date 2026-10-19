@@ -10,6 +10,8 @@ drawing.
 
 from __future__ import annotations
 
+import json
+
 import altair as alt
 import pandas as pd
 
@@ -45,12 +47,46 @@ def _colors(chart: dict) -> tuple[list[str], list[str]]:
     return names, colors
 
 
+def _toggled_legend_encode(field: str) -> dict:
+    """
+    Fade a legend entry while its item is hidden. Vega-Lite's default does the
+    reverse (it fades every entry except the selected ones), which reads
+    backwards when the selection is the hidden set.
+    """
+    hidden = f"length(data('hidden_store')) && hidden['{field}'] && indexof(hidden['{field}'], datum.value) >= 0"
+    faded = [{"test": hidden, "value": 0.3}, {"value": 1}]
+    # name + interactive are what Vega-Lite itself sets to make the legend
+    # clickable; an encode block replaces its own, so they're repeated here
+    part = lambda kind, update: {"name": f"{field}_legend_{kind}", "interactive": True, "update": update}
+    return {
+        "symbols": part("symbols", {"opacity": faded}),
+        "labels": part("labels", {"opacity": faded}),
+        "entries": part("entries", {"fill": {"value": "transparent"}}),
+    }
+
+
 def _legend(names: list[str]) -> alt.Legend | None:
     """Legend above the plot; one entry per row when the names won't fit across a phone."""
     if len(names) < 2:
         return None
     one_per_row = sum(len(n) for n in names) > 28
-    return alt.Legend(title=None, orient="top", direction="vertical" if one_per_row else "horizontal")
+    return alt.Legend(title=None, orient="top", direction="vertical" if one_per_row else "horizontal",
+                      symbolOpacity=1)
+
+
+def _toggle(field: str):
+    """
+    Click a legend item to hide that layer or line, click again to show it.
+    The selection holds the hidden items (empty = all shown); toggle keeps
+    each click's item instead of replacing the last one. Named so the legend
+    can read its store (_toggled_legend_encode).
+    """
+    return alt.selection_point(name="hidden", fields=[field], bind="legend", toggle="true", empty=False)
+
+
+def _fade(hidden, opacity: float):
+    """Opacity that drops to near zero while the item is toggled off."""
+    return alt.condition(hidden, alt.value(0.04), alt.value(opacity))
 
 
 def _band_color(names: list[str], colors: list[str]) -> alt.Color:
@@ -143,9 +179,12 @@ def time_series_chart(chart: dict) -> alt.Chart:
     extra = ["stddev"] if chart["kind"] == "climatology" else []
     if chart["unit"] == "day_of_year":
         extra += ["record_high", "record_high_year", "record_low", "record_low_year"]
+    several = len(names) > 1
+    hidden = _toggle("series") if several else None
+    fade = (lambda o: {"opacity": _fade(hidden, o)}) if several else (lambda o: {"opacity": alt.value(o)})
     if _bars(chart):
         marks = base.mark_bar().encode(
-            x=x, y=y, color=color, tooltip=_tooltip(chart, extra),
+            x=x, y=y, color=color, tooltip=_tooltip(chart, extra), **fade(1.0),
             **({"xOffset": "series:N"} if len(names) > 1 else {}),
             # daily bars span their day (start to next day); otherwise Vega
             # draws them as hairlines on a date axis
@@ -155,14 +194,14 @@ def time_series_chart(chart: dict) -> alt.Chart:
     else:
         many = len(df) > 120
         marks = base.mark_line(point=not many, strokeWidth=1.5 if many else 2).encode(
-            x=x, y=y, color=color, tooltip=_tooltip(chart, extra)
+            x=x, y=y, color=color, tooltip=_tooltip(chart, extra), **fade(1.0)
         )
-    layers = [marks]
+    layers = [marks.add_params(hidden) if several else marks]
     if chart["kind"] == "climatology" and "lower" in df and not _bars(chart):
         # +/- 1 standard deviation of the yearly values: the usual range
-        layers.insert(0, base.mark_area(opacity=0.15).encode(
+        layers.insert(0, base.mark_area().encode(
             x=x, y="lower:Q", y2="upper:Q", color=_band_color(names, colors),
-            tooltip=_tooltip(chart, extra),
+            tooltip=_tooltip(chart, extra), **fade(0.15),
         ))
     layers += _trend_layers(chart, "value")
     return alt.layer(*layers).resolve_legend(color="independent").properties(height=HEIGHT)
@@ -183,46 +222,64 @@ def normals_overlay_chart(chart: dict) -> alt.Chart:
     # same tooltip on every layer: a layer without one gets Vega's default,
     # which shows raw fields
     tooltip = _tooltip(chart, ["normal", "anomaly"] if has_normal else [])
+    several = len(names) > 1
+    hidden = _toggle("series") if several else None
+    fade = (lambda o: _fade(hidden, o)) if several else alt.value
     if has_normal:
         # Over bars, the normal is neutral gray so it doesn't blend into them
         normal_color = alt.value(NORMAL_GRAY) if bars else _band_color(names, colors)
-        band = base.mark_area(opacity=0.12 if bars else 0.15)
+        band = base.mark_area()
         normal = base.mark_line(strokeDash=[6, 4], strokeWidth=2 if bars else 1.5, point=bars)
-        layers.append(band.encode(x=x, y=alt.Y("lower:Q", title=y_title), y2="upper:Q", color=normal_color, tooltip=tooltip))
-        layers.append(normal.encode(x=x, y="normal:Q", color=normal_color, tooltip=tooltip))
+        # a hidden series takes its normal and band with it
+        layers.append(band.encode(x=x, y=alt.Y("lower:Q", title=y_title), y2="upper:Q", color=normal_color,
+                                  tooltip=tooltip, opacity=fade(0.12 if bars else 0.15)))
+        layers.append(normal.encode(x=x, y="normal:Q", color=normal_color, tooltip=tooltip, opacity=fade(1.0)))
     if bars:
-        layers.insert(0, base.mark_bar(opacity=0.85).encode(
-            x=x, y=alt.Y("value:Q", title=y_title), color=color, tooltip=tooltip,
-            **({"xOffset": "series:N"} if len(names) > 1 else {}),
-        ))
+        values = base.mark_bar().encode(
+            x=x, y=alt.Y("value:Q", title=y_title), color=color, tooltip=tooltip, opacity=fade(0.85),
+            **({"xOffset": "series:N"} if several else {}),
+        )
+        layers.insert(0, values.add_params(hidden) if several else values)
     else:
-        layers.append(base.mark_line(point=len(df) <= 120, strokeWidth=2).encode(
-            x=x, y=alt.Y("value:Q", title=y_title, scale=alt.Scale(zero=False)), color=color, tooltip=tooltip
-        ))
+        values = base.mark_line(point=len(df) <= 120, strokeWidth=2).encode(
+            x=x, y=alt.Y("value:Q", title=y_title, scale=alt.Scale(zero=False)), color=color, tooltip=tooltip,
+            opacity=fade(1.0),
+        )
+        layers.append(values.add_params(hidden) if several else values)
     layers += _trend_layers(chart, "value")
     return alt.layer(*layers).resolve_legend(color="independent").properties(height=HEIGHT)
 
 
 def anomaly_chart(chart: dict) -> alt.Chart:
-    """Departure from normal: bars colored by sign around a zero line."""
+    """
+    Departure from normal around a zero line. One series: bars colored by
+    sign. Several: colored by series (with a clickable legend) -- side by
+    side on a month axis, lines on a date axis, where Vega would stack bars.
+    """
     df = _frame(chart)
     df = df[df["anomaly"].notna()] if "anomaly" in df else df.iloc[0:0]
     x = _x(chart, df)
-    bars = alt.Chart(df).mark_bar().encode(
-        x=x,
-        y=alt.Y("anomaly:Q", title=f"Departure ({chart['units']})"),
-        color=alt.condition("datum.anomaly >= 0", alt.value(ABOVE), alt.value(BELOW)),
-        tooltip=[
-            alt.Tooltip("series:N", title="Series"),
-            alt.Tooltip("label:N", title="When"),
-            alt.Tooltip("value:Q", title=chart["units"] or "Value"),
-            alt.Tooltip("normal:Q", title="Normal"),
-            alt.Tooltip("anomaly:Q", title="Departure"),
-        ],
-        **({"xOffset": "series:N"} if len(chart["series"]) > 1 else {}),
-    )
+    tooltip = [
+        alt.Tooltip("series:N", title="Series"),
+        alt.Tooltip("label:N", title="When"),
+        alt.Tooltip("value:Q", title=chart["units"] or "Value"),
+        alt.Tooltip("normal:Q", title="Normal"),
+        alt.Tooltip("anomaly:Q", title="Departure"),
+    ]
+    y = alt.Y("anomaly:Q", title=f"Departure ({chart['units']})")
+    if len(chart["series"]) == 1:
+        marks = alt.Chart(df).mark_bar().encode(
+            x=x, y=y, color=alt.condition("datum.anomaly >= 0", alt.value(ABOVE), alt.value(BELOW)), tooltip=tooltip)
+    else:
+        names, colors = _colors(chart)
+        hidden = _toggle("series")
+        color = alt.Color("series:N", scale=alt.Scale(domain=names, range=colors), legend=_legend(names))
+        name_axis = chart["unit"] == "month"
+        mark = alt.Chart(df).mark_bar() if name_axis else alt.Chart(df).mark_line(point=len(df) <= 240, strokeWidth=2)
+        marks = mark.encode(x=x, y=y, color=color, tooltip=tooltip, opacity=_fade(hidden, 1.0),
+                            **({"xOffset": "series:N"} if name_axis else {})).add_params(hidden)
     zero = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(strokeWidth=1).encode(y="y:Q")
-    return alt.layer(bars, zero, *_trend_layers(chart, "anomaly")).properties(height=HEIGHT)
+    return alt.layer(marks, zero, *_trend_layers(chart, "anomaly")).properties(height=HEIGHT)
 
 
 # Climate graph (NWS style): record range behind the normal range, daily bars on top
@@ -263,37 +320,40 @@ def climate_chart(chart: dict) -> alt.Chart:
         df["norm_top"], df["norm_bot"] = df[f"{k}_upper"], df[f"{k}_lower"]
         df["line"] = df[k]
     color = alt.Color("part:N", scale=alt.Scale(domain=CLIMATE_PARTS, range=CLIMATE_COLORS),
-                      legend=alt.Legend(title=None, orient="top"))
+                      legend=alt.Legend(title=None, orient="top", symbolOpacity=1, columns=3))
+    hidden = _toggle("part")
     x = _x(chart, df)
     y_title = _y_title(chart)
     base = alt.Chart(df)
     when = alt.Tooltip("label:N", title="Day")
     layers = [
-        base.transform_calculate(part="'Record range'").mark_area(opacity=0.45).encode(
+        base.transform_calculate(part="'Record range'").mark_area().encode(
             x=x, y=alt.Y("rec_bot:Q", title=y_title, scale=alt.Scale(zero=False)), y2="rec_top:Q", color=color,
+            opacity=_fade(hidden, 0.3),
             tooltip=[when, alt.Tooltip("rec_top:Q", title="Record high"), alt.Tooltip("rec_bot:Q", title="Record low")]),
-        base.transform_calculate(part="'Normal range'").mark_area(opacity=0.8).encode(
-            x=x, y="norm_bot:Q", y2="norm_top:Q", color=color,
+        base.transform_calculate(part="'Normal range'").mark_area().encode(
+            x=x, y="norm_bot:Q", y2="norm_top:Q", color=color, opacity=_fade(hidden, 0.85),
             tooltip=[when, alt.Tooltip("norm_top:Q", title="Normal high" if pair else "Normal + 1 sd"),
                      alt.Tooltip("norm_bot:Q", title="Normal low" if pair else "Normal - 1 sd")]),
     ]
     if pair:
         layers.append(base.transform_calculate(part="'Daily range'").mark_bar().encode(
-            x=x, x2="x_end:T", y="lo:Q", y2="hi:Q", color=color,
+            x=x, x2="x_end:T", y="lo:Q", y2="hi:Q", color=color, opacity=_fade(hidden, 1.0),
             tooltip=[when, alt.Tooltip("hi:Q", title="High"), alt.Tooltip("lo:Q", title="Low"),
                      alt.Tooltip("n_hi:Q", title="Normal high"), alt.Tooltip("n_lo:Q", title="Normal low"),
                      alt.Tooltip("r_hi_hi:Q", title="Record high"), alt.Tooltip("r_hi_hi_year:Q", title="Set", format="d"),
                      alt.Tooltip("r_lo_lo:Q", title="Record low"), alt.Tooltip("r_lo_lo_year:Q", title="Set", format="d")]))
     else:
         layers.append(base.transform_calculate(part="'Daily range'").mark_line(strokeWidth=1.5).encode(
-            x=x, y="line:Q", color=color, tooltip=[when, alt.Tooltip("line:Q", title=chart["units"])]))
+            x=x, y="line:Q", color=color, opacity=_fade(hidden, 1.0),
+            tooltip=[when, alt.Tooltip("line:Q", title=chart["units"])]))
     if "record_set" in df and df["record_set"].notna().any():
         layers.append(base.transform_filter("datum.record_set").transform_calculate(
             part="indexof(datum.record_set, 'low') >= 0 ? 'Record low set' : 'Record high set'")
-                      .mark_point(filled=True, size=40).encode(
-            x=x, y="record_value:Q", color=color,
+                      .mark_point(filled=True, size=45, stroke="white", strokeWidth=0.8).encode(
+            x=x, y="record_value:Q", color=color, opacity=_fade(hidden, 1.0),
             tooltip=[when, alt.Tooltip("record_set:N", title="Record"), alt.Tooltip("record_value:Q", title=chart["units"])]))
-    return alt.layer(*layers).properties(height=HEIGHT)
+    return alt.layer(*layers).add_params(hidden).properties(height=HEIGHT)
 
 
 def cumulative_chart(chart: dict) -> alt.Chart:
@@ -318,8 +378,11 @@ def cumulative_chart(chart: dict) -> alt.Chart:
         normal = df[df["series"] == first]
         layers.append(alt.Chart(normal).mark_line(strokeDash=[6, 4], strokeWidth=2, color=NORMAL_GRAY).encode(
             x=x, y="normal:Q", tooltip=[alt.Tooltip("label:N", title="Through"), alt.Tooltip("normal:Q", title="Normal to date")]))
-    layers.append(alt.Chart(df).mark_line(strokeWidth=2, interpolate="step-after").encode(
-        x=x, y=alt.Y("value:Q", title=f"Total ({chart['units']})"), color=color, tooltip=tooltip))
+    hidden = _toggle("series") if several else None
+    totals = alt.Chart(df).mark_line(strokeWidth=2, interpolate="step-after").encode(
+        x=x, y=alt.Y("value:Q", title=f"Total ({chart['units']})"), color=color, tooltip=tooltip,
+        opacity=_fade(hidden, 1.0) if several else alt.value(1.0))
+    layers.append(totals.add_params(hidden) if several else totals)
     return alt.layer(*layers).properties(height=HEIGHT)
 
 
@@ -385,7 +448,21 @@ def chart_spec(chart: dict) -> dict:
     """
     spec = build_chart(chart).to_dict()
     spec.setdefault("config", {}).setdefault("legend", {})["layout"] = {"top": {"anchor": "middle"}}
+    # legend fading for hidden items: Altair's schema rejects legend encode too
+    if '"name": "hidden"' in json.dumps(spec.get("params", [])) + json.dumps(spec.get("layer", [])):
+        for enc in _encodings(spec):
+            color = enc.get("color")
+            if isinstance(color, dict) and isinstance(color.get("legend"), dict) and "field" in color:
+                color["legend"]["encode"] = _toggled_legend_encode(color["field"])
     return spec
+
+
+def _encodings(spec: dict):
+    """Every encoding block in a (possibly layered) spec."""
+    if "encoding" in spec:
+        yield spec["encoding"]
+    for layer in spec.get("layer", []):
+        yield from _encodings(layer)
 
 
 def to_csv(chart: dict) -> str:

@@ -433,6 +433,8 @@ def group_charts(series_list: list[dict]) -> list[dict]:
         else:
             heading = f"{what}, {grain}"
         notes = list(dict.fromkeys(n for m in members for n in m["notes"]))
+        if len(members) > 1 or kind == "climate":
+            notes.insert(0, "Click a legend item to hide or show it.")
         if kind in ("overlay", "anomaly", "climate") or (kind in ("climatology", "cumulative") and members[0]["baseline"]):
             notes.append(
                 "Normals are computed from this station's observations and may differ slightly from NOAA's official normals."
