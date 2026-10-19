@@ -125,13 +125,13 @@ def render_help_cards_at(position):
             render_help()
 
 
-# Sticky header needs an opaque background so scrolled messages don't show
-# through; Streamlit exposes no CSS variable for it, so match the theme.
-PAGE_BG = "#FFFFFF" if st.context.theme.type == "light" else "#0E1117"
-
 # - Preferences header: sticky just under Streamlit's 3.75rem top bar. Set on
 #   the form's wrapper, whose parent is the main column that grows with the
-#   chat (sticky only works within its parent's height).
+#   chat (sticky only works within its parent's height). It needs an opaque
+#   background so scrolled messages don't show through: only .stApp carries
+#   the theme's, and the elements between it and the header are transparent,
+#   so each of them inherits it -- the header then follows a theme switch
+#   live (st.context.theme follows the browser, not the app's theme menu).
 # - Update and Plot it buttons: sky blue when clickable. Only the enabled
 #   state is restyled, so Streamlit's own gray disabled style shows while saving.
 # - Chat: user messages on the right (avatar flipped to the right, bubble
@@ -146,8 +146,10 @@ st.html(f"""
         position: sticky;
         top: 3.75rem;
         z-index: 99;
-        background-color: {PAGE_BG};
         padding-bottom: 0.5rem;
+    }}
+    [data-testid="stApp"] :has(.st-key-prefs_header) {{
+        background-color: inherit;
     }}
     [data-testid="stChatMessage"]:has(> [aria-label="Chat message from user"]) {{
         flex-direction: row-reverse;
