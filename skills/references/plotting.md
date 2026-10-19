@@ -65,6 +65,12 @@ How the baseline is expressed depends on what's plotted:
   `display`:
   - `"overlay"` (default) — the values next to the normal line and its normal range.
   - `"anomaly"` — each value minus its normal, when the user says anomaly / departure / above or below normal over time.
+  - `"climate"` — a daily climate graph (NWS style): daily highs/lows over the normal range and the record range. Only `unit: "day"`
+    (a year or less) with TMAX and/or TMIN (one query each); needs `baseline`. Use it for "climate graph", "daily highs and lows vs normal
+    and records", "how is this year/month going compared to normal and records".
+  - `"cumulative"` — a running total of daily PRCP or SNOW ("year-to-date rain", "accumulated snowfall this season", "running total").
+    Only `unit: "day"`; `baseline` is optional and adds the normal accumulation. Several seasons on one chart ("this winter vs 2009-10
+    vs 2015-16") → one query per season (each Jul 1 - Jun 30 for snow), same station; the app lines them up by day of season.
 
 The app computes normals and anomalies itself from `baseline`; never add a second query for the normals.
 
@@ -91,7 +97,7 @@ On top of SKILL.md Step 6's query fields:
   "season": "winter | spring | summer | fall, only with unit season",
   "trend": "true, only when a trend is asked for; omit otherwise",
   "baseline": {"start_year": "first year of the normals period", "end_year": "last year"},
-  "display": "overlay | anomaly, only with baseline"
+  "display": "overlay | anomaly | climate | cumulative (overlay/anomaly/climate need baseline; climate/cumulative need unit day)"
 }
 ```
 
@@ -181,6 +187,29 @@ On top of SKILL.md Step 6's query fields:
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "day", "start_date": "2024-01-01", "end_date": "2024-12-31", "baseline": {"start_year": 1991, "end_year": 2020}, "display": "overlay"}
+]}
+```
+
+**Q:** /plot a climate graph for Dulles in 2024 (daily highs and lows vs normals and records)
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "day", "start_date": "2024-01-01", "end_date": "2024-12-31", "baseline": {"start_year": 1991, "end_year": 2020}, "display": "climate"},
+  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "series", "unit": "day", "start_date": "2024-01-01", "end_date": "2024-12-31", "baseline": {"start_year": 1991, "end_year": 2020}, "display": "climate"}
+]}
+```
+
+**Q:** /plot year-to-date rainfall at Reagan National compared to normal
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00013743", "metric": "PRCP", "aggregation": "series", "unit": "day", "start_date": "2026-01-01", "end_date": "2026-08-04", "baseline": {"start_year": 1991, "end_year": 2020}, "display": "cumulative"}
+]}
+```
+
+**Q:** /plot accumulated snowfall at Dulles in 2009-10 vs 2015-16
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "SNOW", "aggregation": "series", "unit": "day", "start_date": "2009-07-01", "end_date": "2010-06-30", "display": "cumulative"},
+  {"station_id": "USW00093738", "metric": "SNOW", "aggregation": "series", "unit": "day", "start_date": "2015-07-01", "end_date": "2016-06-30", "display": "cumulative"}
 ]}
 ```
 

@@ -63,7 +63,9 @@ CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year", "day_of_year"}  # series
 # day_of_year outside a series: one calendar day's record (max/min) or normal (mean)
 CALENDAR_DAY_AGGREGATIONS = {"max", "min", "mean"}
 SERIES_UNITS = {"day", "month", "year", "season", "snow_season"} | CLIMATOLOGY_UNITS
-DISPLAYS = {"overlay", "anomaly"}
+DISPLAYS = {"overlay", "anomaly", "climate", "cumulative"}
+# climate: NWS-style daily graph (normals + records); cumulative: running total
+DAILY_DISPLAYS = {"climate": {"TMAX", "TMIN", "TAVG"}, "cumulative": {"PRCP", "SNOW"}}
 CLARIFICATION_REASONS = {"needs_plot"}
 SEASONS = {"winter", "spring", "summer", "fall"}
 OPERATORS = {">", ">=", "<", "<=", "="}
@@ -420,6 +422,13 @@ def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> No
     if "display" in q:
         if q["display"] not in DISPLAYS:
             problems.append(f"display {q['display']!r} not allowed")
+        elif q["display"] in DAILY_DISPLAYS:
+            if unit != "day":
+                problems.append(f"display {q['display']!r} needs unit day")
+            if q.get("metric") not in DAILY_DISPLAYS[q["display"]]:
+                problems.append(f"display {q['display']!r} doesn't apply to {q.get('metric')!r}")
+            if q["display"] == "climate" and "baseline" not in q:
+                problems.append("display 'climate' needs a baseline")
         elif "baseline" not in q:
             problems.append("display needs a baseline")
 

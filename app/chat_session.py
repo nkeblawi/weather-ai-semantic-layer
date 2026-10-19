@@ -268,8 +268,10 @@ def get_answer(
                 result = pipeline.call_answer_query(session.conn, entry)
                 base_entry = series.baseline_entry(entry)
                 base = pipeline.call_answer_query(session.conn, base_entry) if base_entry else None
+                rec_entry = series.records_entry(entry)
+                records = pipeline.call_answer_query(session.conn, rec_entry) if rec_entry else None
                 series_list.append(
-                    series.build_series(entry, result, base, session.station_info, session.temp_unit)
+                    series.build_series(entry, result, base, session.station_info, session.temp_unit, records)
                 )
             charts = series.group_charts(series_list)
             answer_text = pipeline.generate_answer(

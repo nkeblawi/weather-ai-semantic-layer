@@ -64,6 +64,36 @@ def baseline_entry(entry: dict) -> dict | None:
     return {**base, "unit": unit}
 
 
+def records_entry(entry: dict) -> dict | None:
+    """The whole-record day_of_year query a climate graph's record envelope needs."""
+    if entry.get("display") != "climate":
+        return None
+    return {
+        "station_id": entry["station_id"], "metric": entry["metric"], "aggregation": "series",
+        "unit": "day_of_year", "start_date": "1800-01-01", "end_date": date.today().isoformat(),
+    }
+
+
+def _aligned_x(iso: str, start: date) -> str:
+    """
+    The date moved into a reference season that starts in the same month as
+    the series, so several seasons (2009-10, 2015-16) line up day for day.
+    The reference year has its Feb 29 (2000, or 1999-2000 for a July start).
+    """
+    d = date.fromisoformat(iso)
+    ref = 2000 if start.month <= 2 else 1999
+    year = ref + (1 if (d.month, d.day) < (start.month, start.day) else 0)
+    return date(year, d.month, d.day).isoformat()
+
+
+def _period_label(entry: dict) -> str:
+    """'2009-10' for a Jul-Jun season, '2024' for one calendar year, else the years."""
+    s, e = date.fromisoformat(entry["start_date"]), date.fromisoformat(entry["end_date"])
+    if s.year == e.year:
+        return str(s.year)
+    return f"{s.year}-{e.year % 100:02d}"
+
+
 def _convert(entry: dict, temp_unit: str):
     """(value converter, spread converter) for the entry's output unit."""
     to_c = (
@@ -248,6 +278,7 @@ def build_series(
     base_result: dict | None,
     station_info: dict,
     temp_unit: str = "F",
+    records_result: dict | None = None,
 ) -> dict:
     """One chart line, JSON-safe so it can live in the session history."""
     station = station_info.get(entry["station_id"], {})
@@ -255,6 +286,7 @@ def build_series(
     climatology = unit in CLIMATOLOGY_UNITS
     kind = (
         "climatology" if climatology
+        else entry["display"] if entry.get("display") in ("climate", "cumulative")
         else entry.get("display", "overlay") if entry.get("baseline")
         else "time_series"
     )
@@ -282,6 +314,7 @@ def build_series(
             f"{entry['baseline']['start_year']}-{entry['baseline']['end_year']}" if entry.get("baseline") else None
         ),
         "season": entry.get("season"),
+        "period": _period_label(entry) if unit == "day" else None,
         "points": [],
         "trend": None,
         "notes": notes,
@@ -320,6 +353,38 @@ def build_series(
                 p["upper"] = _round(p["normal"] + sd) if sd is not None else None
                 p["anomaly"] = _round(p["value"] - p["normal"])
 
+    if kind == "climate" and records_result and not records_result.get("error"):
+        recs = {
+            d: (hi, hy, lo, ly)
+            for d, hi, hy, lo, ly in zip(records_result.get("days", []), records_result.get("max", []),
+                                         records_result.get("max_year", []), records_result.get("min", []),
+                                         records_result.get("min_year", []))
+        }
+        for p in points:
+            if (r := recs.get(p["x"][5:])) is None:
+                continue
+            p["record_high"], p["record_high_year"] = _round(conv(r[0])), r[1]
+            p["record_low"], p["record_low_year"] = _round(conv(r[2])), r[3]
+            # the whole record includes this period: a tie or a new record
+            if entry["metric"] == "TMAX" and p["value"] >= p["record_high"]:
+                p["record_set"] = "high"
+            elif entry["metric"] == "TMIN" and p["value"] <= p["record_low"]:
+                p["record_set"] = "low"
+
+    if kind == "cumulative":
+        start = date.fromisoformat(entry["start_date"])
+        total = normal_total = 0.0
+        for p in points:
+            p["daily"] = p["value"]
+            total += p["value"] or 0
+            p["value"] = _round(total)
+            if p.get("normal") is not None:
+                normal_total += p["normal"]
+                p["normal"] = _round(normal_total)
+                p["anomaly"] = _round(p["value"] - p["normal"])
+            p.pop("lower", None), p.pop("upper", None)
+            p["x_aligned"] = _aligned_x(p["x"], start)
+
     if entry.get("trend"):
         series["trend"] = _trend(points, "anomaly" if kind == "anomaly" else "value")
     series["points"] = points
@@ -340,9 +405,12 @@ def group_charts(series_list: list[dict]) -> list[dict]:
     for (kind, unit, units, _), members in groups.items():
         places = list(dict.fromkeys(m["place"] for m in members))
         metrics = list(dict.fromkeys(m["metric_label"] for m in members))
+        periods = list(dict.fromkeys(m.get("period") for m in members))
         for m in members:
             # name each line by what differs between the lines
             parts = ([m["metric_label"]] if len(metrics) > 1 else []) + ([m["place"]] if len(places) > 1 else [])
+            if len(periods) > 1:
+                parts.append(m["period"])
             m["name"] = " · ".join(parts) or m["metric_label"]
         what = " & ".join(metrics)
         grain = {
@@ -358,16 +426,20 @@ def group_charts(series_list: list[dict]) -> list[dict]:
             heading = f"{what}, {grain} vs. {period} normal"
         elif kind == "anomaly":
             heading = f"{what}, {grain} departure from {period} normal"
+        elif kind == "climate":
+            heading = f"{what}, daily vs. {period} normals and records"
+        elif kind == "cumulative":
+            heading = f"{what}, running total" + (f" vs. {period} normal" if period else "")
         else:
             heading = f"{what}, {grain}"
         notes = list(dict.fromkeys(n for m in members for n in m["notes"]))
-        if kind in ("overlay", "anomaly") or (kind == "climatology" and members[0]["baseline"]):
+        if kind in ("overlay", "anomaly", "climate") or (kind in ("climatology", "cumulative") and members[0]["baseline"]):
             notes.append(
                 "Normals are computed from this station's observations and may differ slightly from NOAA's official normals."
             )
         # Subtitle: where (one place) and when (first to last point of a time series)
         sub = [places[0]] if len(places) == 1 else []
-        if kind != "climatology":
+        if kind != "climatology" and len(periods) == 1:  # several periods: the legend names them
             pts = sorted((p for m in members for p in m["points"]), key=lambda p: p["x"])
             # the heading already names a season ("summers"), so just the years
             label = (lambda p: str(p["year"])) if unit == "season" else (lambda p: p["label"])
@@ -445,4 +517,16 @@ def phrasing_summary(series: dict) -> dict:
         out["furthest_below_normal"] = {"departure": below["anomaly"], "when": below["label"]}
     if series["trend"]:
         out["trend_per_decade"] = series["trend"]["per_decade"]
+    if series["kind"] == "cumulative":
+        # a running total: the end is what matters, not its highest/lowest
+        for k in ("highest", "lowest", "mean", "mean_departure_from_normal", "furthest_above_normal", "furthest_below_normal"):
+            out.pop(k, None)
+        out["grain"] = "running total of daily values"
+        out["total"] = {"value": pts[-1]["value"], "through": pts[-1]["label"]}
+        if pts[-1].get("normal") is not None:
+            out["normal_total_to_date"] = pts[-1]["normal"]
+            out["departure_from_normal"] = pts[-1]["anomaly"]
+        out["period_label"] = series.get("period")
+    if series["kind"] == "climate":
+        out["records_set_or_tied"] = [f"{p['label']} ({p['record_set']})" for p in pts if p.get("record_set")]
     return out

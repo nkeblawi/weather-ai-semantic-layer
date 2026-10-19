@@ -225,6 +225,104 @@ def anomaly_chart(chart: dict) -> alt.Chart:
     return alt.layer(bars, zero, *_trend_layers(chart, "anomaly")).properties(height=HEIGHT)
 
 
+# Climate graph (NWS style): record range behind the normal range, daily bars on top
+CLIMATE_PARTS = ["Record range", "Normal range", "Daily range", "Record high set", "Record low set"]
+CLIMATE_COLORS = ["#B8C0CC", "#D9C8A9", "#4F6FA8", "#E4572E", "#2E86DE"]
+
+
+def climate_chart(chart: dict) -> alt.Chart:
+    """
+    Daily highs and lows as bars (low to high) over the normal range (normal
+    low to normal high) and the record range (record low to record high).
+    With one metric, a line over the same backdrop. Records set (or tied)
+    in the period are marked.
+    """
+    by = {s["metric"]: s for s in chart["series"]}
+    hi_s, lo_s = by.get("TMAX"), by.get("TMIN")
+    rows: dict[str, dict] = {}
+    for s in chart["series"]:
+        for p in s["points"]:
+            r = rows.setdefault(p["x"], {"x": p["x"], "label": p["label"]})
+            key = "hi" if s is hi_s else "lo" if s is lo_s else "v"
+            r[key], r[f"n_{key}"] = p["value"], p.get("normal")
+            r[f"{key}_lower"], r[f"{key}_upper"] = p.get("lower"), p.get("upper")
+            r[f"r_hi_{key}"], r[f"r_hi_{key}_year"] = p.get("record_high"), p.get("record_high_year")
+            r[f"r_lo_{key}"], r[f"r_lo_{key}_year"] = p.get("record_low"), p.get("record_low_year")
+            if p.get("record_set"):
+                r["record_set"] = (r.get("record_set", "") + " " + p["record_set"]).strip()
+                r["record_value"] = p["value"]
+    df = pd.DataFrame(sorted(rows.values(), key=lambda r: r["x"]))
+    df["x_end"] = (pd.to_datetime(df["x"]) + pd.Timedelta(days=1)).dt.strftime("%Y-%m-%d")
+    pair = hi_s is not None and lo_s is not None
+    if pair:
+        df["rec_top"], df["rec_bot"] = df["r_hi_hi"], df["r_lo_lo"]
+        df["norm_top"], df["norm_bot"] = df["n_hi"], df["n_lo"]
+    else:
+        k = "hi" if hi_s is not None else "lo" if lo_s is not None else "v"
+        df["rec_top"], df["rec_bot"] = df[f"r_hi_{k}"], df[f"r_lo_{k}"]
+        df["norm_top"], df["norm_bot"] = df[f"{k}_upper"], df[f"{k}_lower"]
+        df["line"] = df[k]
+    color = alt.Color("part:N", scale=alt.Scale(domain=CLIMATE_PARTS, range=CLIMATE_COLORS),
+                      legend=alt.Legend(title=None, orient="top"))
+    x = _x(chart, df)
+    y_title = _y_title(chart)
+    base = alt.Chart(df)
+    when = alt.Tooltip("label:N", title="Day")
+    layers = [
+        base.transform_calculate(part="'Record range'").mark_area(opacity=0.45).encode(
+            x=x, y=alt.Y("rec_bot:Q", title=y_title, scale=alt.Scale(zero=False)), y2="rec_top:Q", color=color,
+            tooltip=[when, alt.Tooltip("rec_top:Q", title="Record high"), alt.Tooltip("rec_bot:Q", title="Record low")]),
+        base.transform_calculate(part="'Normal range'").mark_area(opacity=0.8).encode(
+            x=x, y="norm_bot:Q", y2="norm_top:Q", color=color,
+            tooltip=[when, alt.Tooltip("norm_top:Q", title="Normal high" if pair else "Normal + 1 sd"),
+                     alt.Tooltip("norm_bot:Q", title="Normal low" if pair else "Normal - 1 sd")]),
+    ]
+    if pair:
+        layers.append(base.transform_calculate(part="'Daily range'").mark_bar().encode(
+            x=x, x2="x_end:T", y="lo:Q", y2="hi:Q", color=color,
+            tooltip=[when, alt.Tooltip("hi:Q", title="High"), alt.Tooltip("lo:Q", title="Low"),
+                     alt.Tooltip("n_hi:Q", title="Normal high"), alt.Tooltip("n_lo:Q", title="Normal low"),
+                     alt.Tooltip("r_hi_hi:Q", title="Record high"), alt.Tooltip("r_hi_hi_year:Q", title="Set", format="d"),
+                     alt.Tooltip("r_lo_lo:Q", title="Record low"), alt.Tooltip("r_lo_lo_year:Q", title="Set", format="d")]))
+    else:
+        layers.append(base.transform_calculate(part="'Daily range'").mark_line(strokeWidth=1.5).encode(
+            x=x, y="line:Q", color=color, tooltip=[when, alt.Tooltip("line:Q", title=chart["units"])]))
+    if "record_set" in df and df["record_set"].notna().any():
+        layers.append(base.transform_filter("datum.record_set").transform_calculate(
+            part="indexof(datum.record_set, 'low') >= 0 ? 'Record low set' : 'Record high set'")
+                      .mark_point(filled=True, size=40).encode(
+            x=x, y="record_value:Q", color=color,
+            tooltip=[when, alt.Tooltip("record_set:N", title="Record"), alt.Tooltip("record_value:Q", title=chart["units"])]))
+    return alt.layer(*layers).properties(height=HEIGHT)
+
+
+def cumulative_chart(chart: dict) -> alt.Chart:
+    """
+    Running totals; several seasons share an axis aligned by day of season.
+    The normal accumulation (first series') is a dashed gray line.
+    """
+    df = _frame(chart)
+    names, colors = _colors(chart)
+    several = len(chart["series"]) > 1
+    xf = "x_aligned" if several else "x"
+    span = (pd.to_datetime(df[xf]).max() - pd.to_datetime(df[xf]).min()).days if not df.empty else 0
+    monthly = several or span > 60  # past ~2 months, a tick per month
+    x = alt.X(f"{xf}:T", title=None, scale=alt.Scale(type="utc"),
+              axis=alt.Axis(format="%b" if monthly else "%b %-d", **({"tickCount": {"interval": "month", "step": 1}} if monthly else {})))
+    color = alt.Color("series:N", scale=alt.Scale(domain=names, range=colors), legend=_legend(names))
+    tooltip = [alt.Tooltip("series:N", title="Series"), alt.Tooltip("label:N", title="Through"),
+               alt.Tooltip("value:Q", title=f"Total ({chart['units']})"), alt.Tooltip("daily:Q", title="That day")]
+    layers = []
+    first = chart["series"][0]["name"]
+    if "normal" in df and df["normal"].notna().any():
+        normal = df[df["series"] == first]
+        layers.append(alt.Chart(normal).mark_line(strokeDash=[6, 4], strokeWidth=2, color=NORMAL_GRAY).encode(
+            x=x, y="normal:Q", tooltip=[alt.Tooltip("label:N", title="Through"), alt.Tooltip("normal:Q", title="Normal to date")]))
+    layers.append(alt.Chart(df).mark_line(strokeWidth=2, interpolate="step-after").encode(
+        x=x, y=alt.Y("value:Q", title=f"Total ({chart['units']})"), color=color, tooltip=tooltip))
+    return alt.layer(*layers).properties(height=HEIGHT)
+
+
 def _trend_layers(chart: dict, field: str) -> list:
     """A dashed least-squares line per series that asked for a trend."""
     rows = []
@@ -266,7 +364,11 @@ def _title(chart: dict) -> alt.TitleParams:
 
 def build_chart(chart: dict) -> alt.Chart:
     """The Altair chart for a chart dict from series.group_charts."""
-    if chart["kind"] == "anomaly":
+    if chart["kind"] == "climate":
+        built = climate_chart(chart)
+    elif chart["kind"] == "cumulative":
+        built = cumulative_chart(chart)
+    elif chart["kind"] == "anomaly":
         built = anomaly_chart(chart)
     elif chart["kind"] == "overlay":
         built = normals_overlay_chart(chart)
