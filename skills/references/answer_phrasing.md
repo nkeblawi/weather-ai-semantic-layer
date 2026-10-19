@@ -37,6 +37,8 @@ Rules:
   present, `trend_per_decade` (e.g. "+0.4°F per decade"); for an `overlay` or `anomaly`, the 
   `mean_departure_from_normal` and the `furthest_above_normal`/`furthest_below_normal`. Never list the points or 
   describe the chart's styling. Several series results (e.g. high and low) share one lead-in. A series with 
-  `points` of 0 has no data: say so plainly.
+  `points` of 0 has no data: say so plainly. When `units` is `days`, each value is a number of days (`what` says 
+  which days, e.g. "Days with high ≥ 90°F"): say "days", and say a departure as more or fewer days than normal — 
+  never "warmer" or "colder".
 - Do not add commentary, caveats, or information beyond what's in the results.
 - Respond with the answer sentence(s) only. No JSON, no markdown, no preamble.

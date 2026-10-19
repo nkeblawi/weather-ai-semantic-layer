@@ -2,26 +2,28 @@
 
 Read this file only when the **Plot mode** section below SKILL.md says this is a plot turn — either the user typed `/plot`, or this is a
 follow-up to a plot. It extends SKILL.md's output with one more aggregation, `series`, which returns every month, year, or season as a
-point on a chart instead of one value. Everything else in SKILL.md still applies: Step 2 resolves the station, Step 3 the metric, Step 5
+point on a chart instead of one value (or, over a year or less, every day). Everything else in SKILL.md still applies: Step 2 resolves the station, Step 3 the metric, Step 5
 the date range (with the `resolve_date_range` tool), and Step 6 the JSON shape. `references/count_group.md` (loaded alongside this file)
 defines the `season` and `snow_season` units used here.
 
 ## Step 1 — Is this a chart?
 
 - **`/plot` turn** (the user typed `/plot`): the answer must be a chart. Emit `series` queries. If the request can't be charted — a single
-  value ("/plot the hottest day ever"), or nothing that varies over months, years, or seasons — return `needs_clarification` asking what
-  to chart (e.g. "A single day can't be charted. Would you like the hottest day of each year, or the monthly average highs?").
+  value ("/plot the hottest day ever"), or nothing that varies over days, months, years, or seasons — return `needs_clarification` asking
+  what to chart (e.g. "A single day can't be charted. Would you like the number of 90°F days each year, or the average high for each
+  month?").
 - **Follow-up to a plot** (no `/plot`, but the previous turn was a chart): use `series` if the follow-up asks for another chart ("now do
   Reagan", "same for the 1961-1990 normals", "add a trend line"). If it asks for a single value instead ("which month was warmest?",
   "what was the normal July high?"), answer it as a regular SKILL.md query — no `series`.
 
 ## Step 2 — Choose the plot type and grain
 
-Every `series` query needs `unit` and `period_aggregation` (`mean` for temperatures/wind, `sum` for PRCP/SNOW totals, as in
-`count_group.md`).
+Every `series` query needs `unit` and, except for daily points, `period_aggregation`: `mean` for temperatures/wind, `sum` for PRCP/SNOW
+totals (as in `count_group.md`), or `count` for a number of days (below).
 
 | The user wants | `unit` | Notes |
 |---|---|---|
+| Daily values over **a year or less** ("daily highs in 2024", "daily rainfall this summer", "snowfall day by day in winter 2009-10") | `day` | one point per day; no `period_aggregation` |
 | Values over time, range up to 30 years | `month` | one point per month |
 | Values over time, range over 30 years, or "annual"/"yearly" totals or averages | `year` | one point per year; no period stated → the whole record |
 | One season across years ("summer highs since 1950", "winter lows") | `season` + `season` | one point per year's season; winter is Dec-Feb kept whole |
@@ -30,8 +32,15 @@ Every `series` query needs `unit` and `period_aggregation` (`mean` for temperatu
 | Climatology by month ("average high and low for each month", "monthly climatology") | `month_of_year` | 12 points |
 | Climatology by season ("average temperature of each season") | `season_of_year` | 4 points (winter, spring, summer, fall) |
 
-**Daily points are never plotted.** If the user asks for daily values ("plot daily temperatures in 2023"), use `unit: "month"` instead;
-the app notes that plots are monthly at the finest. Never emit `unit: "day"` with `series`.
+**Daily points only over a year or less** — a span of at most 366 days: a calendar year, a few months, or one snow season (Jul 1 to Jun
+30). For a longer span, use `unit: "month"`; the app notes that daily points are limited to a year or less. A daily series takes no
+`baseline`, `display`, or `trend` (daily normals aren't available yet): for "daily highs in 2024 against normal", use monthly points.
+
+**Counting days per period** ("90-degree days per year", "freeze days each winter", "how many 70-degree nights each summer", "days
+with snow each month"): `period_aggregation: "count"` plus `threshold`, with any unit except `day` — including the climatologies ("average
+number of 90-degree days in each month"). Thresholds follow SKILL.md Step 4's counting idioms; also "90-degree days" → TMAX `>= 90`,
+"100-degree days" → TMAX `>= 100`, "70-degree nights" / "warm nights" with a number → TMIN `>=` that number, "freeze days" → TMIN `< 32`.
+A count series works with `baseline`, `display`, and `trend` like any other (e.g. "90-degree days per year with a trend line").
 
 A climatology covers the date range you give it: no period stated → the whole record (`all_time`); "the 1991-2020 normals" → that range
 (next step).
@@ -75,8 +84,9 @@ On top of SKILL.md Step 6's query fields:
 ```json
 {
   "aggregation": "series",
-  "unit": "month | year | season | snow_season | month_of_year | season_of_year",
-  "period_aggregation": "mean | sum (required)",
+  "unit": "day | month | year | season | snow_season | month_of_year | season_of_year",
+  "period_aggregation": "mean | sum | count (required, except omitted for unit day)",
+  "threshold": {"operator": "> | >= | < | <= | =", "value": "number, only with period_aggregation count"},
   "season": "winter | spring | summer | fall, only with unit season",
   "trend": "true, only when a trend is asked for; omit otherwise",
   "baseline": {"start_year": "first year of the normals period", "end_year": "last year"},
@@ -150,16 +160,52 @@ On top of SKILL.md Step 6's query fields:
 ]}
 ```
 
-**Q:** /plot daily high temperatures at Dulles in 2023 (daily → monthly)
+**Q:** /plot daily high and low temperatures at Dulles in 2023 (one year → daily points)
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "month", "period_aggregation": "mean", "start_date": "2023-01-01", "end_date": "2023-12-31"}
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "day", "start_date": "2023-01-01", "end_date": "2023-12-31"},
+  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "series", "unit": "day", "start_date": "2023-01-01", "end_date": "2023-12-31"}
+]}
+```
+
+**Q:** /plot daily snowfall at Dulles in winter 2009-10 (one snow season → daily points)
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "SNOW", "aggregation": "series", "unit": "day", "start_date": "2009-07-01", "end_date": "2010-06-30"}
+]}
+```
+
+**Q:** /plot daily highs at Dulles from 2020 to 2023 (over a year → monthly points)
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "month", "period_aggregation": "mean", "start_date": "2020-01-01", "end_date": "2023-12-31"}
+]}
+```
+
+**Q:** /plot the number of 90-degree days per year at Dulles with a trend line
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "year", "period_aggregation": "count", "threshold": {"operator": ">=", "value": 90}, "start_date": "1800-01-01", "end_date": "2026-08-04", "trend": true}
+]}
+```
+
+**Q:** /plot freeze days each winter at Reagan National since 1970 (a whole cold season → snow-season years, Jul-Jun)
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00013743", "metric": "TMIN", "aggregation": "series", "unit": "snow_season", "period_aggregation": "count", "threshold": {"operator": "<", "value": 32}, "start_date": "1969-07-01", "end_date": "2026-08-04"}
+]}
+```
+
+**Q:** /plot the average number of 90-degree days in each month at Dulles
+```json
+{"current_date": "2026-08-04", "status": "resolved", "queries": [
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "count", "threshold": {"operator": ">=", "value": 90}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
 ]}
 ```
 
 **Q:** /plot the hottest day ever at Dulles
 ```json
-{"current_date": "2026-08-04", "status": "needs_clarification", "clarification_question": "A single day can't be charted. Would you like the hottest day of each year, or the average high for each month?"}
+{"current_date": "2026-08-04", "status": "needs_clarification", "clarification_question": "A single day can't be charted. Would you like the number of 90°F days each year, or the average high for each month?"}
 ```
 
 **Follow-up**, after the monthly climatology chart above — **Q:** now do Reagan National

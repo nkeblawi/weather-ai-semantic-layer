@@ -89,6 +89,8 @@ PLOT_EXAMPLES = [
     "/plot average high and low temperature for each month at Dulles",
     "/plot monthly temperatures at Dulles in 2025 against normal",
     "/plot summer highs at Reagan National with a trend line",
+    "/plot daily highs and lows at Dulles in 2024",
+    "/plot the number of 90-degree days per year at Dulles",
 ]
 
 
@@ -100,8 +102,9 @@ def render_help():
         "**Tip:** open the settings bar at the top, pick a **Home city**, and press **Update** to leave the city "
         'out of your questions (e.g. "What was the average high temperature in July 2025?"). '
         "You can also switch the temperature **Units** between °F and °C there.\n\n"
-        f"**Charts:** start a question with `{PLOT_COMMAND}` to get a chart — monthly, yearly, or "
-        "seasonal values, climatologies, comparisons with the 1991-2020 normals, and trend lines:\n\n"
+        f"**Charts:** start a question with `{PLOT_COMMAND}` to get a chart — daily values (a year or "
+        "less), monthly, yearly, or seasonal values, counts of days (e.g. 90-degree days), climatologies, "
+        "comparisons with the 1991-2020 normals, and trend lines:\n\n"
         + "\n".join(f"- {q}" for q in PLOT_EXAMPLES)
         + f"\n\n`{HELP_COMMAND}` doesn't count toward your question limit."
     )

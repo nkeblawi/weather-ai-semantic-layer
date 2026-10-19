@@ -6,7 +6,9 @@ CREATE OR REPLACE FUNCTION weather.analytics.query_series(
     p_unit STRING,
     p_period_aggregation STRING,
     p_month_filter ARRAY<INT> DEFAULT NULL,
-    p_year_start_month INT DEFAULT 1
+    p_year_start_month INT DEFAULT 1,
+    p_threshold_operator STRING DEFAULT NULL,
+    p_threshold_value DOUBLE DEFAULT NULL
 )
 RETURNS STRING
 COMMENT '
@@ -19,9 +21,9 @@ p_unit:
 - year: one point per year. p_year_start_month shifts the year (7 = snow season Jul-Jun; 12 with p_month_filter [12, 1, 2] = winter, Dec-Feb kept together), labeled by the year it ends in. p_month_filter keeps only those months in each year, which is how a season (e.g. summer = [6, 7, 8]) becomes one point per year. Returns {years, values, n_days}.
 - month_of_year: monthly climatology, 12 points. Each month (year, month) is collapsed first, then averaged across years. Returns {months, values, stddev, n_years}; stddev is the spread of the monthly values across years.
 - season_of_year: seasonal climatology, 4 points (winter DJF, spring MAM, summer JJA, fall SON). Each season (year, season) is collapsed first, then averaged across years; a winter takes December from the year before (winter 1991 = Dec 1990 - Feb 1991). Returns {seasons, values, stddev, n_years}.
-- day: not supported (daily points are never plotted). Returns {"error": "unsupported_unit"}.
+- day: one point per day, for a span of 366 days or less (daily points are never plotted over longer spans). Returns {dates, values}, skipping days with no value; p_period_aggregation is ignored. A longer span returns {"error": "span_too_long"}.
 
-p_period_aggregation (mean or sum) collapses each month/year/season from its daily values.
+p_period_aggregation collapses each month/year/season from its daily values: mean, sum, or count (the number of days meeting p_threshold_operator p_threshold_value, one of >, >=, <, <=, =; e.g. days >= 90). In a climatology, count averages the per-year counts (e.g. the average number of 90-degree days in July).
 
 Coverage rule: a month, year, or season counts only if at least 90% of its calendar days have a non-null value (for a filtered year, counting only the p_month_filter months), so partial periods never enter a series or a climatology. n_days / n_years let the caller apply its own completeness checks (e.g. a 30-year normal needing at least 24 years).
 
@@ -46,10 +48,12 @@ RETURN (
                         CASE WHEN p_unit = 'month' THEN MAX(bucket_month) END AS bucket_month,
                         -- ROUND needs a literal scale, so branch on the metric
                         IF(p_metric IN ('PRCP', 'SNOW', 'SNWD'),
-                           ROUND(CASE WHEN p_period_aggregation = 'mean' THEN AVG(value)
-                                      WHEN p_period_aggregation = 'sum'  THEN SUM(value) END, 2),
-                           ROUND(CASE WHEN p_period_aggregation = 'mean' THEN AVG(value)
-                                      WHEN p_period_aggregation = 'sum'  THEN SUM(value) END, 1)
+                           ROUND(CASE WHEN p_period_aggregation = 'mean'  THEN AVG(value)
+                                      WHEN p_period_aggregation = 'sum'   THEN SUM(value)
+                                      WHEN p_period_aggregation = 'count' THEN SUM(hit) END, 2),
+                           ROUND(CASE WHEN p_period_aggregation = 'mean'  THEN AVG(value)
+                                      WHEN p_period_aggregation = 'sum'   THEN SUM(value)
+                                      WHEN p_period_aggregation = 'count' THEN SUM(hit) END, 1)
                         ) AS bucket_value,
                         CAST(COUNT(value) AS INT) AS n_days,
                         -- first day of a year bucket's 12-month window (for coverage)
@@ -58,6 +62,18 @@ RETURN (
                             COALESCE(p_year_start_month, 1), 1
                         ) AS bucket_start
                     FROM (
+                        -- hit: 1 when the day meets the threshold (for count); computed
+                        -- here because aggregates can't reference parameters
+                        SELECT *, CASE
+                                WHEN value IS NULL THEN NULL
+                                WHEN (p_threshold_operator = '>'  AND value > p_threshold_value)
+                                  OR (p_threshold_operator = '>=' AND value >= p_threshold_value)
+                                  OR (p_threshold_operator = '<'  AND value < p_threshold_value)
+                                  OR (p_threshold_operator = '<=' AND value <= p_threshold_value)
+                                  OR (p_threshold_operator = '='  AND value = p_threshold_value)
+                                THEN 1 ELSE 0
+                            END AS hit
+                        FROM (
                         SELECT
                             -- year buckets that start mid-year are labeled by the year they end in
                             CASE WHEN p_unit = 'year' AND COALESCE(p_year_start_month, 1) > 1
@@ -80,6 +96,7 @@ RETURN (
                         WHERE station_id = p_station_id
                           AND obs_date BETWEEN p_start_date AND p_end_date
                           AND (p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(obs_date)))
+                        ) raw
                     ) days
                     GROUP BY
                         bucket_year,
@@ -120,11 +137,22 @@ RETURN (
                         SELECT
                             YEAR(obs_date) AS bucket_year,
                             MONTH(obs_date) AS bucket_month,
-                            CASE WHEN p_period_aggregation = 'mean' THEN AVG(value)
-                                 WHEN p_period_aggregation = 'sum'  THEN SUM(value)
+                            CASE WHEN p_period_aggregation = 'mean'  THEN AVG(value)
+                                 WHEN p_period_aggregation = 'sum'   THEN SUM(value)
+                                 WHEN p_period_aggregation = 'count' THEN SUM(hit)
                             END AS bucket_value,
                             COUNT(value) AS n_days
                         FROM (
+                            SELECT *, CASE
+                                WHEN value IS NULL THEN NULL
+                                WHEN (p_threshold_operator = '>'  AND value > p_threshold_value)
+                                  OR (p_threshold_operator = '>=' AND value >= p_threshold_value)
+                                  OR (p_threshold_operator = '<'  AND value < p_threshold_value)
+                                  OR (p_threshold_operator = '<=' AND value <= p_threshold_value)
+                                  OR (p_threshold_operator = '='  AND value = p_threshold_value)
+                                THEN 1 ELSE 0
+                            END AS hit
+                            FROM (
                             SELECT obs_date,
                                 CASE p_metric
                                     WHEN 'TAVG' THEN TAVG
@@ -140,6 +168,7 @@ RETURN (
                             FROM weather.analytics.observations
                             WHERE station_id = p_station_id
                               AND obs_date BETWEEN p_start_date AND p_end_date
+                            ) raw
                         ) d
                         GROUP BY YEAR(obs_date), MONTH(obs_date)
                     ) monthly
@@ -170,11 +199,22 @@ RETURN (
                         SELECT
                             season_year,
                             season,
-                            CASE WHEN p_period_aggregation = 'mean' THEN AVG(value)
-                                 WHEN p_period_aggregation = 'sum'  THEN SUM(value)
+                            CASE WHEN p_period_aggregation = 'mean'  THEN AVG(value)
+                                 WHEN p_period_aggregation = 'sum'   THEN SUM(value)
+                                 WHEN p_period_aggregation = 'count' THEN SUM(hit)
                             END AS bucket_value,
                             COUNT(value) AS n_days
                         FROM (
+                            SELECT *, CASE
+                                WHEN value IS NULL THEN NULL
+                                WHEN (p_threshold_operator = '>'  AND value > p_threshold_value)
+                                  OR (p_threshold_operator = '>=' AND value >= p_threshold_value)
+                                  OR (p_threshold_operator = '<'  AND value < p_threshold_value)
+                                  OR (p_threshold_operator = '<=' AND value <= p_threshold_value)
+                                  OR (p_threshold_operator = '='  AND value = p_threshold_value)
+                                THEN 1 ELSE 0
+                            END AS hit
+                            FROM (
                             SELECT
                                 -- December belongs to the following year's winter
                                 YEAR(ADD_MONTHS(obs_date, 1)) AS season_year,
@@ -199,6 +239,7 @@ RETURN (
                             WHERE station_id = p_station_id
                               -- one month early so the first winter gets its December
                               AND obs_date BETWEEN ADD_MONTHS(p_start_date, -1) AND p_end_date
+                            ) raw
                         ) d
                         WHERE season_year BETWEEN YEAR(p_start_date) AND YEAR(p_end_date)
                         GROUP BY season_year, season
@@ -214,6 +255,41 @@ RETURN (
                       END
                     GROUP BY season
                 ) by_season
+            ) pts_query
+        )
+
+        WHEN p_unit = 'day' AND DATEDIFF(p_end_date, p_start_date) > 366 THEN
+            to_json(named_struct('error', 'span_too_long', 'unit', p_unit))
+
+        WHEN p_unit = 'day' THEN (
+            SELECT to_json(named_struct(
+                'dates', transform(pts, p -> p.d),
+                'values', transform(pts, p -> p.v)
+            ))
+            FROM (
+                SELECT array_sort(collect_list(named_struct('d', obs_date, 'v', v))) AS pts
+                FROM (
+                    -- rounded here: aggregates can't reference parameters
+                    SELECT obs_date, IF(p_metric IN ('PRCP', 'SNOW', 'SNWD'), ROUND(value, 2), ROUND(value, 1)) AS v
+                    FROM (
+                    SELECT obs_date,
+                        CASE p_metric
+                            WHEN 'TAVG' THEN TAVG
+                            WHEN 'TMAX' THEN TMAX
+                            WHEN 'TMIN' THEN TMIN
+                            WHEN 'PRCP' THEN PRCP
+                            WHEN 'SNOW' THEN SNOW
+                            WHEN 'SNWD' THEN SNWD
+                            WHEN 'AWND' THEN AWND
+                            WHEN 'HDD' THEN HDD
+                            WHEN 'CDD' THEN CDD
+                        END AS value
+                    FROM weather.analytics.observations
+                    WHERE station_id = p_station_id
+                      AND obs_date BETWEEN p_start_date AND p_end_date
+                    ) raw
+                    WHERE value IS NOT NULL
+                ) d
             ) pts_query
         )
 

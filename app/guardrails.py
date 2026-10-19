@@ -46,6 +46,9 @@ MAX_RANK_LIMIT = 15  # top/bottom ranks per query; answer_query clamps to the sa
 # /plot: a monthly series longer than this becomes yearly points, which keeps
 # 4 series under Altair's 5,000-row default (4 x 1,200 points)
 MAX_MONTHLY_SERIES_YEARS = 100
+# /plot: daily points only for a span this long or shorter (a year, leap or
+# not, or one snow season); longer daily requests become monthly
+MAX_DAILY_SERIES_DAYS = 366
 MIN_BASELINE_YEARS, MAX_BASELINE_YEARS = 10, 50
 
 # ---------------------------------------------------------------------------
@@ -57,7 +60,7 @@ AGGREGATIONS = {"mean", "median", "sum", "max", "min", "stddev", "count", "lates
 RANKING_AGGREGATIONS = {"top", "bottom"}
 UNITS = {"day", "event", "month", "year", "snow_season", "season", "month_of_year", "season_of_year"}
 CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year"}  # series only
-SERIES_UNITS = {"month", "year", "season", "snow_season"} | CLIMATOLOGY_UNITS
+SERIES_UNITS = {"day", "month", "year", "season", "snow_season"} | CLIMATOLOGY_UNITS
 DISPLAYS = {"overlay", "anomaly"}
 CLARIFICATION_REASONS = {"needs_plot"}
 SEASONS = {"winter", "spring", "summer", "fall"}
@@ -66,6 +69,8 @@ EVENT_METRICS = {"PRCP", "SNOW"}
 EVENT_ONLY_AGGREGATIONS = {"latest", "earliest"}
 EVENT_VALUES = {"total", "duration"}
 PERIOD_AGGREGATIONS = {"mean", "sum"}
+# a series bucket can also count the days meeting its threshold (90F+ days per year)
+SERIES_PERIOD_AGGREGATIONS = PERIOD_AGGREGATIONS | {"count"}
 OUTPUT_UNITS = {"C", "F"}
 STATUSES = {"resolved", "needs_clarification", "off_topic"}
 
@@ -103,7 +108,7 @@ NEEDS_PLOT_MSG = (
 )
 # A /plot turn the resolver couldn't turn into a chart
 NOT_CHARTABLE_MSG = (
-    "I couldn't turn that into a chart. Charts show values by month, season, or year, "
+    "I couldn't turn that into a chart. Charts show values by day (a year or less), month, season, or year, "
     "e.g. `/plot average high and low for each month at Dulles` or "
     "`/plot summer highs at Reagan National with a trend line`."
 )
@@ -304,9 +309,12 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         for name in ("trend", "baseline", "display"):
             if name in q:
                 problems.append(f"{name} only applies to series")
-    if unit in {"month", "year", "snow_season", "season"} | CLIMATOLOGY_UNITS and q.get("period_aggregation") not in PERIOD_AGGREGATIONS:
-        problems.append(f"unit {unit!r} requires period_aggregation mean or sum")
-    if unit == "snow_season" and metric != "SNOW":
+    if unit in {"month", "year", "snow_season", "season"} | CLIMATOLOGY_UNITS:
+        allowed = SERIES_PERIOD_AGGREGATIONS if aggregation == "series" else PERIOD_AGGREGATIONS
+        if q.get("period_aggregation") not in allowed:
+            problems.append(f"unit {unit!r} requires period_aggregation {' or '.join(sorted(allowed))}")
+    # a count series may use the Jul-Jun year for any metric (freeze days per cold season)
+    if unit == "snow_season" and metric != "SNOW" and not (aggregation == "series" and q.get("period_aggregation") == "count"):
         problems.append(f"unit 'snow_season' requires SNOW, got {metric!r}")
 
     for name in ("threshold", "event_day_threshold"):
@@ -359,7 +367,21 @@ def cap_rank_limits(resolved: dict) -> None:
 def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> None:
     """Fields only a series (a /plot query, references/plotting.md) may carry."""
     if unit not in SERIES_UNITS:
-        problems.append(f"series unit {unit!r} not allowed (plots are monthly at the finest)")
+        problems.append(f"series unit {unit!r} not allowed")
+    if unit == "day":
+        start, end = _parse_date(q.get("start_date")), _parse_date(q.get("end_date"))
+        if start and end and (end - start).days > MAX_DAILY_SERIES_DAYS:
+            problems.append(f"daily series span more than {MAX_DAILY_SERIES_DAYS} days")
+        # daily normals don't exist yet, and a trend within a year isn't one
+        for name in ("baseline", "display", "trend"):
+            if name in q:
+                problems.append(f"{name} doesn't apply to a daily series")
+        if "period_aggregation" in q:
+            problems.append("a daily series has no period_aggregation")
+    elif q.get("period_aggregation") == "count" and "threshold" not in q:
+        problems.append("period_aggregation count requires a threshold")
+    if "threshold" in q and q.get("period_aggregation") != "count":
+        problems.append("a series threshold requires period_aggregation count")
     if "trend" in q:
         if q["trend"] is not True:
             problems.append(f"trend {q['trend']!r} must be true or omitted")
@@ -385,6 +407,7 @@ def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> No
             problems.append("display needs a baseline")
 
 
+DAILY_LIMIT_NOTE = "Daily points are limited to a year or less, so this shows monthly values."
 DAILY_WORDS = re.compile(r"\b(daily|each day|every day|per day|day[- ]by[- ]day)\b", re.IGNORECASE)
 
 
@@ -392,22 +415,28 @@ def coerce_series(resolved: dict, question: str = "") -> None:
     """
     Fixes series queries that ask for more than plots allow, in place, before
     validation -- a chart instead of an error, like cap_rank_limits. Daily
-    points become monthly; a monthly series over MAX_MONTHLY_SERIES_YEARS
-    becomes yearly. Each change leaves a note under the chart (notes).
-    `question` is the user's text: a request for daily values gets the note
-    even when the resolver already picked monthly itself (plotting.md says to).
+    points over more than MAX_DAILY_SERIES_DAYS become monthly; a monthly
+    series over MAX_MONTHLY_SERIES_YEARS becomes yearly. Each change leaves a
+    note under the chart (notes). `question` is the user's text: a long-span
+    request for daily values gets the note even when the resolver already
+    picked monthly itself (plotting.md says to).
     """
     for q in resolved.get("queries") or []:
         if not isinstance(q, dict) or q.get("aggregation") != "series":
             continue
-        was_day = q.get("unit", "day") == "day"
-        if was_day:
-            q["unit"] = "month"
-        unit = q["unit"]
-        if was_day or DAILY_WORDS.search(question):
-            q.setdefault("notes", []).append("Plots show monthly values at the finest.")
         start, end = _parse_date(q.get("start_date")), _parse_date(q.get("end_date"))
-        if unit == "month" and start and end and (end.year - start.year + 1) > MAX_MONTHLY_SERIES_YEARS:
+        long_span = bool(start and end and (end - start).days > MAX_DAILY_SERIES_DAYS)
+        if q.get("unit", "day") == "day" and long_span:
+            q["unit"] = "month"
+            # monthly buckets need one; a daily mean is the closest reading
+            q.setdefault("period_aggregation", "sum" if q.get("metric") in {"PRCP", "SNOW"} else "mean")
+            q.setdefault("notes", []).append(DAILY_LIMIT_NOTE)
+        elif q.get("unit", "day") == "day" and q.get("period_aggregation") in PERIOD_AGGREGATIONS:
+            # a day is its own value; mean/sum of one day is a no-op
+            del q["period_aggregation"]
+        elif q.get("unit") == "month" and long_span and DAILY_WORDS.search(question):
+            q.setdefault("notes", []).append(DAILY_LIMIT_NOTE)
+        if q.get("unit") == "month" and start and end and (end.year - start.year + 1) > MAX_MONTHLY_SERIES_YEARS:
             q["unit"] = "year"
             q.setdefault("notes", []).append(
                 f"Monthly points are limited to {MAX_MONTHLY_SERIES_YEARS} years, so this shows yearly values."

@@ -13,8 +13,7 @@ from __future__ import annotations
 import altair as alt
 import pandas as pd
 
-# Line colors by metric; a second line of the same metric (another station)
-# falls back to the palette below.
+# Line colors by metric.
 METRIC_COLORS = {
     "TMAX": "#E4572E",  # red: highs
     "TMIN": "#2E86DE",  # blue: lows
@@ -26,7 +25,9 @@ METRIC_COLORS = {
     "HDD": "#2E86DE",
     "CDD": "#E4572E",
 }
-PALETTE = ["#87CEEB", "#E4572E", "#17A398", "#F2A541", "#8E7DBE"]
+# Fallbacks for a second line of the same metric (another station): contrast
+# first -- a blue next to a blue, or a red next to a red, is hard to tell apart
+PALETTE = ["#F2A541", "#8E7DBE", "#17A398", "#E4572E", "#87CEEB"]
 ABOVE, BELOW = "#E4572E", "#2E86DE"  # anomaly bars: warmer/wetter vs cooler/drier
 NORMAL_GRAY = "#8C8C8C"
 HEIGHT = 320
@@ -66,11 +67,27 @@ def _frame(chart: dict) -> pd.DataFrame:
     for s in chart["series"]:
         for p in s["points"]:
             rows.append({**p, "series": s["name"]})
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    if chart["unit"] == "day" and not df.empty:
+        df["x_end"] = (pd.to_datetime(df["x"]) + pd.Timedelta(days=1)).dt.strftime("%Y-%m-%d")
+    return df
 
 
 def _y_title(chart: dict) -> str:
     return chart["units"] or "value"
+
+
+def _bars(chart: dict) -> bool:
+    """
+    Bars for totals and day counts -- except several series on a date axis
+    (yearly, daily): Vega can only put bars side by side on a name axis
+    (months, seasons), and on a date axis it stacks them, which reads as a
+    sum. Those get lines instead.
+    """
+    if not chart["series"][0]["bars"]:
+        return False
+    name_axis = chart["kind"] == "climatology" or chart["unit"] == "month"
+    return name_axis or len(chart["series"]) == 1
 
 
 def _x(chart: dict, df: pd.DataFrame):
@@ -79,7 +96,7 @@ def _x(chart: dict, df: pd.DataFrame):
     Monthly bars also use names: on a date axis Vega sizes bars for daily
     spacing, so monthly bars would be slivers.
     """
-    monthly_bars = chart["unit"] == "month" and chart["series"][0]["bars"]
+    monthly_bars = chart["unit"] == "month" and _bars(chart)
     if chart["kind"] == "climatology" or monthly_bars:
         order = df.sort_values("x")["label"].drop_duplicates().tolist()
         return alt.X(
@@ -88,6 +105,8 @@ def _x(chart: dict, df: pd.DataFrame):
             scale=alt.Scale(paddingInner=0.25),  # gaps between bars
         )
     unit = chart["unit"]
+    if unit == "day":
+        return alt.X("x:T", title=None, scale=alt.Scale(type="utc"), axis=alt.Axis(format="%b %-d"))
     fmt = "%b %Y" if unit == "month" else "%Y"
     # Dates are UTC midnight; a local-time scale would show 2024-07-01 as
     # June 30 (and label it "Jun") anywhere west of Greenwich.
@@ -110,13 +129,18 @@ def time_series_chart(chart: dict) -> alt.Chart:
     color = alt.Color("series:N", scale=alt.Scale(domain=names, range=colors),
                       legend=_legend(names))
     x = _x(chart, df)
+    # totals and counts start at zero even when drawn as lines
     y = alt.Y("value:Q", title=_y_title(chart), scale=alt.Scale(zero=chart["series"][0]["bars"]))
     base = alt.Chart(df)
     extra = ["stddev"] if chart["kind"] == "climatology" else []
-    if chart["series"][0]["bars"]:
+    if _bars(chart):
         marks = base.mark_bar().encode(
             x=x, y=y, color=color, tooltip=_tooltip(chart, extra),
             **({"xOffset": "series:N"} if len(names) > 1 else {}),
+            # daily bars span their day (start to next day); otherwise Vega
+            # draws them as hairlines on a date axis
+            # (with x2, Vega needs the y baseline too, or it draws a square)
+            **({"x2": "x_end:T", "y2": alt.datum(0)} if chart["unit"] == "day" else {}),
         )
     else:
         many = len(df) > 120
@@ -124,7 +148,7 @@ def time_series_chart(chart: dict) -> alt.Chart:
             x=x, y=y, color=color, tooltip=_tooltip(chart, extra)
         )
     layers = [marks]
-    if chart["kind"] == "climatology" and "lower" in df and not chart["series"][0]["bars"]:
+    if chart["kind"] == "climatology" and "lower" in df and not _bars(chart):
         # +/- 1 standard deviation of the yearly values: the usual range
         layers.insert(0, base.mark_area(opacity=0.15).encode(
             x=x, y="lower:Q", y2="upper:Q", color=_band_color(names, colors),
@@ -144,7 +168,7 @@ def normals_overlay_chart(chart: dict) -> alt.Chart:
     y_title = _y_title(chart)
     base = alt.Chart(df)
     has_normal = "normal" in df and df["normal"].notna().any()
-    bars = chart["series"][0]["bars"]
+    bars = _bars(chart)
     layers = []
     # same tooltip on every layer: a layer without one gets Vega's default,
     # which shows raw fields

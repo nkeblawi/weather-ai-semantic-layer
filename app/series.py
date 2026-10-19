@@ -48,6 +48,7 @@ def baseline_entry(entry: dict) -> dict | None:
         "metric": entry["metric"],
         "aggregation": "series",
         "period_aggregation": entry["period_aggregation"],
+        **({"threshold": entry["threshold"]} if "threshold" in entry else {}),
         "start_date": f"{sy}-01-01",
         "end_date": f"{ey}-12-31",
     }
@@ -65,7 +66,8 @@ def baseline_entry(entry: dict) -> dict | None:
 def _convert(entry: dict, temp_unit: str):
     """(value converter, spread converter) for the entry's output unit."""
     to_c = (
-        entry["metric"] in _TEMPS
+        not _is_count(entry)
+        and entry["metric"] in _TEMPS
         and (entry.get("output_unit") or temp_unit) == "C"
     )
     if to_c:
@@ -74,7 +76,34 @@ def _convert(entry: dict, temp_unit: str):
     return (lambda v: v), (lambda v: v)
 
 
+def _is_count(entry: dict) -> bool:
+    """A series of the number of days per bucket meeting a threshold."""
+    return entry.get("period_aggregation") == "count"
+
+
+_OPERATOR_SIGNS = {">": ">", ">=": "≥", "<": "<", "<=": "≤", "=": "="}
+
+
+def _count_label(entry: dict, temp_unit: str) -> str:
+    """'Days with high ≥ 90°F' -- the threshold in the user's units."""
+    t = entry["threshold"]
+    value = t["value"]
+    unit = pipeline._METRIC_UNITS.get(entry["metric"], "")
+    if entry["metric"] in _TEMPS:
+        if (entry.get("output_unit") or temp_unit) == "C":
+            value, unit = round((value - 32) * 5 / 9, 1), "°C"
+        value = int(value) if float(value).is_integer() else value
+        label = f"{value}{unit}"
+    else:
+        label = f"{value} {'in.' if unit == 'inches' else unit}".strip()
+    what = pipeline._METRIC_LABELS.get(entry["metric"], entry["metric"]).lower()
+    what = {"high temperature": "high", "low temperature": "low", "average temperature": "average temperature"}.get(what, what)
+    return f"Days with {what} {_OPERATOR_SIGNS.get(t['operator'], t['operator'])} {label}"
+
+
 def _units(entry: dict, temp_unit: str) -> str:
+    if _is_count(entry):
+        return "days"
     if entry["metric"] in _TEMPS:
         return "°C" if (entry.get("output_unit") or temp_unit) == "C" else "°F"
     return pipeline._METRIC_UNITS.get(entry["metric"], "")
@@ -83,14 +112,24 @@ def _units(entry: dict, temp_unit: str) -> str:
 _TWO_DECIMALS = {"PRCP", "SNOW", "SNWD"}
 
 
-def _rounder(metric: str):
-    """Precipitation/snow to 2 decimals, everything else to 1 (as query_series)."""
-    digits = 2 if metric in _TWO_DECIMALS else 1
+def _rounder(metric: str, count: bool = False):
+    """Precipitation/snow to 2 decimals, everything else (and day counts) to 1 (as query_series)."""
+    digits = 2 if metric in _TWO_DECIMALS and not count else 1
     return lambda v: None if v is None else round(float(v), digits)
 
 
 def _time_points(entry: dict, result: dict) -> list[dict]:
-    """month / year / season / snow_season results as {x, label, year, month, value}."""
+    """day / month / year / season / snow_season results as {x, label, year, month, value}."""
+    if entry["unit"] == "day":
+        points = []
+        for iso, v in zip(result.get("dates", []), result.get("values", [])):
+            d = date.fromisoformat(iso)
+            points.append({
+                "x": iso, "x_num": d.year + (d.timetuple().tm_yday - 0.5) / 365.25,
+                "label": f"{calendar.month_abbr[d.month]} {d.day}, {d.year}",
+                "year": d.year, "month": d.month, "value": v,
+            })
+        return points
     points = []
     months = result.get("months") or [None] * len(result.get("years", []))
     for y, m, v in zip(result.get("years", []), months, result.get("values", [])):
@@ -195,18 +234,25 @@ def build_series(
         else "time_series"
     )
     conv, spread = _convert(entry, temp_unit)
-    _round = _rounder(entry["metric"])
+    _round = _rounder(entry["metric"], _is_count(entry))
     notes = list(entry.get("notes") or [])
     series = {
         "kind": kind,
         "unit": unit,
         "metric": entry["metric"],
-        "metric_label": pipeline._METRIC_LABELS.get(entry["metric"], entry["metric"]),
+        "metric_label": (
+            _count_label(entry, temp_unit) if _is_count(entry)
+            else pipeline._METRIC_LABELS.get(entry["metric"], entry["metric"])
+        ),
+        "count": _is_count(entry),
         "station_id": entry["station_id"],
         "place": station.get("city") or station.get("name") or entry["station_id"],
         "station_name": station.get("name") or entry["station_id"],
         "units": _units(entry, temp_unit),
-        "bars": entry["metric"] in _TOTALS and entry.get("period_aggregation") == "sum",
+        # totals and day counts are amounts per bucket: bars, from zero
+        "bars": _is_count(entry) or (
+            entry["metric"] in _TOTALS and (entry.get("period_aggregation") == "sum" or unit == "day")
+        ),
         "baseline": (
             f"{entry['baseline']['start_year']}-{entry['baseline']['end_year']}" if entry.get("baseline") else None
         ),
@@ -272,8 +318,9 @@ def group_charts(series_list: list[dict]) -> list[dict]:
             m["name"] = " · ".join(parts) or m["metric_label"]
         what = " & ".join(metrics)
         grain = {
-            "month": "monthly", "year": "yearly", "season": f"{members[0]['season'] or ''}s",
-            "snow_season": "by snow season", "month_of_year": "by month", "season_of_year": "by season",
+            "day": "daily", "month": "monthly", "year": "yearly", "season": f"{members[0]['season'] or ''}s",
+            "snow_season": "by snow season" if members[0]["metric"] == "SNOW" else "by cold season (Jul-Jun)",
+            "month_of_year": "by month", "season_of_year": "by season",
         }[unit]
         period = members[0]["baseline"]
         if kind == "climatology":
@@ -327,17 +374,18 @@ def _climatology_table(members: list[dict], units: str) -> list[dict]:
 def phrasing_summary(series: dict) -> dict:
     """The numbers the answer sentence may cite -- never the raw points."""
     pts = [p for p in series["points"] if p.get("value") is not None]
-    _r = _rounder(series["metric"])
+    _r = _rounder(series["metric"], series.get("count", False))
     out = {
         "aggregation": "series",
         "chart": series["kind"],
         # what each point is, so the sentence doesn't call monthly means "daily"
-        "grain": {
-            "month": "monthly values", "year": "yearly values", "snow_season": "snow-season totals",
+        "grain": ("number of days meeting the threshold, " if series.get("count") else "") + {
+            "day": "daily values", "month": "monthly values", "year": "yearly values", "snow_season": "snow-season totals" if series["metric"] == "SNOW" else "values per Jul-Jun season",
             "season": f"{series['season']} values, one per year", "month_of_year": "averages for each calendar month",
             "season_of_year": "averages for each season",
         }[series["unit"]],
         "metric": series["metric"],
+        "what": series["metric_label"],
         "station_name": series["station_name"],
         "place": series["place"],
         "units": series["units"],
@@ -355,6 +403,8 @@ def phrasing_summary(series: dict) -> dict:
         "lowest": {"value": lo["value"], "when": lo["label"]},
         "mean": _r(float(np.mean([p["value"] for p in pts]))),
     })
+    if series["unit"] == "day" and series["metric"] in _TOTALS and not series.get("count"):
+        del out["lowest"]  # a dry day: 0, every time
     if series["baseline"]:
         out["normals_period"] = series["baseline"]
     anomalies = [p for p in pts if p.get("anomaly") is not None]
