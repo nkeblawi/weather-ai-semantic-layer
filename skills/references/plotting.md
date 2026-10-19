@@ -1,10 +1,8 @@
 # Plotting: series, climatologies, normals, anomalies, trends
 
-Read this file only when the **Plot mode** section below SKILL.md says this is a plot turn — either the user typed `/plot`, or this is a
-follow-up to a plot. It extends SKILL.md's output with one more aggregation, `series`, which returns every month, year, or season as a
-point on a chart instead of one value (or, over a year or less, every day). Everything else in SKILL.md still applies: Step 2 resolves the station, Step 3 the metric, Step 5
-the date range (with the `resolve_date_range` tool), and Step 6 the JSON shape. `references/count_group.md` (loaded alongside this file)
-defines the `season` and `snow_season` units used here.
+Use this file only on a plot turn (see **Plot mode**): `/plot`, or a follow-up to a plot. It adds one aggregation, `series`: one chart
+point per period instead of one value. Everything else in SKILL.md still applies (station, metric, date range, JSON shape);
+`count_group.md` defines the `season` and `snow_season` units.
 
 ## Step 1 — Is this a chart?
 
@@ -36,14 +34,13 @@ totals (as in `count_group.md`), or `count` for a number of days (below).
 | Climatology by month ("average high and low for each month", "monthly climatology") | `month_of_year` | 12 points |
 | Climatology by season ("average temperature of each season") | `season_of_year` | 4 points (winter, spring, summer, fall) |
 
-**Daily points only over a year or less** — a span of at most 366 days: a calendar year, a few months, or one snow season (Jul 1 to Jun
-30). For a longer span, use `unit: "month"`; the app notes that daily points are limited to a year or less. A daily series takes no
-`trend`, but it may take `baseline`/`display` ("daily highs in 2024 against normal"): it's compared with smoothed daily normals.
+**Daily points only over at most 366 days** (a year, a few months, or one Jul-Jun snow season); longer → `unit: "month"`. A daily
+series takes no `trend`, but may take `baseline`/`display` ("daily highs in 2024 against normal").
 
 **Dates by year** ("last spring freeze each year", "first fall freeze since 1970 with a trend", "first 90-degree day by year"): a
 `year` (or `snow_season`) series with `period_aggregation: "first_date"` / `"last_date"` + `threshold` (+ `month_filter` for spring/fall,
 as in SKILL.md Step 4). Both freezes on one chart → one query each. **Growing season length** ("growing season by year") → those two
-TMIN freeze queries, both with `display: "growing_season"`.
+TMIN freeze queries (spring `last_date`, fall `first_date`), both with `display: "growing_season"`.
 
 **Comparing two stations directly** ("Dulles minus Reagan", "how much colder are Dulles nights than DC's", "the difference between
 Dulles and Reagan lows"): two series queries, same metric and unit, one per station, both with `display: "difference"` — the first
@@ -74,17 +71,15 @@ A climatology covers the date range you give it: no period stated → the whole 
 
 How the baseline is expressed depends on what's plotted:
 
-- **The normals themselves** ("plot the 1991-2020 monthly normals", "show the normal high for each month"): a climatology
-  (`month_of_year` or `season_of_year`) whose `start_date`/`end_date` span the baseline years (Jan 1 of the first year to Dec 31 of the
-  last). No `baseline` field.
+- **The normals themselves** ("plot the 1991-2020 monthly normals", "the normal high for each month"): a climatology whose dates span
+  the baseline years (e.g. 1991-01-01 to 2020-12-31). No `baseline` field.
 - **A period plotted against the normals** ("plot 2025 against normal", "how did this summer compare to normal"): a time series (`month`,
   `year`, `season`, or `snow_season`) over the period being compared, plus `baseline: {"start_year": ..., "end_year": ...}` and
   `display`:
-  - `"overlay"` (default) — the values next to the normal line and its normal range.
-  - `"anomaly"` — each value minus its normal, when the user says anomaly / departure / above or below normal over time.
-  - `"climate"` — a daily climate graph (NWS style): daily highs/lows over the normal range and the record range. Only `unit: "day"`
-    (a year or less) with TMAX and/or TMIN (one query each); needs `baseline`. Use it for "climate graph", "daily highs and lows vs normal
-    and records", "how is this year/month going compared to normal and records".
+  - `"overlay"` (default) — values next to the normal line and range.
+  - `"anomaly"` — value minus normal ("anomaly", "departure", "above/below normal" over time).
+  - `"climate"` — NWS-style daily climate graph: highs/lows over the normal and record ranges ("climate graph", "vs normal and
+    records", "how is this year going"). Only `unit: "day"`, TMAX and/or TMIN (one query each); needs `baseline`.
   - `"cumulative"` — a running total of daily PRCP or SNOW ("year-to-date rain", "accumulated snowfall this season", "running total").
     Only `unit: "day"`; `baseline` is optional and adds the normal accumulation. Several seasons on one chart ("this winter vs 2009-10
     vs 2015-16") → one query per season (each Jul 1 - Jun 30 for snow), same station; the app lines them up by day of season.
@@ -125,13 +120,6 @@ On top of SKILL.md Step 6's query fields:
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "mean", "start_date": "1800-01-01", "end_date": "2026-08-04"},
   {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "mean", "start_date": "1800-01-01", "end_date": "2026-08-04"}
-]}
-```
-
-**Q:** /plot the 1991-2020 normal high for each month at LaGuardia
-```json
-{"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00014732", "metric": "TMAX", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "mean", "start_date": "1991-01-01", "end_date": "2020-12-31"}
 ]}
 ```
 
@@ -177,13 +165,6 @@ On top of SKILL.md Step 6's query fields:
 ]}
 ```
 
-**Q:** /plot monthly rainfall at Dulles in 2024
-```json
-{"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00093738", "metric": "PRCP", "aggregation": "series", "unit": "month", "period_aggregation": "sum", "start_date": "2024-01-01", "end_date": "2024-12-31"}
-]}
-```
-
 **Q:** /plot daily high and low temperatures at Dulles in 2023 (one year → daily points)
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
@@ -197,13 +178,6 @@ On top of SKILL.md Step 6's query fields:
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "day_of_year", "start_date": "1991-01-01", "end_date": "2020-12-31"},
   {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "series", "unit": "day_of_year", "start_date": "1991-01-01", "end_date": "2020-12-31"}
-]}
-```
-
-**Q:** /plot daily highs at Dulles in 2024 against normal
-```json
-{"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "day", "start_date": "2024-01-01", "end_date": "2024-12-31", "baseline": {"start_year": 1991, "end_year": 2020}, "display": "overlay"}
 ]}
 ```
 
@@ -290,21 +264,6 @@ On top of SKILL.md Step 6's query fields:
 ]}
 ```
 
-**Q:** /plot the growing season length at Reagan National by year (the same two queries, as one series of days)
-```json
-{"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00013743", "metric": "TMIN", "aggregation": "series", "unit": "year", "period_aggregation": "last_date", "month_filter": [1, 2, 3, 4, 5, 6], "threshold": {"operator": "<=", "value": 32}, "start_date": "1800-01-01", "end_date": "2026-08-04", "display": "growing_season"},
-  {"station_id": "USW00013743", "metric": "TMIN", "aggregation": "series", "unit": "year", "period_aggregation": "first_date", "month_filter": [7, 8, 9, 10, 11, 12], "threshold": {"operator": "<=", "value": 32}, "start_date": "1800-01-01", "end_date": "2026-08-04", "display": "growing_season"}
-]}
-```
-
-**Q:** /plot daily snowfall at Dulles in winter 2009-10 (one snow season → daily points)
-```json
-{"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00093738", "metric": "SNOW", "aggregation": "series", "unit": "day", "start_date": "2009-07-01", "end_date": "2010-06-30"}
-]}
-```
-
 **Q:** /plot daily highs at Dulles from 2020 to 2023 (over a year → monthly points)
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
@@ -326,19 +285,12 @@ On top of SKILL.md Step 6's query fields:
 ]}
 ```
 
-**Q:** /plot the average number of 90-degree days in each month at Dulles
-```json
-{"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "count", "threshold": {"operator": ">=", "value": 90}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
-]}
-```
-
 **Q:** /plot the hottest day ever at Dulles
 ```json
 {"current_date": "2026-08-04", "status": "needs_clarification", "clarification_question": "A single day can't be charted. Would you like the number of 90°F days each year, or the average high for each month?"}
 ```
 
-**Follow-up**, after the monthly climatology chart above — **Q:** now do Reagan National
+**Follow-up** to the first chart above — **Q:** now do Reagan National
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
   {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "series", "unit": "month_of_year", "period_aggregation": "mean", "start_date": "1800-01-01", "end_date": "2026-08-04"},
