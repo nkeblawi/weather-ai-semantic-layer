@@ -7,6 +7,13 @@ Incremental: Only new ACIS records, new GHCN records, and GHCN
 records that would replace an existing ACIS record are read/processed on
 each run. Prevents wasted compute with full table scans.
 
+Each source has its own watermark (max ingested_at of that source's rows
+in obs_merged). A single shared watermark skipped rows: a GHCN merge that
+ran between the ACIS ingest and the next transform (e.g. a
+wx_activate_station backfill) moved it past the ACIS rows' ingested_at.
+Re-reading a source row that is already merged is harmless: the MERGE
+only inserts new keys or replaces ACIS with GHCN.
+
 Deduplication, when the same (station_id, obs_date, variable) exists in
 both sources:
   1. Find the last obs_date where GHCN has non-NULL data (the "GHCN cutoff").
@@ -53,20 +60,21 @@ from wx.utils.common import set_cutoff
 # ---------------------------------------------------------------------------
 
 
-def read_sources(spark, watermark) -> tuple[DataFrame, DataFrame]:
+def read_sources(spark, watermarks: dict) -> tuple[DataFrame, DataFrame]:
     """
     Read cleaned GHCN and ACIS tables, tagging each with its source and
     normalizing ACIS's string 'value' column ("T"/"M"/numeric) to double
-    with matching flag columns so both sources share a schema. When
-    watermark is set, only rows ingested after it are read; None reads
-    both tables in full (first run).
+    with matching flag columns so both sources share a schema. Each source
+    reads only rows ingested after its own watermark; a missing/None
+    watermark reads that source in full (first run).
     """
     ghcn_df = spark.table(OBS_GHCN_CONV_TABLE)
     acis = spark.table(OBS_ACIS_CONV_TABLE)
 
-    if watermark is not None:
-        ghcn_df = ghcn_df.filter(F.col("ingested_at") > F.lit(watermark))
-        acis = acis.filter(F.col("ingested_at") > F.lit(watermark))
+    if watermarks.get("GHCN") is not None:
+        ghcn_df = ghcn_df.filter(F.col("ingested_at") > F.lit(watermarks["GHCN"]))
+    if watermarks.get("ACIS") is not None:
+        acis = acis.filter(F.col("ingested_at") > F.lit(watermarks["ACIS"]))
 
     ghcn_df = ghcn_df.withColumn("source", F.lit("GHCN"))
     acis_df = (
@@ -90,15 +98,22 @@ def read_sources(spark, watermark) -> tuple[DataFrame, DataFrame]:
 # ---------------------------------------------------------------------------
 
 
-def merged_watermark(spark):
+def merged_watermarks(spark) -> dict:
     """
-    obs_merged's current max ingested_at, source rows newer than this are
-    what a run needs to process. None when obs_merged doesn't exist yet
-    (first run).
+    obs_merged's current max ingested_at per source, e.g.
+    {"GHCN": ts, "ACIS": ts}: each source's rows newer than its own value
+    are what a run needs to process. Empty when obs_merged doesn't exist
+    yet (first run); a source with no rows in obs_merged has no entry.
     """
     if not spark.catalog.tableExists(OBS_MERGED_TABLE):
-        return None
-    return spark.table(OBS_MERGED_TABLE).agg(F.max("ingested_at")).collect()[0][0]
+        return {}
+    rows = (
+        spark.table(OBS_MERGED_TABLE)
+        .groupBy("source")
+        .agg(F.max("ingested_at").alias("watermark"))
+        .collect()
+    )
+    return {r["source"]: r["watermark"] for r in rows}
 
 
 def ghcn_cutoff_date(spark):
@@ -200,9 +215,9 @@ def merge_into_obs_merged(spark, merged_df: DataFrame) -> None:
 def merge_obs(spark) -> None:
     first_run = not spark.catalog.tableExists(OBS_MERGED_TABLE)
 
-    ghcn_df, acis_df = read_sources(
-        spark, None if first_run else merged_watermark(spark)
-    )
+    watermarks = {} if first_run else merged_watermarks(spark)
+    print(f"Watermarks: {watermarks}")
+    ghcn_df, acis_df = read_sources(spark, watermarks)
     unioned_df = ghcn_df.unionByName(acis_df, allowMissingColumns=True)
     total = unioned_df.count()
     print(f"Total records to process: {total:,}")
