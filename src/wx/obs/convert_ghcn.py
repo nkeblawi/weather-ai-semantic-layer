@@ -13,9 +13,10 @@ AWND       tenths of m/s     mph                round(tenths_ms * 0.223694, 0)
 
 QC filtering: any value with a GHCN QFLAG (failed a NOAA quality check) is
 set to NULL here. The row and its qflag are kept, so the reason stays
-auditable downstream. The cleaned.qc_allowlist table (seeded from
-tables/qc_allowlist.sql) exempts specific values verified as real despite
-their flag (e.g. SFO's 106F all-time record, flagged as an outlier).
+auditable downstream. The cleaned.qc_allowlist table exempts specific
+values verified as real despite their flag (e.g. SFO's 106F all-time
+record, flagged as an outlier). It is created and seeded by the
+"Create AllowList Table" saved query in the Databricks workspace.
 
 Incremental: only raw rows ingested after obs_ghcn_conv's current max
 ingested_at are read and transformed each run, then merged/upserted on
