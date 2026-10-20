@@ -11,6 +11,12 @@ TMAX       tenths of deg C   deg F              round((tenths_C * 0.18) + 32, 0)
 TMIN       tenths of deg C   deg F              round((tenths_C * 0.18) + 32, 0)
 AWND       tenths of m/s     mph                round(tenths_ms * 0.223694, 0)
 
+QC filtering: any value with a GHCN QFLAG (failed a NOAA quality check) is
+set to NULL here. The row and its qflag are kept, so the reason stays
+auditable downstream. The cleaned.qc_allowlist table (seeded from
+tables/qc_allowlist.sql) exempts specific values verified as real despite
+their flag (e.g. SFO's 106F all-time record, flagged as an outlier).
+
 Incremental: only raw rows ingested after obs_ghcn_conv's current max
 ingested_at are read and transformed each run, then merged/upserted on
 (station_id, obs_date, variable). Avoids re-reading and rewriting all of
@@ -35,8 +41,37 @@ bootstrap()
 from pyspark.sql import DataFrame  # type: ignore
 from pyspark.sql import functions as F  # type: ignore
 from wx.utils.common import upsert_dataframe
-from wx.utils.config import OBS_GHCN_TABLE, OBS_GHCN_CONV_TABLE
+from wx.utils.config import OBS_GHCN_TABLE, OBS_GHCN_CONV_TABLE, QC_ALLOWLIST_TABLE
 from wx.utils.spark_utils import get_spark
+
+# ---------------------------------------------------------------------------
+# QC filtering
+# ---------------------------------------------------------------------------
+
+
+def apply_qc_filter(spark, df: DataFrame) -> DataFrame:
+    """
+    NULL out 'value' wherever qflag is set, except (station_id, obs_date,
+    variable) keys in QC_ALLOWLIST_TABLE. Rows and their flags are kept.
+    """
+    allowlist = (
+        spark.table(QC_ALLOWLIST_TABLE)
+        .select("station_id", "obs_date", "variable")
+        .withColumn("_allowlisted", F.lit(True))
+    )
+
+    return (
+        df.join(F.broadcast(allowlist), on=["station_id", "obs_date", "variable"], how="left")
+        .withColumn(
+            "value",
+            F.when(
+                F.col("qflag").isNotNull() & F.col("_allowlisted").isNull(),
+                F.lit(None).cast("double"),
+            ).otherwise(F.col("value")),
+        )
+        .drop("_allowlisted")
+    )
+
 
 # ---------------------------------------------------------------------------
 # Unit conversions
@@ -90,7 +125,7 @@ def main():
     spark = get_spark()
 
     new_raw_df = read_new_raw_rows(spark)
-    converted_df = apply_ghcn_unit_conversions(new_raw_df)
+    converted_df = apply_ghcn_unit_conversions(apply_qc_filter(spark, new_raw_df))
 
     count = converted_df.count()
     print(f"New/changed records to convert: {count:,}")
