@@ -17,7 +17,9 @@ Incremental: watermarks on how far GHCN has progressed, not on obs_pivot's
 own state. ghcn_last_date = MAX(obs_date) where source = 'GHCN' in
 obs_merged (same concept merge_obs.py already uses to decide ACIS-vs-GHCN
 priority), recomputed fresh from obs_merged every run -- no stored
-watermark, no side table. Reprocesses obs_date >= ghcn_last_date each
+watermark, no side table. In wx_obs_transform the date comes from
+merge_obs via a job task value (same value, no second full scan); any
+other run computes it here. Reprocesses obs_date >= ghcn_last_date each
 run, which covers both:
   - brand-new dates (ACIS running ahead of GHCN), and
   - the trailing dates GHCN might still catch up on and replace an
@@ -53,7 +55,7 @@ bootstrap()
 
 from pyspark.sql import DataFrame  # type: ignore
 from pyspark.sql import functions as F  # type: ignore
-from wx.utils.common import upsert_dataframe
+from wx.utils.common import get_cutoff, set_cutoff, upsert_dataframe
 from wx.utils.config import OBS_MERGED_TABLE, OBS_PIVOT_TABLE
 from wx.utils.spark_utils import get_spark
 
@@ -86,11 +88,15 @@ def read_new_merged_rows(spark, only_station_id: str | None = None) -> DataFrame
     if not spark.catalog.tableExists(OBS_PIVOT_TABLE):
         return merged_df
 
-    ghcn_last_date = (
-        merged_df.filter((F.col("source") == "GHCN") & F.col("value").isNotNull())
-        .agg(F.max("obs_date"))
-        .collect()[0][0]
-    )
+    # Same date merge_obs computed this run; scan only if it isn't available.
+    ghcn_last_date = get_cutoff(upstream_task_key="merge_obs")
+    if ghcn_last_date is None:
+        ghcn_last_date = (
+            merged_df.filter((F.col("source") == "GHCN") & F.col("value").isNotNull())
+            .agg(F.max("obs_date"))
+            .collect()[0][0]
+        )
+    set_cutoff(ghcn_last_date)
     if ghcn_last_date is None:
         return merged_df
 
@@ -158,7 +164,6 @@ def main():
         return
 
     pivot_df = pivot_obs(new_merged_df)
-    print(f"Pivoted to {pivot_df.count():,} station/date rows")
 
     upsert_dataframe(
         spark, pivot_df, OBS_PIVOT_TABLE, merge_keys=("station_id", "obs_date")

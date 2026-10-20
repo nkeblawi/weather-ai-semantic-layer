@@ -1,6 +1,9 @@
 """
-Shared station-selection query, used by all observation ingest scripts.
+Shared helpers for the observation scripts: station selection, Delta
+merge/upsert, and passing the GHCN cutoff date between job tasks.
 """
+
+from datetime import date
 
 import pandas as pd
 from delta.tables import DeltaTable  # type: ignore
@@ -93,3 +96,58 @@ def upsert_dataframe(
         .whenNotMatchedInsertAll()
         .execute()
     )
+
+
+# ---------------------------------------------------------------------------
+# GHCN cutoff date shared between job tasks
+# ---------------------------------------------------------------------------
+
+# Passes ghcn_last_date between tasks of one job run (Databricks job task
+# values), so merge_obs, pivot_obs and derived_vars don't each recompute it
+# with a full-table scan. Best-effort: outside a job run, in a job whose
+# upstream task key differs (e.g. wx_activate_station's backfill_* tasks),
+# or without dbutils, get_cutoff() returns None and the caller computes the
+# cutoff itself (the pre-existing behavior). set_cutoff() never raises.
+
+GHCN_LAST_DATE_KEY = "ghcn_last_date"
+
+
+def _task_values():
+    from databricks.sdk.runtime import dbutils  # type: ignore
+
+    return dbutils.jobs.taskValues
+
+
+def set_cutoff(cutoff: date | None) -> None:
+    """Publish cutoff for downstream tasks of this job run. No-op on any failure."""
+    if cutoff is None:
+        return
+    try:
+        _task_values().set(key=GHCN_LAST_DATE_KEY, value=cutoff.isoformat())
+    except Exception as e:
+        print(f"Task value not set ({type(e).__name__}: {e}); downstream will recompute.")
+
+
+def get_cutoff(upstream_task_key: str) -> date | None:
+    """
+    Cutoff published by upstream_task_key in this job run, or None if it's
+    unavailable for any reason (caller then computes it).
+    """
+    try:
+        # "" (not None, which get() rejects) when the key wasn't set this run
+        # or outside a job run.
+        value = _task_values().get(
+            taskKey=upstream_task_key,
+            key=GHCN_LAST_DATE_KEY,
+            default="",
+            debugValue="",
+        )
+    except Exception as e:
+        print(f"Task value unavailable ({type(e).__name__}: {e}); computing cutoff.")
+        return None
+
+    if not value:
+        print(f"No {GHCN_LAST_DATE_KEY} from task '{upstream_task_key}'; computing cutoff.")
+        return None
+    print(f"Using {GHCN_LAST_DATE_KEY}={value} from task '{upstream_task_key}'.")
+    return date.fromisoformat(value)

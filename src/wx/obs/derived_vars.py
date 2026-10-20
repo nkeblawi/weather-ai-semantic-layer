@@ -15,8 +15,10 @@ Incremental: same design as pivot_obs.py, one layer further down the
 pipeline. obs_pivot's own `source` column can flip from ACIS to GHCN in
 place (pivot_obs.py upserts on (station_id, obs_date), same key, no
 obs_date change), so this watermarks the same way: ghcn_last_date =
-MAX(obs_date) where source = 'GHCN' in obs_pivot, recomputed fresh every
-run, reprocessing obs_date >= ghcn_last_date. No stored watermark.
+MAX(obs_date) where source = 'GHCN' in obs_pivot, reprocessing
+obs_date >= ghcn_last_date. No stored watermark. In wx_obs_transform the
+date comes from pivot_obs via a job task value (no second full scan); any
+other run computes it here.
 
 --station-id bypasses the date watermark and re-derives that one station's
 entire obs_pivot history -- the derived_vars half of a station backfill,
@@ -44,7 +46,7 @@ bootstrap()
 
 from pyspark.sql import DataFrame  # type: ignore
 from pyspark.sql import functions as F  # type: ignore
-from wx.utils.common import upsert_dataframe
+from wx.utils.common import get_cutoff, upsert_dataframe
 from wx.utils.config import (
     OBS_ANALYTICS_TABLE,
     OBS_PIVOT_TABLE,
@@ -74,11 +76,14 @@ def read_new_pivot_rows(spark, only_station_id: str | None = None) -> DataFrame:
     if not spark.catalog.tableExists(OBS_ANALYTICS_TABLE):
         return pivot_df
 
-    ghcn_last_date = (
-        pivot_df.filter(F.col("source") == "GHCN")
-        .agg(F.max("obs_date"))
-        .collect()[0][0]
-    )
+    # Same date pivot_obs used this run; scan only if it isn't available.
+    ghcn_last_date = get_cutoff(upstream_task_key="pivot_obs")
+    if ghcn_last_date is None:
+        ghcn_last_date = (
+            pivot_df.filter(F.col("source") == "GHCN")
+            .agg(F.max("obs_date"))
+            .collect()[0][0]
+        )
     if ghcn_last_date is None:
         return pivot_df
 
@@ -137,7 +142,6 @@ def main():
         return
 
     derived_df = add_derived_vars(new_pivot_df)
-    print(f"Computed derived variables for {derived_df.count():,} rows")
 
     upsert_dataframe(
         spark, derived_df, OBS_ANALYTICS_TABLE, merge_keys=("station_id", "obs_date")

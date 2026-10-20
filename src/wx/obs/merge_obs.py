@@ -46,6 +46,7 @@ from pyspark.sql import functions as F  # type: ignore
 from pyspark.sql.window import Window  # type: ignore
 from wx.utils.config import OBS_ACIS_CONV_TABLE, OBS_GHCN_CONV_TABLE, OBS_MERGED_TABLE
 from wx.utils.spark_utils import get_spark
+from wx.utils.common import set_cutoff
 
 # ---------------------------------------------------------------------------
 # Step 1: Read source tables
@@ -203,18 +204,23 @@ def merge_obs(spark) -> None:
         spark, None if first_run else merged_watermark(spark)
     )
     unioned_df = ghcn_df.unionByName(acis_df, allowMissingColumns=True)
-    print(f"Total records to process: {unioned_df.count():,}")
+    total = unioned_df.count()
+    print(f"Total records to process: {total:,}")
 
-    if unioned_df.count() == 0:
+    if total == 0:
         print("No new records to merge.")
         return
 
-    merged_df = dedupe_with_priority(ghcn_cutoff_date(spark), unioned_df)
-    print(f"Merged records (after deduplication): {merged_df.count():,}")
+    # Published for pivot_obs/derived_vars in the same job run, so they
+    # don't rescan for the same date (see wx.utils.common).
+    cutoff = ghcn_cutoff_date(spark)
+    set_cutoff(cutoff)
+
+    merged_df = dedupe_with_priority(cutoff, unioned_df)
 
     if first_run:
         merged_df.write.format("delta").saveAsTable(OBS_MERGED_TABLE)
-        print(f"Created {OBS_MERGED_TABLE} with {merged_df.count():,} records")
+        print(f"Created {OBS_MERGED_TABLE}")
         return
 
     merge_into_obs_merged(spark, merged_df)
