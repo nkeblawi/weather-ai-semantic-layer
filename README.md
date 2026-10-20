@@ -52,9 +52,23 @@ Ingests, cleans, and merges historical weather data on Databricks:
   derives additional variables (e.g. heating/cooling degree days) into a final 
   analytics table.
 
+  Values that failed a NOAA quality check (a GHCN QFLAG) are set to NULL
+  during conversion, except values verified as real and listed in the
+  `cleaned.qc_allowlist` table (e.g. SFO's 106°F record high, which NOAA
+  flags as an outlier). `scripts/qc_flag_cleanup.sql` applies the same rule
+  to rows that were loaded earlier.
+
 Runs as a set of Databricks Jobs, defined and deployed as a
 [Databricks Asset Bundle](https://docs.databricks.com/dev-tools/bundles/index.html)
 (`databricks.yml`, `resources/*.yml`).
+
+### Stations
+
+38 stations, each the main airport weather station for a major US city
+(the active list is in `analytics.stations`). Records start between 1933
+(Phoenix) and 1994 (Denver). The app resolves each station from its city,
+airport name or code, and common aliases ("Logan", "Sea-Tac", "KCI",
+"Twin Cities") stored in `analytics.station_aliases`.
 
 ## 2. Unity Catalog Query Layer
 
@@ -230,6 +244,11 @@ touching production data:
   the function and drops its grants, so after redeploying `answer_query` or
   `lookup_station`, re-grant `EXECUTE` on it to the app's service principal
   (or grant `EXECUTE` once on the `analytics` schema).
+- **Pipeline code (`src/wx/`):** `databricks bundle deploy -t dev|prod`
+  deploys everything. To update only a few files, upload each one with
+  `databricks workspace import ... --overwrite` to the bundle's `files/src/`
+  path, shared modules (`wx/utils/`) before the scripts that import them, and
+  not while a job that uses them is running.
 - **App:** Streamlit Community Cloud redeploys on every push to `main`, but
   it doesn't reliably reload changed Python modules (`app/guardrails.py`,
   `app/pipeline.py`, `app/chat_session.py`, `app/series.py`,
@@ -263,7 +282,17 @@ touching production data:
 - **Observation data falls one day behind.** Ingest processes on the backend
   run at different times of day for different data sources, so observations
   typically run a day behind meaning "yesterday's" observations may not yet
-  be available.
+  be available. The daily GHCN ingest runs before NOAA's daily update, so
+  GHCN data lags one more day than it needs to, and the morning ACIS ingest
+  runs too early for West Coast stations (Los Angeles, San Francisco), which
+  get only GHCN data.
+- **Denver snowfall before 2006.** Denver's record starts at the current
+  airport in 1994, and GHCN has no usable snowfall for 1995-2005 (missing,
+  or rejected by NOAA's quality checks). Snowfall averages and totals for
+  those years are incomplete.
+- **Revised GHCN values aren't picked up.** When NOAA revises a value that
+  is already loaded (or flags it later), the analytics tables keep the old
+  value. `scripts/qc_flag_cleanup.sql` handles newly flagged values only.
 - **No teleconnections.** Teleconnections need to be ingested from
   different data source(s). This has not been developed and is outside of
   the current scope. That may change in the future, however.
