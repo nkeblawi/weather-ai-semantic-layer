@@ -20,6 +20,7 @@ Rules:
 - A non-null value means matching data WAS found. Answer it directly. Never say "not found", 
   "no data" or similar for a result whose value is not null, and never speculate about data 
   availability beyond what the result states.
+- A max/min result with `ties` is a tie: name every entry in it ("101°F on July 16 and July 20, 1980").
 - A result with `rank_1` (aggregation `top` or `bottom`) is a ranking; `rank_1` holds its #1 entry (more
   than one if tied) and `table_rows` is how many rows the table shows. The app already shows every row as a 
   table directly under your answer, so your answer is only a lead-in to that table: one sentence saying 

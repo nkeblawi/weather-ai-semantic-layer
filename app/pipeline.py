@@ -281,6 +281,21 @@ def _date_result(entry: dict, result: dict | None) -> dict:
             "data_years": f"{min(years)}-{max(years)}", "years_counted": len(pairs), "years_without": len(pairs) - len(found)}
 
 
+def _max_min_result(ranked: dict | None) -> dict:
+    """
+    max/min answers come from the top/bottom 1, so a tie is reported, not
+    broken: the answer is the most recent rank-1 row (rows are in date order
+    within a rank), and with a tie, `ties` lists every rank-1 row.
+    """
+    rows = (ranked or {}).get("rows") or []
+    if not rows:
+        return {"value": None}
+    result = dict(rows[-1])
+    if len(rows) > 1:
+        result["ties"] = rows
+    return result
+
+
 def call_answer_query(conn, entry: dict):
     # A record or normal for one calendar day ("record high on July 4") is a
     # day_of_year series in SQL, reduced to that day here
@@ -291,6 +306,10 @@ def call_answer_query(conn, entry: dict):
         return _date_result(entry, call_answer_query(
             conn, {**entry, "aggregation": "series", "period_aggregation": entry["aggregation"]}))
     sql_unit, month_filter, year_start_month = _sql_bucketing(entry)
+    # Max/min ("hottest day in 1980"): the top/bottom 1, reduced here
+    if entry["aggregation"] in ("max", "min") and sql_unit in ("day", "event", "month", "year"):
+        ranking = "top" if entry["aggregation"] == "max" else "bottom"
+        return _max_min_result(call_answer_query(conn, {**entry, "aggregation": ranking, "limit": 1}))
     threshold = entry.get("threshold") or {}
     event_day_threshold = entry.get("event_day_threshold") or {}
     with conn.cursor() as cur:
@@ -472,7 +491,7 @@ def matching_days(conn, entry: dict, result: dict | None) -> list[dict] | None:
     return [{"obs_date": r["obs_date"], "value": r["value"]} for r in rows if r.get("value") is not None and meets(r["value"])]
 
 
-def _converted_rows(entry: dict, rows: list[dict]) -> list[dict]:
+def _converted_rows(entry: dict, rows: list[dict], sentence: bool = False) -> list[dict]:
     """
     A top/bottom result's rows with output_unit applied to each value and
     rounded, the same way a single value is. An event row's total is PRCP or
@@ -482,7 +501,7 @@ def _converted_rows(entry: dict, rows: list[dict]) -> list[dict]:
     for row in rows:
         row = dict(row)
         row["value"] = _round_value(entry, convert_value(entry, row.get("value")))
-        if row.get("bucket_year") and (label := season_label(entry, row["bucket_year"])):
+        if row.get("bucket_year") and (label := season_label(entry, row["bucket_year"], sentence)):
             del row["bucket_year"]
             row["season"] = label
         if row.get("total") is not None:
@@ -549,6 +568,8 @@ def build_answer_payload(
         if "bucket_year" in payload and (label := season_label(entry, payload["bucket_year"], sentence=True)):
             del payload["bucket_year"]
             payload["season"] = label
+        if result.get("ties"):
+            payload["ties"] = _converted_rows(entry, result["ties"], sentence=True)
         if odds or dates:
             payload["condition"] = entry.get("threshold")
         if result.get("matching_days"):
