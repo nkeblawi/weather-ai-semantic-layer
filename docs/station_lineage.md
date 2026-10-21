@@ -3,7 +3,7 @@
 Where each active station's data comes from, what was done to it, and what to watch for. Update
 this file whenever a station is activated, spliced, relabeled, or has values allowlisted or blanked.
 
-Last reviewed: 2026-10-20 (38 active stations, prod catalog `weather`).
+Last reviewed: 2026-10-21 (43 active stations, prod catalog `weather`).
 
 ## How to read this
 
@@ -15,9 +15,11 @@ Last reviewed: 2026-10-20 (38 active stations, prod catalog `weather`).
 - **QC:** values with a GHCN quality flag (QFLAG) are set to NULL in `obs_ghcn_conv` and downstream,
   except keys in `cleaned.qc_allowlist`. "QC blanked" below counts those values per station
   (`obs_merged` rows with a QFLAG and a NULL value). Raw values stay in `raw.obs_ghcn`.
-- **Single source / spliced:** every station below is *single source*: all its rows come from its
-  own GHCN ID. A *spliced* station would also hold rows loaded from older IDs under its ID (see
-  [Spliced stations](#spliced-stations)); there are none yet.
+- **Single source / spliced:** a *single source* station's rows all come from its own GHCN ID. A
+  *spliced* station also holds rows loaded from older IDs under its ID (see
+  [Spliced stations](#spliced-stations)).
+- **ICAO** is blank for Canadian stations: the ICAO/FAA source (EMSHR) is US-only; their airport
+  codes are covered by aliases instead.
 - **Country** is `station_merged.country_code` (FIPS codes: US, CA = Canada).
 - **Record start** is the first date in `analytics.observations`. Long gaps are runs of 28+ missing
   days.
@@ -38,6 +40,8 @@ Last reviewed: 2026-10-20 (38 active stations, prod catalog `weather`).
 | Dallas | US | USW00003927 | KDFW | 72259 | 1953-04-01 | 2026-10-20 | single | 1 |
 | Denver | US | USW00003017 | KDEN | 72565 | 1994-07-01 | 2026-10-20 | single | 698 |
 | Detroit | US | USW00094847 | KDTW | 72537 | 1958-12-01 | 2026-10-20 | single | 0 |
+| Edmonton | CA | CAN03012216 | | 71123 | 1959-05-08 | 2026-10-21 | spliced | 71 |
+| Halifax | CA | CAN08202251 | | 71395 | 1953-01-21 | 2026-10-21 | spliced | 55 |
 | Honolulu | US | USW00022521 | PHNL | 91182 | 1940-05-01 | 2026-10-20 | single | 1 |
 | Houston | US | USW00012960 | KIAH | 72243 | 1969-06-01 | 2026-10-20 | single | 1 |
 | Indianapolis | US | USW00093819 | KIND | 72438 | 1948-01-01 | 2026-10-20 | single | 1 |
@@ -46,6 +50,7 @@ Last reviewed: 2026-10-20 (38 active stations, prod catalog `weather`).
 | Los Angeles | US | USW00023174 | KLAX | 72295 | 1944-08-01 | 2026-09-15 | single | 4 |
 | Miami | US | USW00012839 | KMIA | 72202 | 1948-01-01 | 2026-09-15 | single | 0 |
 | Minneapolis | US | USW00014922 | KMSP | 72658 | 1938-04-01 | 2026-10-20 | single | 2 |
+| Montreal | CA | CAN07025251 | | 71627 | 1941-09-01 | 2026-10-21 | spliced | 29 |
 | Nashville | US | USW00013897 | KBNA | 72327 | 1948-01-01 | 2026-10-20 | single | 6 |
 | New Orleans | US | USW00012916 | KMSY | 72231 | 1948-01-01 | 2026-10-20 | single | 2 |
 | New York | US | USW00014732 | KLGA | 72503 | 1939-10-01 | 2026-09-09 | single | 6 |
@@ -60,9 +65,11 @@ Last reviewed: 2026-10-20 (38 active stations, prod catalog `weather`).
 | San Diego | US | USW00023188 | KSAN | 72290 | 1939-07-01 | 2026-10-20 | single | 3 |
 | San Francisco | US | USW00023234 | KSFO | 72494 | 1945-07-01 | 2026-09-15 | single | 4 |
 | Seattle | US | USW00024233 | KSEA | 72793 | 1948-01-01 | 2026-10-20 | single | 9 |
+| St. John's | CA | CAN08403505 | | 71801 | 1942-01-01 | 2026-10-21 | spliced | 44 |
 | St. Louis | US | USW00013994 | KSTL | 72434 | 1938-04-01 | 2026-10-20 | single | 0 |
 | Sterling | US | USW00093738 | KIAD | 72403 | 1960-04-01 | 2026-08-25 | single | 1 |
 | Tampa | US | USW00012842 | KTPA | 72211 | 1939-02-01 | 2026-10-20 | single | 0 |
+| Toronto | CA | CAN06158731 | | 71624 | 1937-11-01 | 2026-10-21 | spliced | 16 |
 | Washington, DC | US | USW00013743 | KDCA | 72405 | 1941-06-01 | 2026-09-09 | single | 0 |
 
 Activated dates are UTC, from the `wx_activate_station` run history; the 30-station expansion runs
@@ -113,9 +120,9 @@ downtown station holds earlier years and is not included. Candidates for a futur
 
 ## Spliced stations
 
-None yet. A spliced station is one whose record joins one or more older GHCN IDs to the current ID,
-for stations whose ID changed (renumbering, automation) or whose airport moved. Planned for the
-Canadian stations (tranche 7 in `logs/station_expansion_plan.md`).
+A spliced station's record joins one or more older GHCN IDs to the current ID, for stations whose
+ID changed (renumbering, automation) or whose airport moved. Used for the Canadian stations
+(tranche 7 in `logs/station_expansion_plan.md`).
 
 **Method (one-time history load):** old IDs are downloaded once and written to `raw.obs_ghcn`
 **under the current ID**, then the current ID is activated as usual
@@ -125,16 +132,80 @@ never lets a missing day overwrite an existing value (`keep_existing_values=True
 `merge_into_target`), so a later `--full` re-ingest can't erase the history. After the load, rows no
 longer show which ID they came from, so this file is the record of it.
 
-**For each spliced station, record:**
+**For each spliced station, record:** current and old IDs and the years each supplied; rows loaded
+per old ID and variable (loader output); load date and run IDs; overlap check (mean TMAX/TMIN
+difference on days both IDs report; a large difference suggests a site move); the handoff and any
+days neither ID reported.
 
-| Field | Example |
+### Montreal (CAN07025251)
+
+| Field | Value |
 |---|---|
-| City / station_id (current) | Montreal / CAN07025251 |
-| Old IDs and the years each supplied | CAN07025250: 1941-2013 |
-| Days filled | every day/variable the current ID lacks (e.g. through 2013-02-13) |
-| Rows loaded per old ID and variable | (from the loader output) |
-| Date loaded, by whom | |
-| Overlap check | mean TMAX/TMIN difference on overlapping days; site moved? |
+| Current ID | CAN07025251, MONTREAL INTL A (Trudeau, YUL), WMO 71627; reports from 2013-02-18 |
+| Old ID | CAN07025250, MONTREAL/PIERRE ELLIOTT TRUDEAU, same WMO; 1941-09-01 to 2013-02-13 |
+| Rows loaded | 125,217: PRCP 26,056; SNOW 26,051; SNWD 21,105; TMAX 26,015; TMIN 25,990 |
+| Loaded | 2026-10-21 UTC, prod; loader run 764668918848583, activation run 482111423610793 |
+| Overlap check | no day where both IDs report (clean handoff) |
+| Handoff | 2013-02-14 to 2013-02-17 empty: neither ID reported |
+| Result | 1941-09-01 onward; TMAX on 30,923 days; gaps over 4 days only 1942-03 (6 + 5 days) and 2013-03-14 to 03-19 (6 days, current ID) |
+| QC | 29 values blanked (SNWD 18, SNOW 9, TMIN 2), none beyond a station extreme; no allowlist entries |
+| Extremes | 100°F (1975-08-01), -36°F (1957-01-15), Montreal's known records |
+
+### Toronto (CAN06158731)
+
+| Field | Value |
+|---|---|
+| Current ID | CAN06158731, TORONTO INTL A (Pearson, YYZ), WMO 71624; reports from 2013-06-13 |
+| Old ID | CAN06158733, TORONTO LESTER B. PEARSON INT'L A, same WMO; 1937-11-01 to 2013-06-13 |
+| Rows loaded | 131,000: PRCP 27,429; SNOW 27,433; SNWD 21,288; TMAX 27,428; TMIN 27,422 |
+| Loaded | 2026-10-21 UTC, prod; loader run 866317441639305, activation run 1114849833457944 |
+| Overlap check | 1 day (2013-06-13): TMAX 0.5°F, TMIN 0.7°F apart, same PRCP; current ID kept |
+| Handoff | none missing |
+| Result | 1937-11-01 onward; TMAX on 32,273 days; only gap over 6 days: Sep-Dec 1939 (122 days, source) |
+| QC | 16 values blanked, none beyond a station extreme |
+| Extremes | 101°F, -24°F |
+
+### Halifax (CAN08202251)
+
+| Field | Value |
+|---|---|
+| Current ID | CAN08202251, HALIFAX STANFIELD INT'L A (YHZ), WMO 71395; reports from 2012-09-15 |
+| Old ID | CAN08202250, same name and WMO; 1953-01-21 to 2012-09-12 |
+| Rows loaded | 96,649: PRCP 19,439; SNOW 19,452; SNWD 18,830; TMAX 19,465; TMIN 19,463 |
+| Loaded | 2026-10-21 UTC, prod; loader run 119445429667977, activation run 1057365700960034 |
+| Overlap check | none (clean handoff) |
+| Handoff | 2012-09-13 to 09-14 empty: neither ID reported |
+| Result | **No data 1954-03-01 to 1960-06-30** (2,314 days, missing from the old ID at NOAA); continuous from 1960-07 |
+| QC | 55 values blanked, none beyond a station extreme |
+| Extremes | 95°F, -19°F; snowiest day 26.0" |
+
+### St. John's (CAN08403505)
+
+| Field | Value |
+|---|---|
+| Current ID | CAN08403505, ST. JOHN'S INTL A (YYT), WMO 71801; reports from 2012-03-20 |
+| Old ID | CAN08403506, ST JOHN'S A, same WMO; 1942-01-01 to 2012-03-19 |
+| Rows loaded | 123,416: PRCP 25,646; SNOW 25,646; SNWD 20,836; TMAX 25,644; TMIN 25,644 |
+| Loaded | 2026-10-21 UTC, prod; loader run 340569447084399, activation run 1020840551829492 |
+| Overlap check | none (clean handoff) |
+| Handoff | none missing; the current ID has its own 14-day gap 2012-04-07 to 04-20 |
+| Result | 1942-01-01 onward; TMAX on 30,844 days |
+| QC | 44 values blanked, none beyond a station extreme |
+| Extremes | 89°F, -11°F; snowiest day 30.0" (Jan 2020 storm) |
+
+### Edmonton (CAN03012216)
+
+| Field | Value |
+|---|---|
+| Current ID | CAN03012216, EDMONTON INTL A (YEG), WMO 71123; reports from 2012-04-12 |
+| Old ID | CAN03012205, EDMONTON INT'L A, same WMO; 1959-05-08 to 2012-04-11 |
+| Rows loaded | 93,945: PRCP 18,805; SNOW 18,814; SNWD 18,729; TMAX 18,798; TMIN 18,799 |
+| Loaded | 2026-10-21 UTC, prod; loader run 823773307222817, activation run 123577734972740 |
+| Overlap check | none (clean handoff) |
+| Handoff | none missing; the current ID has its own 10-day gap 2012-10-23 to 11-01 |
+| Result | **No data Jul 1959 and 1959-09-01 to 1960-11-13** (source); continuous from 1960-11 |
+| QC | 71 values blanked, none beyond a station extreme |
+| Extremes | 96°F, -55°F |
 
 **Cautions:**
 - Never activate or ingest an old ID on its own; its history already lives under the current ID.
@@ -148,12 +219,4 @@ longer show which ID they came from, so this file is the record of it.
 
 ## Planned (not active)
 
-Tranche 7, Canadian airports (plan only; see `logs/station_expansion_plan.md`):
-
-| City | Country | Current ID | Old IDs | Expected record |
-|---|---|---|---|---|
-| Montreal | CA | CAN07025251 | CAN07025250 | 1941+ |
-| Toronto | CA | CAN06158731 | CAN06158733 | 1937+ |
-| Halifax | CA | CAN08202251 | CAN08202250 | 1953+ |
-| St. John's | CA | CAN08403505 | CAN08403506 | 1942+ |
-| Edmonton | CA | CAN03012216 | CAN03012205 | 1959+ |
+None. Tranche 7 (Montreal, Toronto, Halifax, St. John's, Edmonton) was activated on 2026-10-21.
