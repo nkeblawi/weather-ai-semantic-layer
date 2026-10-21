@@ -39,7 +39,7 @@ resources:
         enabled: true
       schedule:
         pause_status: UNPAUSED
-        quartz_cron_expression: 25 0 15 * * ?
+        quartz_cron_expression: 25 0 23 * * ?
         timezone_id: America/New_York
       timeout_seconds: 0
       webhook_notifications: {}

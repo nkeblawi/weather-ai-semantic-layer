@@ -297,10 +297,10 @@ touching production data:
 - **Observation data falls one day behind.** Ingest processes on the backend
   run at different times of day for different data sources, so observations
   typically run a day behind meaning "yesterday's" observations may not yet
-  be available. The daily GHCN ingest runs before NOAA's daily update, so
-  GHCN data lags one more day than it needs to, and the morning ACIS ingest
-  runs too early for West Coast stations (Los Angeles, San Francisco), which
-  get only GHCN data.
+  be available. The GHCN ingest runs at 11 pm ET, after NOAA's daily update
+  (around 8 pm ET), so GHCN data runs about 2 days behind. The 6 am ET ACIS
+  ingest catches only the stations that have reported by then (often not
+  the West Coast); the rest arrive with GHCN.
 - **Non-US stations.** Their data comes from GHCN only (ACIS covers US
   stations), and NOAA receives it later, so non-US observations typically
   run 2-3 days behind. Values are shown in US units (°F, inches).
