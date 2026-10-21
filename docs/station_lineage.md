@@ -1,4 +1,4 @@
-g# Station lineage
+# Station lineage
 
 Where each active station's data comes from, what was done to it, and what to watch for. Update
 this file whenever a station is activated, spliced, relabeled, or has values allowlisted or blanked.
