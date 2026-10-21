@@ -18,51 +18,52 @@ Last reviewed: 2026-10-20 (38 active stations, prod catalog `weather`).
 - **Single source / spliced:** every station below is *single source*: all its rows come from its
   own GHCN ID. A *spliced* station would also hold rows loaded from older IDs under its ID (see
   [Spliced stations](#spliced-stations)); there are none yet.
+- **Country** is `station_merged.country_code` (FIPS codes: US, CA = Canada).
 - **Record start** is the first date in `analytics.observations`. Long gaps are runs of 28+ missing
   days.
 
 ## Active stations
 
-| City | station_id | ICAO | WMO | Record start | Activated | Source | QC blanked |
-|---|---|---|---|---|---|---|---|
-| Anchorage | USW00026451 | PANC | 70273 | 1952-04-01 | 2026-10-20 | single | 14 |
-| Atlanta | USW00013874 | KATL | 72219 | 1930-01-01 | 2026-09-15 | single | 4 |
-| Baltimore | USW00093721 | KBWI | 72406 | 1939-07-01 | 2026-10-20 | single | 39 |
-| Boston | USW00014739 | KBOS | 72509 | 1936-01-01 | 2026-10-20 | single | 32 |
-| Charlotte | USW00013881 | KCLT | 72314 | 1939-07-01 | 2026-10-20 | single | 4 |
-| Chicago | USW00094846 | KORD | 72530 | 1958-11-01 | 2026-09-15 | single | 12 |
-| Cincinnati | USW00093814 | KCVG | 72421 | 1948-01-01 | 2026-10-20 | single | 6 |
-| Cleveland | USW00014820 | KCLE | 72524 | 1938-05-01 | 2026-10-20 | single | 26 |
-| Columbus | USW00014821 | KCMH | 72428 | 1948-01-01 | 2026-10-20 | single | 0 |
-| Dallas | USW00003927 | KDFW | 72259 | 1953-04-01 | 2026-10-20 | single | 1 |
-| Denver | USW00003017 | KDEN | 72565 | 1994-07-01 | 2026-10-20 | single | 698 |
-| Detroit | USW00094847 | KDTW | 72537 | 1958-12-01 | 2026-10-20 | single | 0 |
-| Honolulu | USW00022521 | PHNL | 91182 | 1940-05-01 | 2026-10-20 | single | 1 |
-| Houston | USW00012960 | KIAH | 72243 | 1969-06-01 | 2026-10-20 | single | 1 |
-| Indianapolis | USW00093819 | KIND | 72438 | 1948-01-01 | 2026-10-20 | single | 1 |
-| Kansas City | USW00003947 | KMCI | 72446 | 1972-10-01 | 2026-10-20 | single | 9 |
-| Las Vegas | USW00023169 | KLAS | 72386 | 1948-09-01 | 2026-10-20 | single | 0 |
-| Los Angeles | USW00023174 | KLAX | 72295 | 1944-08-01 | 2026-09-15 | single | 4 |
-| Miami | USW00012839 | KMIA | 72202 | 1948-01-01 | 2026-09-15 | single | 0 |
-| Minneapolis | USW00014922 | KMSP | 72658 | 1938-04-01 | 2026-10-20 | single | 2 |
-| Nashville | USW00013897 | KBNA | 72327 | 1948-01-01 | 2026-10-20 | single | 6 |
-| New Orleans | USW00012916 | KMSY | 72231 | 1948-01-01 | 2026-10-20 | single | 2 |
-| New York | USW00014732 | KLGA | 72503 | 1939-10-01 | 2026-09-09 | single | 6 |
-| Orlando | USW00012815 | KMCO | 72205 | 1952-05-01 | 2026-10-20 | single | 14 |
-| Philadelphia | USW00013739 | KPHL | 72408 | 1940-07-01 | 2026-10-20 | single | 1 |
-| Phoenix | USW00023183 | KPHX | 72278 | 1933-06-01 | 2026-10-20 | single | 24 |
-| Pittsburgh | USW00094823 | KPIT | 72520 | 1948-01-01 | 2026-10-20 | single | 18 |
-| Portland | USW00024229 | KPDX | 72698 | 1938-04-01 | 2026-10-20 | single | 1 |
-| Raleigh | USW00013722 | KRDU | 72306 | 1944-05-01 | 2026-10-20 | single | 8 |
-| Salt Lake City | USW00024127 | KSLC | 72572 | 1948-01-01 | 2026-10-20 | single | 3 |
-| San Antonio | USW00012921 | KSAT | 72253 | 1946-09-01 | 2026-10-20 | single | 3 |
-| San Diego | USW00023188 | KSAN | 72290 | 1939-07-01 | 2026-10-20 | single | 3 |
-| San Francisco | USW00023234 | KSFO | 72494 | 1945-07-01 | 2026-09-15 | single | 4 |
-| Seattle | USW00024233 | KSEA | 72793 | 1948-01-01 | 2026-10-20 | single | 9 |
-| St. Louis | USW00013994 | KSTL | 72434 | 1938-04-01 | 2026-10-20 | single | 0 |
-| Sterling | USW00093738 | KIAD | 72403 | 1960-04-01 | 2026-08-25 | single | 1 |
-| Tampa | USW00012842 | KTPA | 72211 | 1939-02-01 | 2026-10-20 | single | 0 |
-| Washington, DC | USW00013743 | KDCA | 72405 | 1941-06-01 | 2026-09-09 | single | 0 |
+| City | Country | station_id | ICAO | WMO | Record start | Activated | Source | QC blanked |
+|---|---|---|---|---|---|---|---|---|
+| Anchorage | US | USW00026451 | PANC | 70273 | 1952-04-01 | 2026-10-20 | single | 14 |
+| Atlanta | US | USW00013874 | KATL | 72219 | 1930-01-01 | 2026-09-15 | single | 4 |
+| Baltimore | US | USW00093721 | KBWI | 72406 | 1939-07-01 | 2026-10-20 | single | 39 |
+| Boston | US | USW00014739 | KBOS | 72509 | 1936-01-01 | 2026-10-20 | single | 32 |
+| Charlotte | US | USW00013881 | KCLT | 72314 | 1939-07-01 | 2026-10-20 | single | 4 |
+| Chicago | US | USW00094846 | KORD | 72530 | 1958-11-01 | 2026-09-15 | single | 12 |
+| Cincinnati | US | USW00093814 | KCVG | 72421 | 1948-01-01 | 2026-10-20 | single | 6 |
+| Cleveland | US | USW00014820 | KCLE | 72524 | 1938-05-01 | 2026-10-20 | single | 26 |
+| Columbus | US | USW00014821 | KCMH | 72428 | 1948-01-01 | 2026-10-20 | single | 0 |
+| Dallas | US | USW00003927 | KDFW | 72259 | 1953-04-01 | 2026-10-20 | single | 1 |
+| Denver | US | USW00003017 | KDEN | 72565 | 1994-07-01 | 2026-10-20 | single | 698 |
+| Detroit | US | USW00094847 | KDTW | 72537 | 1958-12-01 | 2026-10-20 | single | 0 |
+| Honolulu | US | USW00022521 | PHNL | 91182 | 1940-05-01 | 2026-10-20 | single | 1 |
+| Houston | US | USW00012960 | KIAH | 72243 | 1969-06-01 | 2026-10-20 | single | 1 |
+| Indianapolis | US | USW00093819 | KIND | 72438 | 1948-01-01 | 2026-10-20 | single | 1 |
+| Kansas City | US | USW00003947 | KMCI | 72446 | 1972-10-01 | 2026-10-20 | single | 9 |
+| Las Vegas | US | USW00023169 | KLAS | 72386 | 1948-09-01 | 2026-10-20 | single | 0 |
+| Los Angeles | US | USW00023174 | KLAX | 72295 | 1944-08-01 | 2026-09-15 | single | 4 |
+| Miami | US | USW00012839 | KMIA | 72202 | 1948-01-01 | 2026-09-15 | single | 0 |
+| Minneapolis | US | USW00014922 | KMSP | 72658 | 1938-04-01 | 2026-10-20 | single | 2 |
+| Nashville | US | USW00013897 | KBNA | 72327 | 1948-01-01 | 2026-10-20 | single | 6 |
+| New Orleans | US | USW00012916 | KMSY | 72231 | 1948-01-01 | 2026-10-20 | single | 2 |
+| New York | US | USW00014732 | KLGA | 72503 | 1939-10-01 | 2026-09-09 | single | 6 |
+| Orlando | US | USW00012815 | KMCO | 72205 | 1952-05-01 | 2026-10-20 | single | 14 |
+| Philadelphia | US | USW00013739 | KPHL | 72408 | 1940-07-01 | 2026-10-20 | single | 1 |
+| Phoenix | US | USW00023183 | KPHX | 72278 | 1933-06-01 | 2026-10-20 | single | 24 |
+| Pittsburgh | US | USW00094823 | KPIT | 72520 | 1948-01-01 | 2026-10-20 | single | 18 |
+| Portland | US | USW00024229 | KPDX | 72698 | 1938-04-01 | 2026-10-20 | single | 1 |
+| Raleigh | US | USW00013722 | KRDU | 72306 | 1944-05-01 | 2026-10-20 | single | 8 |
+| Salt Lake City | US | USW00024127 | KSLC | 72572 | 1948-01-01 | 2026-10-20 | single | 3 |
+| San Antonio | US | USW00012921 | KSAT | 72253 | 1946-09-01 | 2026-10-20 | single | 3 |
+| San Diego | US | USW00023188 | KSAN | 72290 | 1939-07-01 | 2026-10-20 | single | 3 |
+| San Francisco | US | USW00023234 | KSFO | 72494 | 1945-07-01 | 2026-09-15 | single | 4 |
+| Seattle | US | USW00024233 | KSEA | 72793 | 1948-01-01 | 2026-10-20 | single | 9 |
+| St. Louis | US | USW00013994 | KSTL | 72434 | 1938-04-01 | 2026-10-20 | single | 0 |
+| Sterling | US | USW00093738 | KIAD | 72403 | 1960-04-01 | 2026-08-25 | single | 1 |
+| Tampa | US | USW00012842 | KTPA | 72211 | 1939-02-01 | 2026-10-20 | single | 0 |
+| Washington, DC | US | USW00013743 | KDCA | 72405 | 1941-06-01 | 2026-09-09 | single | 0 |
 
 Activated dates are UTC, from the `wx_activate_station` run history; the 30-station expansion runs
 are in `logs/activate_runs_prod.tsv`. Washington, DC's station sits in Virginia (Reagan National);
@@ -146,11 +147,11 @@ they came from, so this file is the record of it.
 
 Tranche 7, Canadian airports (plan only; see `logs/station_expansion_plan.md`):
 
-| City | Current ID | Old IDs | Expected record |
-|---|---|---|---|
-| Montreal | CAN07025251 | CAN07025250 | 1941+ |
-| Toronto | CAN06158731 | CAN06158733 | 1937+ |
-| Vancouver | CAN01108395 | CAN01108447 | 1937+ |
-| Halifax | CAN08202251 | CAN08202250 | 1953+ |
-| St. John's | CAN08403505 | CAN08403506 | 1942+ |
-| Edmonton | CAN03012216 | CAN03012205 | 1959+ |
+| City | Country | Current ID | Old IDs | Expected record |
+|---|---|---|---|---|
+| Montreal | CA | CAN07025251 | CAN07025250 | 1941+ |
+| Toronto | CA | CAN06158731 | CAN06158733 | 1937+ |
+| Vancouver | CA | CAN01108395 | CAN01108447 | 1937+ |
+| Halifax | CA | CAN08202251 | CAN08202250 | 1953+ |
+| St. John's | CA | CAN08403505 | CAN08403506 | 1942+ |
+| Edmonton | CA | CAN03012216 | CAN03012205 | 1959+ |
