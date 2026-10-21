@@ -16,7 +16,7 @@ with `/plot` to get a chart (see [Charts](#charts-plot)).
 
 ## Architecture
 
-![AI Weather Chat architecture](images/AI%20Weather%20Chat%20Architecture.png)
+![AI Weather Chat architecture](docs/images/AI%20Weather%20Chat%20Architecture.png)
 
 - **Ingest → Transform**: NOAA station data arrives through a daily API
   ingest plus ad-hoc bulk downloads, and Databricks jobs clean and merge it
