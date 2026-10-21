@@ -118,10 +118,12 @@ for stations whose ID changed (renumbering, automation) or whose airport moved. 
 Canadian stations (tranche 7 in `logs/station_expansion_plan.md`).
 
 **Method (one-time history load):** old IDs are downloaded once and written to `raw.obs_ghcn`
-**under the current ID**, then the current ID is activated as usual. Only (variable, month) pairs
-the current ID's `.dly` file has no line for are loaded, so the current ID's data always wins and a
-later `--full` re-ingest can't overwrite the history. After the load, rows no longer show which ID
-they came from, so this file is the record of it.
+**under the current ID**, then the current ID is activated as usual
+(`src/wx/stations/load_station_history.py`). An old ID's value is loaded for every (date,
+variable) the current ID has no value for; where both have one, the current ID wins. GHCN ingest
+never lets a missing day overwrite an existing value (`keep_existing_values=True` in
+`merge_into_target`), so a later `--full` re-ingest can't erase the history. After the load, rows no
+longer show which ID they came from, so this file is the record of it.
 
 **For each spliced station, record:**
 
@@ -129,7 +131,7 @@ they came from, so this file is the record of it.
 |---|---|
 | City / station_id (current) | Montreal / CAN07025251 |
 | Old IDs and the years each supplied | CAN07025250: 1941-2013 |
-| Variables and months filled | all variables before the current ID's first line per variable |
+| Days filled | every day/variable the current ID lacks (e.g. through 2013-02-13) |
 | Rows loaded per old ID and variable | (from the loader output) |
 | Date loaded, by whom | |
 | Overlap check | mean TMAX/TMIN difference on overlapping days; site moved? |
@@ -137,7 +139,8 @@ they came from, so this file is the record of it.
 **Cautions:**
 - Never activate or ingest an old ID on its own; its history already lives under the current ID.
 - Re-running the loader for a station is safe (same keys and values). A `--full` re-ingest of the
-  current ID is safe (it only writes months the loader skipped).
+  current ID is safe (missing days don't overwrite loaded values; days the current ID has replace
+  the old ID's, which is intended).
 - Converted rows don't pick up later edits (issue #8 in `logs/issues.txt`). To redo a station,
   delete its rows from `obs_ghcn_conv`, `obs_merged`, `obs_pivot` and `observations`, then re-run the
   loader and the activation job.
