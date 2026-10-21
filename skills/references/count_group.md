@@ -48,8 +48,8 @@ resolve a normal aggregation for that metric — "averaged below 32" → `mean`;
 - `count` + `threshold` → how many months/years met a condition, e.g. "how many months exceeded 6 inches of rainfall" → `unit: "month"`,
   `period_aggregation: "sum"`, `threshold: {">", 6}`
 - `max` / `min` → the single wettest/coldest/etc. month or year on record
-- `top` / `bottom` + `limit` → a ranked list of months or years ("the 5 snowiest years", "the coldest Januaries"). Only months/years with at least
-  90% of their days observed are ranked, so the current partial year never shows up as "least snowy".
+- `top` / `bottom` + `limit` → a ranked list of months or years ("the 5 snowiest years", "the coldest Januaries"). Months/years with under 90% of
+  their days observed are left out of every answer, so the current partial year never shows up as "least snowy".
 - `mean` / `median` / `sum` → a summary across bucket values, e.g. "average monthly snowfall" → `unit: "month"`, `period_aggregation: "sum"`,
   `aggregation: "mean"`
 
@@ -88,8 +88,8 @@ years (December in one, January-February in the next).
 It works like `unit: "year"`: `period_aggregation: "sum"` (a season's total), then `aggregation` across seasons — `max`/`min` for the single
 snowiest/least snowy, `top`/`bottom` + `limit` for a ranking, `mean` for an average season, `count` + `threshold` for "how many winters had over 30
 inches". Use the `all_time` date range unless the question limits the years; seasons are labeled by the year they end in, so "since 2000" means
-`start_date` 1999-07-01 to keep the 1999-2000 season whole. Rankings skip seasons with under 90% of days observed, so the season under way never
-ranks as least snowy.
+`start_date` 1999-07-01 to keep the 1999-2000 season whole. Seasons with under 90% of days observed are left out of every answer, so the season under way never
+counts.
 
 ## `unit: "season"`
 

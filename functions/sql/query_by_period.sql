@@ -30,7 +30,7 @@ p_aggregation top/bottom ranks buckets by bucket value (highest first / lowest f
 
 p_year_start_month (1-12, default 1) is the month a p_unit = year bucket starts in. 1 is the calendar year. 7 is the snow season, July 1 - June 30, labeled by the year it ends in (bucket_year 2010 = Jul 2009 - Jun 2010); 12 with p_month_filter [12, 1, 2] is meteorological winter. Ignored when p_unit is month.
 
-Coverage rule (top/bottom only): a bucket is ranked only if at least 90% of its calendar days have a non-null value (n_days >= 0.9 * days in the month/year, counting only p_month_filter months for a year bucket). This drops the current partial month/year, a station''s first partial year, and months with long reporting gaps, which would otherwise dominate bottom rankings. max/min are unchanged.
+Coverage rule (every aggregation): a bucket counts only if at least 90% of its calendar days have a non-null value (n_days >= 0.9 * days in the month/year, counting only p_month_filter months for a year bucket). This drops the current partial month/year, a station''s first partial year, and months with long reporting gaps.
 '
 RETURN ((
     SELECT to_json(named_struct(
@@ -59,24 +59,24 @@ RETURN ((
                     collect_list(named_struct(
                         'rank', CAST(rk AS INT), 'bucket_year', bucket_year,
                         'bucket_month', bucket_month, 'value', bucket_value, 'n_days', CAST(n_days AS INT)
-                    )) FILTER (WHERE is_ranking AND rankable AND rk <= rank_limit)
+                    )) FILTER (WHERE is_ranking AND rk <= rank_limit)
                 ), 1, 15)
             END,
         'rows_truncated',
             CASE WHEN p_aggregation IN ('top', 'bottom') THEN
-                COUNT(*) FILTER (WHERE is_ranking AND rankable AND rk <= rank_limit) > 15
+                COUNT(*) FILTER (WHERE is_ranking AND rk <= rank_limit) > 15
             END
     ))
     FROM (
         SELECT *,
-            -- top/bottom: 1 = highest/lowest among rankable buckets; the rest rank last and are dropped
+            -- top/bottom: 1 = highest/lowest among complete buckets; the rest rank last and are dropped
             DENSE_RANK() OVER (ORDER BY sort_key DESC NULLS LAST) AS rk
         FROM (
             SELECT *,
                 -- SQL UDFs can't reference parameters in a window or an aggregate FILTER,
                 -- so the ranking inputs are computed here as plain columns
                 -- rounded so float noise (53.300000000000004 vs 53.3) doesn't split ties
-                ROUND(CASE WHEN NOT rankable THEN NULL WHEN p_aggregation = 'bottom' THEN -bucket_value ELSE bucket_value END, 2) AS sort_key,
+                ROUND(CASE WHEN NOT complete THEN NULL WHEN p_aggregation = 'bottom' THEN -bucket_value ELSE bucket_value END, 2) AS sort_key,
                 p_aggregation IN ('top', 'bottom') AS is_ranking,
                 GREATEST(LEAST(COALESCE(p_limit, 3), 15), 1) AS rank_limit
             FROM (
@@ -94,7 +94,7 @@ RETURN ((
                             DAY(LAST_DAY(ADD_MONTHS(bucket_start, i))), 0
                         )
                     )
-                END AS rankable
+                END AS complete
             FROM (
         SELECT
             bucket_year,
@@ -140,11 +140,12 @@ RETURN ((
             ) covered
         ) sortable
     ) ranked
-    WHERE
+    WHERE complete AND (
         p_aggregation != 'count' OR
         (p_threshold_operator = '>'  AND bucket_value > p_threshold_value) OR
         (p_threshold_operator = '>=' AND bucket_value >= p_threshold_value) OR
         (p_threshold_operator = '<'  AND bucket_value < p_threshold_value) OR
         (p_threshold_operator = '<=' AND bucket_value <= p_threshold_value) OR
         (p_threshold_operator = '='  AND bucket_value = p_threshold_value)
+    )
 ));

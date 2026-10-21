@@ -131,22 +131,13 @@ snow still counts toward its season. `query_by_period`/`answer_query` take
 `p_year_start_month` (default 1 = calendar year; the app passes 7 for snow
 seasons), and a season is labeled by the year it ends in (2010 = "2009-10").
 
-#### Coverage rule (month/year rankings)
+#### Coverage rule (months, years, seasons)
 
-A month or year is ranked only if at least **90%** of its calendar days have a
-non-null value for the metric (`n_days >= 0.9 * days in the month/year`;
-28 of 31 for a January, 329 of 365 for a year).
+A month, year, or season counts only if at least **90%** of its days have
+data, in every answer and chart (averages, totals, counts, rankings, extremes).
+This keeps partial periods, like the season under way or a station's first
+year, from skewing results.
 
-Why: a bucket's value is built from whatever days exist, so incomplete
-buckets look artificially small (sums) or skewed (means). Without the rule,
-the current partial year, a station's first partial year of record, and
-months with reporting gaps crowd the top of `bottom` rankings, e.g. Dulles
-1960 has only 122 days of snow data and would rank as the least snowy year.
-
-Scope: the rule applies to `top`/`bottom` only. `max`/`min` are unchanged and
-can still pick a partial bucket (Dulles `min` yearly snow currently returns
-1960 at 0.0"). Event and day rankings don't need it, since an event or a day
-either has data or it doesn't.
 
 ## 3. Claude Skills
 
@@ -274,11 +265,6 @@ touching production data:
 
 ## Known limitations
 
-- **Partial periods in non-ranking aggregates.** The 90% coverage rule
-  applies only to `top`/`bottom` rankings (and `max`/`min`, which are
-  answered as the top/bottom 1). `mean`, `median`, `sum`, and `count` across
-  months, years, and seasons still include partial buckets: an "average
-  winter" includes the snow season under way.
 - **Station-derived normals.** Normals come from the station's raw GHCN-D
   observations, so they can differ slightly from NOAA's official normals,
   which include adjustments and gap-filling. Charts note this.
