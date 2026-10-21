@@ -117,6 +117,9 @@ def main():
     parser.add_argument("--city", default=None, help='City to set, e.g. "New York".')
 
     args, _ = parser.parse_known_args()
+    # The job always passes --city '{{job.parameters.city}}', which is "" when
+    # left blank: treat that as "no city" so a backfill-only run keeps the label.
+    args.city = (args.city or "").strip() or None
 
     if not args.activate and args.city is None:
         parser.error("Nothing to do: pass --activate and/or --city.")
