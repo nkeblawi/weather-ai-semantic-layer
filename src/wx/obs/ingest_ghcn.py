@@ -240,7 +240,11 @@ def load_ghcn(
         print(f"Parsed {len(df)} rows for {station_id}")
 
         print(f"Merging {station_id}.dly into {OBS_GHCN_TABLE}...")
-        merge_into_target(spark, df, OBS_GHCN_TABLE, TARGET_SCHEMA)
+        # A missing day never erases a value already in raw (e.g. one loaded
+        # from an older station ID by load_station_history.py).
+        merge_into_target(
+            spark, df, OBS_GHCN_TABLE, TARGET_SCHEMA, keep_existing_values=True
+        )
 
     print("Done.")
 
