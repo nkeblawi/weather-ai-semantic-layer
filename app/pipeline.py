@@ -948,17 +948,14 @@ def execute_tool(conn, name: str, tool_input: dict):
 # this is decided upfront, and applied to the system prompt.
 # ---------------------------------------------------------------------------
 
-# \w*storms? also catches compounds (snowstorm, rainstorm, thunderstorm),
-# which a plain \bstorm\b misses.
-# Month names load it too: "average January high" is a unit: "month" +
-# month_filter climate average, defined in count_group.md. Plurals too, for
-# rankings ("the coldest Januaries").
-TRIGGER_PATTERN = re.compile(
-    r"\b(events?|\w*storms?|blizzards?|spells?|waves?|in a row|months?|monthly|years?|yearly|annual|seasons?|seasonal|winters?|springs?|summers?|falls?|autumns?"
-    r"|januar(?:y|ies)|februar(?:y|ies)|march(?:es)?|aprils?|mays?|junes?|julys?"
-    r"|augusts?|septembers?|octobers?|novembers?|decembers?)\b",
-    re.IGNORECASE,
-)
+# The trigger words live in skills/assets/count_group_triggers.txt (one regex
+# fragment per line), so they can be edited next to the guide they load.
+TRIGGERS_PATH = PROJECT_ROOT / "skills" / "assets" / "count_group_triggers.txt"
+_TRIGGERS = [
+    line.strip() for line in TRIGGERS_PATH.read_text().splitlines()
+    if line.strip() and not line.lstrip().startswith("#")
+]
+TRIGGER_PATTERN = re.compile(rf"\b({'|'.join(_TRIGGERS)})\b", re.IGNORECASE)
 
 
 def needs_count_group(question: str, history: list | None = None) -> bool:

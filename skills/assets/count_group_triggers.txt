@@ -1,0 +1,46 @@
+# Words that load references/count_group.md (events, months, years, seasons)
+# into the resolver's prompt. app/pipeline.py reads this file: one regex
+# fragment per line, matched as a whole word, case-insensitive, against the
+# question and the recent conversation. Lines starting with # are comments.
+#
+# Add a word when a question about events or periods resolves badly because
+# the guide wasn't loaded (e.g. "seasonal", "stretch"), then rerun
+# tests/evals/run_evals.py. Include plurals: "the coldest Januaries".
+
+# Events (\w*storms? also catches snowstorm, rainstorm, thunderstorm)
+events?
+\w*storms?
+blizzards?
+spells?
+stretch(?:es)?
+streaks?
+waves?
+in a row
+
+# Periods
+months?
+monthly
+years?
+yearly
+annual
+seasons?
+seasonal
+winters?
+springs?
+summers?
+falls?
+autumns?
+
+# Month names ("average January high" is a month climate average)
+januar(?:y|ies)
+februar(?:y|ies)
+march(?:es)?
+aprils?
+mays?
+junes?
+julys?
+augusts?
+septembers?
+octobers?
+novembers?
+decembers?
