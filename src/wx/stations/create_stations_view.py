@@ -40,7 +40,7 @@ def main():
         SELECT
           station_id AS ghcn_id,
           icao,
-          faa,
+          iata,
           name,
           city,
           state,

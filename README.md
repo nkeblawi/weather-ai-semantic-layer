@@ -42,7 +42,8 @@ Ingests, cleans, and merges historical weather data on Databricks:
 
 - **Stations**: fetches station lists from GHCN and EMSHR datasets, filters them
   down to WMO stations, and merges them into a single `station_merged` table with 
-  ICAO/FAA codes and country info attached.
+  ICAO/IATA codes and country info attached (from EMSHR for US stations,
+  and `cleaned.station_codes` / NOAA's country list for the rest).
   
   Station activation (which stations the app can answer questions about) is a
   manual, on-demand step (`activate_station.py`) run by the application admin.

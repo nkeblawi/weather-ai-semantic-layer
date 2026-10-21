@@ -132,7 +132,7 @@ def fill_station_info(conn, resolved: dict, station_info: dict) -> None:
 def list_home_locations(conn) -> dict[str, str]:
     """
     {station code: display name} for the home-location picker, ordered by
-    name, e.g. {"KIAD": "Sterling, VA (KIAD)"}. The code (ICAO, else FAA) is
+    name, e.g. {"KIAD": "Sterling, VA (KIAD)"}. The code (ICAO, else IATA) is
     the value saved as home_location and given to the resolver -- an exact
     lookup_station key. The display name is presentation only. A city that
     already carries its own qualifier (e.g. "Washington, DC", stored with
@@ -140,9 +140,9 @@ def list_home_locations(conn) -> dict[str, str]:
     """
     with conn.cursor() as cur:
         cur.execute(f"""
-            SELECT coalesce(icao, faa) AS code, city, state
+            SELECT coalesce(icao, iata) AS code, city, state
             FROM {CATALOG}.analytics.stations
-            WHERE coalesce(icao, faa) IS NOT NULL AND city IS NOT NULL
+            WHERE coalesce(icao, iata) IS NOT NULL AND city IS NOT NULL
             ORDER BY city, code
             """)
         rows = cur.fetchall()
@@ -823,7 +823,7 @@ TOOLS = [
     {
         "name": "lookup_station",
         "description": (
-            "Resolves free text (city, airport name/alias, ICAO or FAA code) to an "
+            "Resolves free text (city, airport name/alias, ICAO or IATA code) to an "
             "active station. Returns {ghcn_id, name, city}, or nothing if there's no match."
         ),
         "input_schema": {
