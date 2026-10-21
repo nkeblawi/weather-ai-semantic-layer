@@ -37,6 +37,7 @@ def merge_into_target(
     target_table: str,
     target_schema: StructType,
     merge_keys: tuple[str, ...] = ("station_id", "obs_date", "variable"),
+    keep_existing_values: bool = False,
 ) -> None:
     """
     Create target_table from df if it doesn't exist yet, otherwise merge
@@ -44,6 +45,13 @@ def merge_into_target(
     sources (GHCN and ACIS) merge on the same three-column key
     (station_id, obs_date, variable), so that's the default, but it's
     overridable in case a future source needs a different key.
+
+    keep_existing_values=True: a matched row with a NULL incoming `value`
+    doesn't overwrite a non-NULL existing one (the rest of that row is left
+    as is too). GHCN ingest uses it so a missing day (-9999) in a station's
+    .dly file can't erase a value loaded for that day from an older station
+    ID (see wx/stations/load_station_history.py). Side effect: if NOAA ever
+    blanks a value it published earlier, the old value stays.
     """
     if df.empty:
         print("Nothing to merge, DataFrame is empty.")
@@ -62,7 +70,11 @@ def merge_into_target(
     (
         target.alias("t")
         .merge(new_df.alias("s"), merge_condition)
-        .whenMatchedUpdateAll()
+        .whenMatchedUpdateAll(
+            condition="s.value IS NOT NULL OR t.value IS NULL"
+            if keep_existing_values
+            else None
+        )
         .whenNotMatchedInsertAll()
         .execute()
     )
