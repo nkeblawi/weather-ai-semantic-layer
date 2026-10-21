@@ -151,7 +151,6 @@ Tranche 7, Canadian airports (plan only; see `logs/station_expansion_plan.md`):
 |---|---|---|---|---|
 | Montreal | CA | CAN07025251 | CAN07025250 | 1941+ |
 | Toronto | CA | CAN06158731 | CAN06158733 | 1937+ |
-| Vancouver | CA | CAN01108395 | CAN01108447 | 1937+ |
 | Halifax | CA | CAN08202251 | CAN08202250 | 1953+ |
 | St. John's | CA | CAN08403505 | CAN08403506 | 1942+ |
 | Edmonton | CA | CAN03012216 | CAN03012205 | 1959+ |
