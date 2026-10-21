@@ -24,10 +24,9 @@ other run computes it here.
 entire obs_pivot history -- the derived_vars half of a station backfill,
 run by the backfill_derived_vars task in wx_activate_station.job.yml.
 
-Note: matching the original notebook's CASE WHEN behavior exactly, HDD/CDD
-resolve to 0 (not NULL) when TAVG is NULL, since a SQL CASE (and
-PySpark's equivalent F.when) falls through to ELSE/otherwise when the
-condition itself is unknown.
+HDD/CDD are NULL when TAVG is NULL (no TMAX or TMIN that day). The
+original notebook's CASE WHEN fell through to 0 in that case, which made
+missing days count as zero degree days in totals; fixed 2026-10-21.
 """
 
 import os
@@ -100,19 +99,26 @@ def add_derived_vars(df: DataFrame) -> DataFrame:
     TAVG = (TMAX + TMIN) / 2
     HDD = 65 - TAVG when TAVG < 65, else 0 (rounded to the nearest integer)
     CDD = TAVG - 65 when TAVG > 65, else 0 (rounded to the nearest integer)
+    HDD and CDD are NULL when TAVG is NULL.
     """
     df = df.withColumn("TAVG", (F.col("TMAX") + F.col("TMIN")) / 2.0)
     df = df.withColumn(
         "HDD",
-        F.round(
-            F.when(F.col("TAVG") < 65, F.lit(65) - F.col("TAVG")).otherwise(F.lit(0.0))
-        ).cast("int"),
+        F.when(
+            F.col("TAVG").isNotNull(),
+            F.round(
+                F.when(F.col("TAVG") < 65, F.lit(65) - F.col("TAVG")).otherwise(F.lit(0.0))
+            ).cast("int"),
+        ),
     )
     df = df.withColumn(
         "CDD",
-        F.round(
-            F.when(F.col("TAVG") > 65, F.col("TAVG") - F.lit(65)).otherwise(F.lit(0.0))
-        ).cast("int"),
+        F.when(
+            F.col("TAVG").isNotNull(),
+            F.round(
+                F.when(F.col("TAVG") > 65, F.col("TAVG") - F.lit(65)).otherwise(F.lit(0.0))
+            ).cast("int"),
+        ),
     )
     return df
 

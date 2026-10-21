@@ -42,7 +42,7 @@ WHEN MATCHED THEN UPDATE SET
   TMIN = IF(f.f_tmin, NULL, t.TMIN);
 
 -- 4. analytics.observations: copy the patched columns and recompute derived vars
---    (same formulas as derived_vars.py; HDD/CDD fall to 0 when TAVG is NULL)
+--    (same formulas as derived_vars.py; HDD/CDD are NULL when TAVG is NULL)
 MERGE INTO weather.analytics.observations t
 USING (
   SELECT p.station_id, p.obs_date, p.AWND, p.PRCP, p.SNOW, p.SNWD, p.TMAX, p.TMIN,
@@ -56,5 +56,5 @@ ON t.station_id = s.station_id AND t.obs_date = s.obs_date
 WHEN MATCHED THEN UPDATE SET
   AWND = s.AWND, PRCP = s.PRCP, SNOW = s.SNOW, SNWD = s.SNWD,
   TMAX = s.TMAX, TMIN = s.TMIN, TAVG = s.TAVG,
-  HDD = CAST(round(CASE WHEN s.TAVG < 65 THEN 65 - s.TAVG ELSE 0.0 END) AS INT),
-  CDD = CAST(round(CASE WHEN s.TAVG > 65 THEN s.TAVG - 65 ELSE 0.0 END) AS INT);
+  HDD = CAST(round(CASE WHEN s.TAVG IS NULL THEN NULL WHEN s.TAVG < 65 THEN 65 - s.TAVG ELSE 0.0 END) AS INT),
+  CDD = CAST(round(CASE WHEN s.TAVG IS NULL THEN NULL WHEN s.TAVG > 65 THEN s.TAVG - 65 ELSE 0.0 END) AS INT);
