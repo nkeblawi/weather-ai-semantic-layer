@@ -1,0 +1,52 @@
+resources:
+  jobs:
+    wx_load_station_history:
+      name: wx_load_station_history
+      description: >-
+        One-time load of a station's old GHCN IDs into raw.obs_ghcn under its
+        current ID (src/wx/stations/load_station_history.py). Run it before
+        wx_activate_station. history_ids: old IDs, most recent first, separated
+        by commas (e.g. CAN07025250,CA007025250). dry_run defaults to true: review the overlap check
+        and row counts, then rerun with dry_run=false to write.
+      tasks:
+        - task_key: load_station_history
+          disabled: false
+          email_notifications: {}
+          environment_key: wx_env_v1
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+              - --station-id
+              - '{{job.parameters.station_id}}'
+              - --history-ids
+              - '{{job.parameters.history_ids}}'
+              - --dry-run
+              - '{{job.parameters.dry_run}}'
+            python_file: ../src/wx/stations/load_station_history.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+      parameters:
+        - name: station_id
+          default: ""
+        - name: history_ids
+          default: ""
+        - name: dry_run
+          default: "true"
+      email_notifications:
+        no_alert_for_skipped_runs: false
+      environments:
+        - environment_key: wx_env_v1
+          spec:
+            dependencies:
+              - pybreaker==1.4.1
+            environment_version: "5"
+      max_concurrent_runs: 1
+      performance_target: PERFORMANCE_OPTIMIZED
+      queue:
+        enabled: true
+      timeout_seconds: 0
+      webhook_notifications: {}

@@ -38,15 +38,23 @@ came from.
 Re-running is safe: same keys, same values. Never activate or ingest an old
 ID on its own; its history already lives under the current ID.
 
-Not part of any job (job definitions are on hold). Run on demand, e.g. as a
-one-off `databricks jobs submit` spark_python_task with pybreaker in its
-environment (same as the wx_env_v1 environment), or from a notebook:
+Run on demand with the wx_load_station_history job
+(resources/wx_load_station_history.job.yml). Its parameters are station_id,
+history_ids (old IDs, most recent first, separated by commas, e.g.
+"CAN07025250,CA007025250"), and dry_run, which defaults to true. Review the dry run's
+output, then rerun with dry_run=false to write:
+
+    databricks jobs run-now --json '{"job_id": <job_id>, "job_parameters": {"station_id": "CAN07025251",
+        "history_ids": "CAN07025250", "dry_run": "true"}}'
+
+Or from a notebook / the command line (--dry-run alone also means true):
 
     python load_station_history.py --workspace-root <.../files/src> --catalog weather \\
         --station-id CAN07025251 --history-ids CAN07025250 --dry-run
 """
 
 import os
+import re
 import sys
 import argparse
 
@@ -210,17 +218,29 @@ def main():
     parser.add_argument(
         "--history-ids",
         required=True,
-        help="Comma-separated old GHCN IDs, most recent first, e.g. CAN07025250.",
+        help="Old GHCN IDs, most recent first, separated by commas, e.g. "
+        '"CAN07025250,CA007025250". Spaces after (or instead of) the commas are fine.',
     )
     parser.add_argument(
         "--dry-run",
-        action="store_true",
-        help="Report what would be loaded; write nothing.",
+        nargs="?",
+        const="true",
+        default="false",
+        help="Report what would be loaded; write nothing. Bare --dry-run or "
+        "--dry-run true; the job passes its dry_run parameter (true/false).",
     )
     args, _ = parser.parse_known_args()
 
+    dry_run_value = args.dry_run.strip().lower()
+    if dry_run_value not in ("true", "false"):
+        parser.error(f'--dry-run must be true or false, got "{args.dry_run}".')
+    dry_run = dry_run_value == "true"
+
     current_id = args.station_id.strip()
-    old_ids = [i.strip() for i in args.history_ids.split(",") if i.strip()]
+    old_ids = [i for i in re.split(r"[,\s]+", args.history_ids) if i]
+    # The job passes "" for a parameter left blank
+    if not current_id or not old_ids:
+        parser.error("--station-id and --history-ids must not be blank.")
 
     spark = get_spark()
     session = get_session()
@@ -248,7 +268,7 @@ def main():
     print(f"\nRows to load under {current_id}: {len(loaded):,}")
     print(pd.DataFrame(summary).to_string(index=False) if summary else "  (none)")
 
-    if args.dry_run:
+    if dry_run:
         print("\nDry run: nothing written.")
         return
     if loaded.empty:

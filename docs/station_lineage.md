@@ -126,7 +126,8 @@ ID changed (renumbering, automation) or whose airport moved. Used for the Canadi
 
 **Method (one-time history load):** old IDs are downloaded once and written to `raw.obs_ghcn`
 **under the current ID**, then the current ID is activated as usual
-(`src/wx/stations/load_station_history.py`). An old ID's value is loaded for every (date,
+(`src/wx/stations/load_station_history.py`, run by the `wx_load_station_history` job with
+`station_id`, `history_ids`, and `dry_run`, which defaults to true). An old ID's value is loaded for every (date,
 variable) the current ID has no value for; where both have one, the current ID wins. GHCN ingest
 never lets a missing day overwrite an existing value (`keep_existing_values=True` in
 `merge_into_target`), so a later `--full` re-ingest can't erase the history. After the load, rows no

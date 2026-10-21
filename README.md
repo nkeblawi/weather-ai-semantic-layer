@@ -47,6 +47,9 @@ Ingests, cleans, and merges historical weather data on Databricks:
   
   Station activation (which stations the app can answer questions about) is a
   manual, on-demand step (`activate_station.py`) run by the application admin.
+  A station whose GHCN ID changed can first have its old IDs' history loaded
+  under the current ID (the `wx_load_station_history` job; see
+  [docs/station_lineage.md](docs/station_lineage.md)).
 
 - **Observations**: ingests daily observations from GHCN and ACIS, converts each 
   source to a common schema, merges them, pivots to one row per station/day, and 
