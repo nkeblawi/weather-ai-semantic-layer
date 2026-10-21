@@ -275,20 +275,10 @@ touching production data:
 ## Known limitations
 
 - **Partial periods in non-ranking aggregates.** The 90% coverage rule
-  applies only to `top`/`bottom` rankings. `mean`, `count`, `max`, and `min`
-  across months, years, and seasons still include partial buckets: an
-  "average winter" includes the snow season under way, and the least snowy
-  year (`min`) at Dulles comes back as 1960, which has only 122 days of
-  data.
-- **Ties in single answers.** When two days tie for `max`/`min`, which date
-  is returned isn't guaranteed (e.g. July 16 or July 20, 1980, both 101°F at
-  Dulles).
-- **Rank ties vs. displayed values.** Ties are detected on values rounded
-  to 2 decimals, but tables show 1 decimal, so two rows can both read
-  77.4°F yet hold different ranks.
-- **Display details.** Some ranking-table titles show the city without its
-  state ("Sterling"), and answers capitalize season labels mid-sentence
-  ("in Summer 2024").
+  applies only to `top`/`bottom` rankings (and `max`/`min`, which are
+  answered as the top/bottom 1). `mean`, `median`, `sum`, and `count` across
+  months, years, and seasons still include partial buckets: an "average
+  winter" includes the snow season under way.
 - **Station-derived normals.** Normals come from the station's raw GHCN-D
   observations, so they can differ slightly from NOAA's official normals,
   which include adjustments and gap-filling. Charts note this.
