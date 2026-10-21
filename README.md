@@ -65,11 +65,12 @@ Runs as a set of Databricks Jobs, defined and deployed as a
 
 ### Stations
 
-38 stations, each the main airport weather station for a major US city
-(the active list is in `analytics.stations`). Records start between 1933
-(Phoenix) and 1994 (Denver). The app resolves each station from its city,
-airport name or code, and common aliases ("Logan", "Sea-Tac", "KCI",
-"Twin Cities") stored in `analytics.station_aliases`.
+43 stations, each the main airport weather station for a major city: 38 in
+the US and 5 in Canada. The active list is in `analytics.stations`. Records 
+start between 1933 (Phoenix) and 1994 (Denver). The Canadian records combine 
+each station's older GHCN IDs with its current one (see the lineage doc). 
+The app resolves each station from its city, airport name or code, and common 
+aliases ("Logan", "Sea-Tac", "Twin Cities") stored in `analytics.station_aliases`.
 
 [docs/station_lineage.md](docs/station_lineage.md) records each station's
 source, record start, long gaps, and QC decisions.
@@ -297,6 +298,9 @@ touching production data:
   GHCN data lags one more day than it needs to, and the morning ACIS ingest
   runs too early for West Coast stations (Los Angeles, San Francisco), which
   get only GHCN data.
+- **Non-US stations.** Their data comes from GHCN only (ACIS covers US
+  stations), and NOAA receives it later, so non-US observations typically
+  run 2-3 days behind. Values are shown in US units (°F, inches).
 - **Denver snowfall before 2006.** Denver's record starts at the current
   airport in 1994, and GHCN has no usable snowfall for 1995-2005 (missing,
   or rejected by NOAA's quality checks). Snowfall averages and totals for
