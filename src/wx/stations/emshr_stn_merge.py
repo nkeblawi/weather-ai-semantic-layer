@@ -37,12 +37,24 @@ def merge_icao(wmo_df, emshr_df):
     station_wmo's own `selected` column first; it's a different flag from
     station_merged's `selected` (set by activate_station.py), and there's no
     reason for this merge to touch it either way.
+
+    country_code falls back to the GHCN ID's first two letters (its FIPS
+    country code, e.g. "CA" in CAN07025251) when EMSHR has no match, which
+    is the case for stations NOAA renamed (Canada's CA00... -> CAN0...).
     """
     stations_df = (
         wmo_df.drop("selected")
         .alias("sw")
         .join(emshr_df.alias("em"), on="station_id", how="left")
-        .select("sw.*", "em.icao", "em.faa", "em.country_code", "em.country_name")
+        .select(
+            "sw.*",
+            "em.icao",
+            "em.faa",
+            F.coalesce(
+                F.col("em.country_code"), F.substring(F.col("sw.station_id"), 1, 2)
+            ).alias("country_code"),
+            "em.country_name",
+        )
         .withColumn("selected", F.lit(False))
         .withColumn("city", F.lit(None).cast("string"))
     )
