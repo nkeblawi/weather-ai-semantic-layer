@@ -120,13 +120,33 @@ def fill_station_info(conn, resolved: dict, station_info: dict) -> None:
     params = {f"id{i}": sid for i, sid in enumerate(sorted(missing))}
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT ghcn_id, name, city FROM {CATALOG}.analytics.stations "
+            f"SELECT ghcn_id, name, city, state FROM {CATALOG}.analytics.stations "
             f"WHERE ghcn_id IN ({', '.join(':' + k for k in params)})",
             parameters=params,
         )
         rows = cur.fetchall()
-    for ghcn_id, name, city in rows:
-        station_info[ghcn_id] = {"ghcn_id": ghcn_id, "name": name, "city": city}
+    for ghcn_id, name, city, state in rows:
+        station_info[ghcn_id] = {"ghcn_id": ghcn_id, "name": name, "city": city, "state": state}
+
+
+def place_label(city: str, state: str | None) -> str:
+    """
+    A city as shown to users: "Portland, OR", "Montreal, QC". A city that
+    already carries its own qualifier (e.g. "Washington, DC", stored with
+    state VA) is used as-is, and so is one with no state.
+    """
+    return city if "," in city or not state else f"{city}, {state}"
+
+
+def station_place(station: dict, station_id: str) -> str:
+    """
+    The place a station's answers, titles, and subtitles name: its city
+    with state/province, else its station name, else the id. Station info
+    saved before lookup_station returned state shows the bare city.
+    """
+    if station.get("city"):
+        return place_label(station["city"], station.get("state"))
+    return station.get("name") or station_id
 
 
 def list_home_locations(conn) -> dict[str, str]:
@@ -134,9 +154,7 @@ def list_home_locations(conn) -> dict[str, str]:
     {station code: display name} for the home-location picker, ordered by
     name, e.g. {"KIAD": "Sterling, VA (KIAD)"}. The code (ICAO, else IATA) is
     the value saved as home_location and given to the resolver -- an exact
-    lookup_station key. The display name is presentation only. A city that
-    already carries its own qualifier (e.g. "Washington, DC", stored with
-    state VA) is used as-is.
+    lookup_station key. The display name is presentation only (place_label).
     """
     with conn.cursor() as cur:
         cur.execute(f"""
@@ -147,7 +165,7 @@ def list_home_locations(conn) -> dict[str, str]:
             """)
         rows = cur.fetchall()
     return {
-        code: f"{city if ',' in city or not state else f'{city}, {state}'} ({code})"
+        code: f"{place_label(city, state)} ({code})"
         for code, city, state in rows
     }
 
@@ -412,11 +430,13 @@ def snow_season_label(bucket_year: int) -> str:
     return f"{bucket_year - 1}-{bucket_year % 100:02d}"
 
 
-def season_label(entry: dict, bucket_year: int) -> str | None:
+def season_label(entry: dict, bucket_year: int, sentence: bool = False) -> str | None:
     """
     How a snow_season/season bucket reads ("2009-10", "Winter 2009-10",
     "Summer 2024"), so it's never mistaken for a calendar year; None for any
-    other unit.
+    other unit. sentence=True lowercases the season name ("summer 2024") for
+    text the answer model writes mid-sentence; tables and charts keep the
+    capital.
     """
     unit = entry.get("unit")
     if unit == "snow_season":
@@ -424,7 +444,7 @@ def season_label(entry: dict, bucket_year: int) -> str | None:
     if unit == "season":
         season = entry["season"]
         span = snow_season_label(bucket_year) if season == "winter" else str(bucket_year)
-        return f"{season.capitalize()} {span}"
+        return f"{season if sentence else season.capitalize()} {span}"
     return None
 
 
@@ -498,7 +518,7 @@ def build_answer_payload(
 
     payload = {
         "station_name": station.get("name") or entry["station_id"],
-        "place": station.get("city") or station.get("name") or entry["station_id"],
+        "place": station_place(station, entry["station_id"]),
         "metric": entry["metric"],
         "aggregation": entry["aggregation"],
         "units": "percent of years" if odds else "date" if dates else answer_units(entry),
@@ -526,7 +546,7 @@ def build_answer_payload(
             if result.get(key) is not None:
                 payload[key] = result[key]
         # a season isn't a calendar year: name it so it isn't read as one
-        if "bucket_year" in payload and (label := season_label(entry, payload["bucket_year"])):
+        if "bucket_year" in payload and (label := season_label(entry, payload["bucket_year"], sentence=True)):
             del payload["bucket_year"]
             payload["season"] = label
         if odds or dates:
@@ -678,7 +698,12 @@ def _for_phrasing(payload: dict) -> dict:
     if rows is None:
         return payload
     out = {k: v for k, v in payload.items() if k != "rows"}
-    out["rank_1"] = [r for r in rows if r.get("rank") == 1]
+    # table rows read "Summer 2024"; the sentence reads "summer 2024"
+    out["rank_1"] = [
+        {**r, "season": r["season"].lower()} if "season" in r else r
+        for r in rows
+        if r.get("rank") == 1
+    ]
     out["table_rows"] = len(rows)
     return out
 
@@ -824,7 +849,7 @@ TOOLS = [
         "name": "lookup_station",
         "description": (
             "Resolves free text (city, airport name/alias, ICAO or IATA code) to an "
-            "active station. Returns {ghcn_id, name, city}, or nothing if there's no match."
+            "active station. Returns {ghcn_id, name, city, state}, or nothing if there's no match."
         ),
         "input_schema": {
             "type": "object",

@@ -41,7 +41,7 @@ last 30 days") resolve from it (Step 5).
 
 1. Extract the place reference from the question (city, airport name/code, ICAO/IATA code, or "near me" / "here" style phrasing).
 2. Call the `lookup_station` tool with that text. It matches case-insensitively and punctuation-insensitively against each active
-   station's ICAO code, IATA code, city, name, and known aliases, and returns `{ghcn_id, name, city}` for a match, or nothing if there's no
+   station's ICAO code, IATA code, city, name, and known aliases, and returns `{ghcn_id, name, city, state}` for a match, or nothing if there's no
    match.
 3. If there's no match, use general geographic knowledge to think of the most plausible nearby airports or well-known places (e.g. a town's
    nearest major-metro airport), and call `lookup_station` again for each candidate name to check whether it's actually active in this system.

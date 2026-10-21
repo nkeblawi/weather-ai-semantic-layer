@@ -2,9 +2,9 @@ CREATE OR REPLACE FUNCTION weather.analytics.lookup_station(
     location_text STRING
 )
 RETURNS STRING
-COMMENT 'Resolves free text (city, airport name/alias, ICAO or IATA code) to an active station. Returns JSON {ghcn_id, name, city} or NULL if no match. Call this in Step 2 of the weather-query-resolver skill before setting station_id.'
+COMMENT 'Resolves free text (city, airport name/alias, ICAO or IATA code) to an active station. Returns JSON {ghcn_id, name, city, state} or NULL if no match. Call this in Step 2 of the weather-query-resolver skill before setting station_id.'
 RETURN ((
-  SELECT to_json(named_struct('ghcn_id', s.ghcn_id, 'name', s.name, 'city', s.city))
+  SELECT to_json(named_struct('ghcn_id', s.ghcn_id, 'name', s.name, 'city', s.city, 'state', s.state))
   FROM weather.analytics.stations s
   LEFT JOIN weather.analytics.station_aliases a ON a.ghcn_id = s.ghcn_id
   WHERE lower(regexp_replace(location_text, '[^a-zA-Z0-9 ]', '')) IN (

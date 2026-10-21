@@ -34,7 +34,7 @@ Last reviewed: 2026-10-21 (43 active stations, prod catalog `weather`).
 | Boston | US | USW00014739 | KBOS | 72509 | 1936-01-01 | 2026-10-20 | single | 32 |
 | Charlotte | US | USW00013881 | KCLT | 72314 | 1939-07-01 | 2026-10-20 | single | 4 |
 | Chicago | US | USW00094846 | KORD | 72530 | 1958-11-01 | 2026-09-15 | single | 12 |
-| Cincinnati | US | USW00093814 | KCVG | 72421 | 1948-01-01 | 2026-10-20 | single | 6 |
+| Cincinnati, OH | US | USW00093814 | KCVG | 72421 | 1948-01-01 | 2026-10-20 | single | 6 |
 | Cleveland | US | USW00014820 | KCLE | 72524 | 1938-05-01 | 2026-10-20 | single | 26 |
 | Columbus | US | USW00014821 | KCMH | 72428 | 1948-01-01 | 2026-10-20 | single | 0 |
 | Dallas | US | USW00003927 | KDFW | 72259 | 1953-04-01 | 2026-10-20 | single | 1 |
@@ -74,7 +74,9 @@ Last reviewed: 2026-10-21 (43 active stations, prod catalog `weather`).
 
 Activated dates are UTC, from the `wx_activate_station` run history; the 30-station expansion runs
 are in `logs/activate_runs_prod.tsv`. Washington, DC's station sits in Virginia (Reagan National);
-Cincinnati's in Kentucky (CVG).
+Cincinnati's in Kentucky (CVG). Both cities are labeled with their own state ("Washington, DC",
+"Cincinnati, OH") so the app doesn't append the station's state (VA, KY); every other city is
+labeled bare and the app shows it with its state ("Portland, OR").
 
 ## Station notes
 

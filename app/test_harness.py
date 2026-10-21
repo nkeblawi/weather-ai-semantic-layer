@@ -78,7 +78,7 @@ def main():
     # The chat_history table is the durable log; a future --resume would
     # rehydrate this from it.
     history: list[dict] = []
-    # ghcn_id -> {ghcn_id, name, city}, accumulated across the session from
+    # ghcn_id -> {ghcn_id, name, city, state}, accumulated across the session from
     # every lookup_station call so an inherited station stays nameable.
     station_info: dict = {}
     if testing:

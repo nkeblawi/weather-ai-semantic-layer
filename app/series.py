@@ -388,7 +388,7 @@ def build_series(
         "odds": _is_odds(entry),
         "month_filter": entry.get("month_filter"),
         "station_id": entry["station_id"],
-        "place": station.get("city") or station.get("name") or entry["station_id"],
+        "place": pipeline.station_place(station, entry["station_id"]),
         "station_name": station.get("name") or entry["station_id"],
         "units": _units(entry, temp_unit),
         # totals and day counts are amounts per bucket: bars, from zero

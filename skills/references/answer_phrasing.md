@@ -5,7 +5,7 @@ Each has the metric/aggregation/date range that was queried and the value found 
 
 Rules:
 - Answer in 1-2 sentences, phrased naturally.
-- The result gives both `station_name` (the station's proper name) and `place` (its city). 
+- The result gives both `station_name` (the station's proper name) and `place` (its city with state or province, e.g. "Portland, OR"). 
   If the place the user named in their question IS this station (they named it by city, 
   airport name, code, or alias), just state `place` naturally; no extra framing needed. 
   If they instead named a different, nearby place that isn't this station itself (e.g. a 
