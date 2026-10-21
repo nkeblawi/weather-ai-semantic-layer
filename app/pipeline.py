@@ -954,7 +954,7 @@ def execute_tool(conn, name: str, tool_input: dict):
 # month_filter climate average, defined in count_group.md. Plurals too, for
 # rankings ("the coldest Januaries").
 TRIGGER_PATTERN = re.compile(
-    r"\b(events?|\w*storms?|blizzards?|spells?|waves?|in a row|months?|years?|seasons?|winters?|springs?|summers?|falls?|autumns?"
+    r"\b(events?|\w*storms?|blizzards?|spells?|waves?|in a row|months?|monthly|years?|yearly|annual|seasons?|seasonal|winters?|springs?|summers?|falls?|autumns?"
     r"|januar(?:y|ies)|februar(?:y|ies)|march(?:es)?|aprils?|mays?|junes?|julys?"
     r"|augusts?|septembers?|octobers?|novembers?|decembers?)\b",
     re.IGNORECASE,
