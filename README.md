@@ -70,6 +70,9 @@ Runs as a set of Databricks Jobs, defined and deployed as a
 airport name or code, and common aliases ("Logan", "Sea-Tac", "KCI",
 "Twin Cities") stored in `analytics.station_aliases`.
 
+[docs/station_lineage.md](docs/station_lineage.md) records each station's
+source, record start, long gaps, and QC decisions.
+
 ## 2. Unity Catalog Query Layer
 
 Path: `functions/sql/`
@@ -226,6 +229,13 @@ Single values use the same data without a chart: "the record high for July
 4", "the normal low on Christmas" (normal = 1991-2020; "average" = the whole
 record), "the odds of a white Christmas", "the last spring freeze in 2025", "when the first
 measurable snow usually comes".
+
+## Documentation
+
+Project notes live in [`docs/`](docs/):
+
+- [station_lineage.md](docs/station_lineage.md): where each station's data
+  comes from and what was done to it.
 
 ## Environments
 
