@@ -3,7 +3,8 @@
 -- (seeded by the "Create AllowList Table" saved query in Databricks). Rows and qflags are kept.
 -- New rows get the rule from convert_ghcn.py; merge_obs never rewrites an existing
 -- GHCN row, so existing data needs this patch. Run the statements in order.
--- Target: prod (weather). Idempotent: a rerun leaves the data unchanged.
+-- Target: prod (weather). Idempotent: every step touches only rows that still need the fix,
+-- so a clean rerun reports 0 affected rows in all four steps.
 
 -- 1. cleaned.obs_ghcn_conv
 UPDATE weather.cleaned.obs_ghcn_conv c
@@ -33,7 +34,12 @@ USING (
   GROUP BY station_id, obs_date
 ) f
 ON t.station_id = f.station_id AND t.obs_date = f.obs_date
-WHEN MATCHED THEN UPDATE SET
+-- only rows where a flagged variable still has a value
+WHEN MATCHED AND (
+  (f.f_awnd AND t.AWND IS NOT NULL) OR (f.f_prcp AND t.PRCP IS NOT NULL) OR
+  (f.f_snow AND t.SNOW IS NOT NULL) OR (f.f_snwd AND t.SNWD IS NOT NULL) OR
+  (f.f_tmax AND t.TMAX IS NOT NULL) OR (f.f_tmin AND t.TMIN IS NOT NULL)
+) THEN UPDATE SET
   AWND = IF(f.f_awnd, NULL, t.AWND),
   PRCP = IF(f.f_prcp, NULL, t.PRCP),
   SNOW = IF(f.f_snow, NULL, t.SNOW),
@@ -53,7 +59,11 @@ USING (
     ON p.station_id = f.station_id AND p.obs_date = f.obs_date
 ) s
 ON t.station_id = s.station_id AND t.obs_date = s.obs_date
-WHEN MATCHED THEN UPDATE SET
+-- only rows that differ from obs_pivot (TAVG/HDD/CDD follow from TMAX/TMIN)
+WHEN MATCHED AND NOT (
+  t.AWND <=> s.AWND AND t.PRCP <=> s.PRCP AND t.SNOW <=> s.SNOW AND
+  t.SNWD <=> s.SNWD AND t.TMAX <=> s.TMAX AND t.TMIN <=> s.TMIN
+) THEN UPDATE SET
   AWND = s.AWND, PRCP = s.PRCP, SNOW = s.SNOW, SNWD = s.SNWD,
   TMAX = s.TMAX, TMIN = s.TMIN, TAVG = s.TAVG,
   HDD = CAST(round(CASE WHEN s.TAVG IS NULL THEN NULL WHEN s.TAVG < 65 THEN 65 - s.TAVG ELSE 0.0 END) AS INT),
