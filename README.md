@@ -162,6 +162,8 @@ Supporting files:
 - `assets/obs_schema.md`, `assets/stations_schema.md`: column-level schemas
   of the `observations` and `stations` tables, the semantic context behind
   each metric and station field.
+- `assets/count_group_triggers.txt`: List of trigger words that gets loaded
+  into the question-answer pipeline.
 - `scripts/resolve_date_range.py`: deterministic date math (seasons,
   "last Friday", month lengths, leap years). The app exposes it to Claude as
   a tool so the model never does calendar arithmetic itself.
