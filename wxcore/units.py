@@ -15,8 +15,9 @@ METRIC_UNITS = {
     "HDD": "heating degree days",
     "CDD": "cooling degree days",
 }
+
 # When aggregation is `count`, the value counts analysis-grain things, not
-# the metric -- so the unit is the plural grain word.
+# the metric, so the unit is the plural grain word.
 COUNT_UNITS = {
     "day": "days",
     "event": "events",
@@ -26,7 +27,11 @@ COUNT_UNITS = {
     "season": "seasons",
 }
 
+# Temperature metrics (averaged or summed as degree days)
 TEMP_METRICS = {"TAVG", "TMAX", "TMIN"}
+
+# Metrics that accumulate: summed per bucket, kept as events, drawn as totals
+TOTAL_METRICS = {"PRCP", "SNOW"}
 
 # Display names for the ranking table header.
 METRIC_LABELS = {

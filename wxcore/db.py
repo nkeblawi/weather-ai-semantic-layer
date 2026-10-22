@@ -66,17 +66,18 @@ def call_lookup_station(conn, location_text: str):
     return json.loads(row[0])
 
 
-def fill_station_info(conn, resolved: dict, station_info: dict) -> None:
+def fill_station_info(conn, queries, station_info: dict) -> None:
     """
-    Adds stations the resolver used without calling lookup_station this
-    session, when the id is a real station. The skill's worked examples use
-    real ids (Dulles above all), so the model sometimes reuses one from memory;
-    the id is right, but validate_resolved only trusts lookup results. An id
-    that isn't in the stations table stays missing and is still rejected.
+    Adds to station_info the stations these queries use without a
+    lookup_station result, when the id is a real station. The skill's worked
+    examples use real ids (Dulles above all), so a model sometimes reuses one
+    from memory; the id is right, but validation only trusts station_info.
+    An id that isn't in the stations table stays missing and is still
+    rejected.
     """
     missing = {
         q.get("station_id")
-        for q in resolved.get("queries") or []
+        for q in queries or []
         if isinstance(q, dict) and isinstance(q.get("station_id"), str)
     } - set(station_info)
     if not missing:

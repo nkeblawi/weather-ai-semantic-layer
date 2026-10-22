@@ -67,13 +67,13 @@ from wxcore.db import (  # noqa: E402, F401
     _sql_bucketing,
     call_answer_query,
     call_lookup_station,
-    fill_station_info,
     get_databricks_connection,
     list_home_locations,
     matching_days,
     place_label,
     station_place,
 )
+from wxcore.db import fill_station_info as _fill_station_info
 from wxcore.dates import (  # noqa: E402, F401
     NORMAL_SMOOTHING_DAYS,
     SEASON_START_MONTH,
@@ -108,6 +108,15 @@ CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
 # How many prior turns of this session to replay to the resolver.
 MAX_CONTEXT_TURNS = 6
+
+
+def fill_station_info(conn, resolved: dict, station_info: dict) -> None:
+    """
+    wxcore.db.fill_station_info on the resolver's queries: adds the real
+    stations it used without calling lookup_station this session, so
+    validate_resolved accepts them.
+    """
+    _fill_station_info(conn, resolved.get("queries"), station_info)
 
 
 def _for_phrasing(payload: dict) -> dict:

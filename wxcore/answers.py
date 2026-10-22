@@ -9,8 +9,7 @@ from datetime import date
 from wxcore.dates import season_label
 from wxcore.db import station_place
 from wxcore.units import COUNT_UNITS, METRIC_LABELS, METRIC_UNITS, TEMP_METRICS, answer_units, convert_value
-
-RANKING_AGGREGATIONS = {"top", "bottom"}
+from wxcore.validation import MAX_RANK_LIMIT, RANKING_AGGREGATIONS
 
 
 def _round_value(entry: dict, value):
@@ -212,8 +211,8 @@ def ranking_table(payload: dict) -> dict | None:
     notes = []
     if payload.get("requested_limit"):
         notes.append(
-            f"You asked for {payload['requested_limit']}; rankings show at most 15, "
-            f"so this is the {payload['aggregation']} 15."
+            f"You asked for {payload['requested_limit']}; rankings show at most {MAX_RANK_LIMIT}, "
+            f"so this is the {payload['aggregation']} {MAX_RANK_LIMIT}."
         )
     if payload.get("rows_truncated"):
         notes.append("More rows are tied within these ranks than are shown.")
