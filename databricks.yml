@@ -31,6 +31,9 @@ targets:
         wx_obs_transform:
           schedule:
             pause_status: PAUSED
+        wx_app_retention:
+          schedule:
+            pause_status: PAUSED
   # Production target
   prod:
     mode: production

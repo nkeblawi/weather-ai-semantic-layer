@@ -1,10 +1,12 @@
 """
-Creates the `<catalog>.app` schema and its two tables that persist the
+Creates the `<catalog>.app` schema and its tables that persist the
 weather-query application's chat history so it can support multiple users:
 
 - `app.users`         -- one row per user (identity + first/last seen)
 - `app.chat_history`  -- one row per prompt/answer turn, linked to a user by
                          user_id and grouped into conversations by session_id
+- `app.usage_daily`   -- turn counts per day and status, kept after the
+                         turns themselves are purged (src/wx/app/retention.py)
 
 This is the src/wx counterpart of sql/uc for the `app` schema:
 pipeline DDL run as a Databricks Job "Python script" task and deployed via
@@ -51,6 +53,7 @@ from wx.utils.config import (  # noqa: E402
     SCHEMA_APP,
     USERS_TABLE,
     CHAT_HISTORY_TABLE,
+    USAGE_DAILY_TABLE,
 )
 from wx.utils.spark_utils import get_spark  # noqa: E402
 
@@ -134,6 +137,32 @@ def main():
         TBLPROPERTIES ('delta.feature.allowColumnDefaults' = 'supported')
         """)
     print(f"Ensured table {CHAT_HISTORY_TABLE}")
+
+    # --- APP.USAGE_DAILY ---
+    # One row per UTC day and turn status. Written by retention.py before it
+    # purges old turns, so usage survives the chat_history retention period.
+    # Holds counts only: no prompts, responses, or user ids.
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {USAGE_DAILY_TABLE} (
+          usage_date    DATE      NOT NULL
+                        COMMENT 'UTC day the turns were recorded.',
+          status        STRING    NOT NULL
+                        COMMENT 'resolved | needs_clarification | error (unknown if the turn had none).',
+          turns         BIGINT    NOT NULL
+                        COMMENT 'Turns recorded that day with this status.',
+          users         BIGINT    NOT NULL
+                        COMMENT 'Distinct user_ids among those turns.',
+          sessions      BIGINT    NOT NULL
+                        COMMENT 'Distinct session_ids among those turns.',
+          recorded_at   TIMESTAMP NOT NULL DEFAULT current_timestamp()
+                        COMMENT 'When retention.py wrote this row (UTC).',
+          CONSTRAINT usage_daily_pk PRIMARY KEY (usage_date, status)
+        )
+        USING DELTA
+        COMMENT 'Daily turn counts from app.chat_history, kept after the turns are purged.'
+        TBLPROPERTIES ('delta.feature.allowColumnDefaults' = 'supported')
+        """)
+    print(f"Ensured table {USAGE_DAILY_TABLE}")
 
 
 if __name__ == "__main__":

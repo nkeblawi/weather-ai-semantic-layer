@@ -43,3 +43,4 @@ STATIONS_VIEW = f"{CATALOG}.{SCHEMA_ANALYTICS}.stations"
 # --- Application (chat history) tables ---
 USERS_TABLE = f"{CATALOG}.{SCHEMA_APP}.users"
 CHAT_HISTORY_TABLE = f"{CATALOG}.{SCHEMA_APP}.chat_history"
+USAGE_DAILY_TABLE = f"{CATALOG}.{SCHEMA_APP}.usage_daily"
