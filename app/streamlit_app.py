@@ -1,5 +1,7 @@
+import hashlib
 import logging
 import os
+import time
 import anthropic
 import streamlit as st
 import chat_session
@@ -260,6 +262,19 @@ def save_preferences(session):
     st.rerun()
 
 
+@st.cache_resource(show_spinner=False)
+def get_rate_limits():
+    return guardrails.RateLimits()
+
+
+def client_ip() -> str:
+    return st.context.ip_address or "local"
+
+
+def ip_tag(ip: str) -> str:
+    return hashlib.sha256(ip.encode()).hexdigest()[:10]
+
+
 def daily_limit_reached(conn) -> bool:
     # Fails open: a counting hiccup shouldn't block a legitimate question
     # (if the database is really down, answering fails anyway).
@@ -332,6 +347,15 @@ header_slot = st.container(key="prefs_header")
 with chat_message("assistant"):
     st.markdown(WELCOME_MSG)
 
+# Usage caps, checked once per session.
+if "admitted" not in st.session_state:
+    blocked = get_rate_limits().new_session(client_ip(), time.monotonic())
+    if blocked:
+        logger.info("session blocked (%s) ip=%s", blocked.reason, ip_tag(client_ip()))
+        st.info(blocked.reply)
+        st.stop()
+    st.session_state.admitted = True
+
 # One spinner over both DB steps (connect + create_session) so the message
 # stays up without a blank gap until the chat input renders.
 try:
@@ -342,7 +366,7 @@ try:
                 conn,
                 client,
                 # WX_APP_USER for local dev (same as the CLI); otherwise each
-                # visitor is anonymous, with their own users row per session
+                # visitor is anonymous for this session, with no users row
                 os.environ.get("WX_APP_USER") or chat_store.new_anonymous_username(),
                 email=os.environ.get("WX_APP_EMAIL"),
                 display_name=os.environ.get("WX_APP_NAME"),
@@ -423,6 +447,9 @@ if question:
                     session,
                     question,
                     over_daily_limit=lambda: daily_limit_reached(conn),
+                    rate_limited=lambda: get_rate_limits().question(
+                        client_ip(), time.monotonic()
+                    ),
                 )
             if answer.startswith("[error]"):
                 logger.warning("answer failed: %s", answer)

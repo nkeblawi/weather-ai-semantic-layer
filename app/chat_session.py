@@ -70,6 +70,8 @@ class QuerySession:
     session_id: str
     temp_unit: str
     home_location: str | None
+    # False for anonymous visitors (preferences kept for the session only)
+    user_saved: bool = True
     turn_index: int = 0
     # Turns that resolved and ran answer_query -- what usage limits count.
     # Clarifications and errors don't.
@@ -99,14 +101,23 @@ def create_session(
     """
     Opens one chat session for `username`.
     """
-    user_id, resolved_temp_unit, resolved_home_location = chat_store.ensure_user(
-        conn,
-        username,
-        email=email,
-        display_name=display_name,
-        temp_unit=temp_unit,
-        home_location=home_location,
-    )
+    if chat_store.is_anonymous(username):
+        user_id, resolved_temp_unit, resolved_home_location = (
+            chat_store.derive_user_id(username),
+            temp_unit or "F",
+            home_location,
+        )
+        user_saved = False
+    else:
+        user_id, resolved_temp_unit, resolved_home_location = chat_store.ensure_user(
+            conn,
+            username,
+            email=email,
+            display_name=display_name,
+            temp_unit=temp_unit,
+            home_location=home_location,
+        )
+        user_saved = True
     return QuerySession(
         conn=conn,
         client=client,
@@ -114,6 +125,7 @@ def create_session(
         session_id=chat_store.new_session_id(),
         temp_unit=resolved_temp_unit,
         home_location=resolved_home_location,
+        user_saved=user_saved,
     )
 
 
@@ -121,13 +133,16 @@ def update_preferences(
     session: QuerySession, *, temp_unit: str, home_location: str | None
 ) -> None:
     """
-    Persists the user's temp_unit / home_location and applies them to
-    `session` so the next get_answer() uses them. Raises on write failure;
-    the session is only changed once the write succeeds.
+    Persists the user's temp_unit / home_location (named users only) and
+    applies them to `session` so the next get_answer() uses them. Raises on
+    write failure; the session is only changed once the write succeeds.
     """
-    chat_store.update_user_prefs(
-        session.conn, session.user_id, temp_unit, home_location
-    )
+    if session.user_saved:
+        chat_store.update_user_prefs(
+            session.conn, session.user_id, temp_unit, home_location
+        )
+    else:
+        chat_store.check_temp_unit(temp_unit)
     session.temp_unit = temp_unit
     session.home_location = home_location
 
@@ -137,6 +152,7 @@ def get_answer(
     question: str,
     *,
     over_daily_limit: Callable[[], bool] | None = None,
+    rate_limited: Callable[[], guardrails.Blocked | None] | None = None,
 ) -> str:
     """
     Answers one question within `session`. Every step below
@@ -163,6 +179,7 @@ def get_answer(
 
     over_daily_limit (optional) is checked only after pre_check passes, so a
     blocked message never costs the warehouse query it may run.
+    rate_limited (optional) is checked just before it.
     """
     now = time.monotonic()
     blocked = guardrails.pre_check(
@@ -191,6 +208,10 @@ def get_answer(
             {"question": question, "answer": guardrails.NEEDS_PLOT_MSG, "query": None, "ui_only": True, "needs_plot": True}
         )
         return guardrails.NEEDS_PLOT_MSG
+    if rate_limited and (limited := rate_limited()):
+        logger.info("blocked (%s) session=%s", limited.reason, session.session_id)
+        session.history.append({"question": question, "answer": limited.reply, "query": None, "ui_only": True})
+        return limited.reply
     if over_daily_limit and over_daily_limit():
         session.history.append(
             {"question": question, "answer": guardrails.DAILY_LIMIT_MSG, "query": None, "ui_only": True}

@@ -14,6 +14,9 @@ uuid5, so the same username always maps to the same row, on any machine,
 with no auth server. When real auth is added, swap derive_user_id() for the
 provider's subject id and backfill.
 
+Anonymous visitors aren't saved to users; their preferences last for the
+session.
+
 Writes go through the databricks-sql-connector connection the app already
 holds, using the same ":name" native-parameter style binding.
 record_turn() never raises: a logging failure must not take down the chat
@@ -46,13 +49,26 @@ def derive_user_id(username: str) -> str:
     return str(uuid.uuid5(_USER_ID_NAMESPACE, username.strip().lower()))
 
 
+ANONYMOUS_PREFIX = "anon-"
+
+
 def new_anonymous_username() -> str:
     """
     A throwaway username for a visitor with no sign-in (the public MVP):
-    unique per browser session, so each one gets its own users row and
-    preferences. derive_user_id() still applies to it as usual.
+    unique per browser session, with preferences kept for that session
+    only. derive_user_id() still applies to it as usual.
     """
-    return f"anon-{uuid.uuid4()}"
+    return f"{ANONYMOUS_PREFIX}{uuid.uuid4()}"
+
+
+def is_anonymous(username: str) -> bool:
+    """True for a new_anonymous_username() username."""
+    return username.strip().startswith(ANONYMOUS_PREFIX)
+
+
+def check_temp_unit(temp_unit) -> None:
+    if temp_unit not in ("F", "C"):
+        raise ValueError(f"temp_unit must be 'F' or 'C', got {temp_unit!r}")
 
 
 def new_session_id() -> str:
@@ -125,8 +141,7 @@ def update_user_prefs(conn, user_id, temp_unit, home_location) -> None:
     Update button). Unlike ensure_user's coalesce seeding, this replaces
     whatever is stored. Raises on write failure so the UI can show it.
     """
-    if temp_unit not in ("F", "C"):
-        raise ValueError(f"temp_unit must be 'F' or 'C', got {temp_unit!r}")
+    check_temp_unit(temp_unit)
     with conn.cursor() as cur:
         cur.execute(
             f"""

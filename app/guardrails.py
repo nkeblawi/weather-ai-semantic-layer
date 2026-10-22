@@ -1,8 +1,9 @@
 """
 Guardrails for the public, no-sign-in chat: the usage limits and when a
 session has hit one (session_limit), cheap checks that run before a question
-reaches Claude (pre_check), and deterministic validation of what the
-resolver returns before anything runs on the warehouse (validate_resolved).
+reaches Claude (pre_check), limits across sessions per client IP and
+app-wide (RateLimits), and deterministic validation of what the resolver
+returns before anything runs on the warehouse (validate_resolved).
 
 Nothing here calls a model or the database. Blocked messages are never sent
 to Claude and never written to chat_history (a write is warehouse compute
@@ -20,7 +21,9 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+import threading
+from collections import deque
+from dataclasses import dataclass, field
 from datetime import date
 
 from wxcore.validation import (
@@ -58,6 +61,13 @@ OFF_TOPIC_STREAK_LIMIT = 3  # in a row -> session ends
 RATE_LIMIT_MESSAGES = 5
 RATE_LIMIT_WINDOW_SECS = 60
 
+# Usage caps across sessions (RateLimits).
+IP_SESSION_LIMIT = int(os.environ.get("WX_IP_SESSION_LIMIT", "10"))
+IP_QUESTION_LIMIT = int(os.environ.get("WX_IP_QUESTION_LIMIT", "40"))
+IP_LIMIT_WINDOW_SECS = 3600
+GLOBAL_SESSION_LIMIT = int(os.environ.get("WX_GLOBAL_SESSION_LIMIT", "30"))
+GLOBAL_SESSION_WINDOW_SECS = 60
+
 # ---------------------------------------------------------------------------
 # Allowed values of the resolver's reply itself (SKILL.md Step 6)
 # ---------------------------------------------------------------------------
@@ -82,6 +92,15 @@ SLOW_DOWN_MSG = "You're sending messages quickly. Please wait a moment and try a
 DAILY_LIMIT_MSG = (
     "The app has reached its question limit for today. Please try again tomorrow."
 )
+IP_SESSION_LIMIT_MSG = (
+    "Too many chats have been started from your network recently. "
+    "Please try again later."
+)
+IP_QUESTION_LIMIT_MSG = (
+    "Too many questions have come from your network in the last hour. "
+    "Please try again later."
+)
+BUSY_MSG = "The app is busy right now. Please try again in a minute."
 INVALID_MSG = (
     "Sorry, I couldn't turn that into a weather query. Could you rephrase it, "
     "with a city and a time period? Type /help for examples."
@@ -230,6 +249,66 @@ def pre_check(
             return Blocked(last["answer"], "repeat")
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Limits across sessions (per IP, app-wide)
+# ---------------------------------------------------------------------------
+
+
+class SlidingWindow:
+    """At most `limit` hits per key in any `window_secs`. Thread-safe."""
+
+    MAX_KEYS = 10_000
+
+    def __init__(self, limit: int, window_secs: float):
+        self.limit = limit
+        self.window_secs = window_secs
+        self._hits: dict[str, deque] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str, now: float) -> bool:
+        """Records a hit and returns True, or False if `key` is at the limit."""
+        start = now - self.window_secs
+        with self._lock:
+            if len(self._hits) > self.MAX_KEYS:
+                self._hits = {k: h for k, h in self._hits.items() if h and h[-1] > start}
+            hits = self._hits.setdefault(key, deque())
+            while hits and hits[0] <= start:
+                hits.popleft()
+            if len(hits) >= self.limit:
+                return False
+            hits.append(now)
+            return True
+
+
+@dataclass
+class RateLimits:
+    """Usage caps across sessions; one per process."""
+
+    ip_sessions: SlidingWindow = field(
+        default_factory=lambda: SlidingWindow(IP_SESSION_LIMIT, IP_LIMIT_WINDOW_SECS)
+    )
+    ip_questions: SlidingWindow = field(
+        default_factory=lambda: SlidingWindow(IP_QUESTION_LIMIT, IP_LIMIT_WINDOW_SECS)
+    )
+    global_sessions: SlidingWindow = field(
+        default_factory=lambda: SlidingWindow(GLOBAL_SESSION_LIMIT, GLOBAL_SESSION_WINDOW_SECS)
+    )
+
+    def new_session(self, ip: str, now: float) -> Blocked | None:
+        """Blocked if a new session is over a limit, else None."""
+        if not self.ip_sessions.allow(ip, now):
+            return Blocked(IP_SESSION_LIMIT_MSG, "ip_session_limit")
+        if not self.global_sessions.allow("all", now):
+            return Blocked(BUSY_MSG, "global_session_limit")
+        return None
+
+    def question(self, ip: str, now: float) -> Blocked | None:
+        """Blocked if a question is over a limit, else None."""
+        if not self.ip_questions.allow(ip, now):
+            return Blocked(IP_QUESTION_LIMIT_MSG, "ip_question_limit")
+        return None
 
 
 # ---------------------------------------------------------------------------
