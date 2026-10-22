@@ -34,6 +34,16 @@ with `/plot` to get a chart (see [Charts](#charts-plot)).
 
 The project has four layers:
 
+| Path | What it holds |
+|---|---|
+| `src/wx/` | 1. the data pipeline: Databricks jobs (bundle: `databricks.yml`, `resources/`) |
+| `sql/uc/` | 2. the Unity Catalog query functions |
+| `skills/` | 3. the Claude skill |
+| `wxcore/`, `app/` | 4. the shared core and the Streamlit app |
+| `sql/maintenance/` | one-off and cleanup SQL (QC flag cleanup, station codes) |
+| `scripts/` | operations: `deploy_sql.sh` (deploy the SQL functions), `backfill.sh` (re-run the observation pipeline from a date) |
+| `docs/` | project notes |
+
 ## 1. Data Pipeline
 
 Path: `src/wx/`
@@ -59,7 +69,7 @@ Ingests, cleans, and merges historical weather data on Databricks:
   Values that failed a NOAA quality check (a GHCN QFLAG) are set to NULL
   during conversion, except values verified as real and listed in the
   `cleaned.qc_allowlist` table (e.g. SFO's 106°F record high, which NOAA
-  flags as an outlier). `scripts/qc_flag_cleanup.sql` applies the same rule
+  flags as an outlier). `sql/maintenance/qc_flag_cleanup.sql` applies the same rule
   to rows that were loaded earlier.
 
 Runs as a set of Databricks Jobs, defined and deployed as a
@@ -80,7 +90,7 @@ source, record start, long gaps, and QC decisions.
 
 ## 2. Unity Catalog Query Layer
 
-Path: `functions/sql/`
+Path: `sql/uc/`
 
 SQL functions deployed in Unity Catalog that answer one resolved query at a
 time against the analytics tables:
@@ -97,8 +107,8 @@ time against the analytics tables:
 - `answer_query` — the single entry point the app calls; dispatches to
   whichever of the above applies
 
-These are version-controlled here as a local mirror of what's deployed; 
-kept in sync via a small CI/CD export tool.
+The function definitions live here and are deployed from the repo with
+`scripts/deploy_sql.sh` (see [Deploying changes](#deploying-changes)).
 
 ### Rankings (`top` / `bottom`)
 
@@ -313,7 +323,7 @@ touching production data:
   those years are incomplete.
 - **Revised GHCN values aren't picked up.** When NOAA revises a value that
   is already loaded (or flags it later), the analytics tables keep the old
-  value. `scripts/qc_flag_cleanup.sql` handles newly flagged values only.
+  value. `sql/maintenance/qc_flag_cleanup.sql` handles newly flagged values only.
 - **No teleconnections.** Teleconnections need to be ingested from
   different data source(s). This has not been developed and is outside of
   the current scope. That may change in the future, however.
