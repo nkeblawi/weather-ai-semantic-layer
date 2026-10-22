@@ -283,10 +283,9 @@ touching production data:
 
 - **SQL functions:** `scripts/deploy_sql.sh --env dev|prod [function ...]`
   (add `--dry-run` to preview). Deploy to dev first, and deploy SQL before
-  the app code that depends on it. `CREATE OR REPLACE FUNCTION` recreates
-  the function and drops its grants, so after redeploying `answer_query` or
-  `lookup_station`, re-grant `EXECUTE` on it to the app's service principal
-  (or grant `EXECUTE` once on the `analytics` schema).
+  the app code that depends on it. `CREATE OR REPLACE FUNCTION` drops the
+  function's own grants, but the app keeps access through `EXECUTE` on the
+  `analytics` schema (see [docs/governance.md](docs/governance.md)).
 - **Pipeline code (`src/wx/`):** `databricks bundle deploy -t dev|prod`
   deploys everything. To update only a few files, upload each one with
   `databricks workspace import ... --overwrite` to the bundle's `files/src/`

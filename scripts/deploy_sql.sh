@@ -21,13 +21,11 @@
 # service principal).
 #
 # GRANTS: CREATE OR REPLACE FUNCTION drops and recreates the function
-# (new function_id, created_at = deploy time), so every grant on it is lost
-# (verified on weather_dev and weather, 2026-10-17). The app's service
-# principal only needs EXECUTE on the functions it calls directly
-# (answer_query, lookup_station); answer_query's calls to query_by_* are not
-# checked against the caller. So after deploying answer_query or
-# lookup_station, re-grant EXECUTE on it in the Databricks UI -- or grant
-# EXECUTE on the schema once -- or the app fails with INSUFFICIENT_PERMISSIONS.
+# (new function_id, created_at = deploy time), so grants made on the
+# function itself are lost (verified on weather_dev and weather, 2026-10-17).
+# The app's service principal has EXECUTE on the analytics schema, which
+# covers recreated functions, so no re-grant is needed. Keep that grant at
+# the schema level (see docs/governance.md).
 #
 # Requires: databricks CLI (authenticated), jq.
 
@@ -127,16 +125,6 @@ for fn in "${FUNCTIONS[@]}"; do
         # dispatcher whose callee failed to update
         break
     fi
-done
-
-echo
-for fn in "${FUNCTIONS[@]}"; do
-    case "$fn" in
-        answer_query|lookup_station)
-            echo "GRANTS: $CATALOG.analytics.$fn was recreated and lost its grants. Unless"
-            echo "  EXECUTE is granted on the $CATALOG.analytics schema, re-grant EXECUTE on it"
-            echo "  to the app's service principal now." ;;
-    esac
 done
 
 exit "$failed"
