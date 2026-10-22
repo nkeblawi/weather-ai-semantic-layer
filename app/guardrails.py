@@ -86,17 +86,21 @@ INVALID_MSG = (
     "Sorry, I couldn't turn that into a weather query. Could you rephrase it, "
     "with a city and a time period? Type /help for examples."
 )
+
 # Shown (with a "Plot it" button) for a chart request without /plot
 NEEDS_PLOT_MSG = (
     "That needs a chart. Charts use the /plot command: click **Plot it** to "
     "chart this question, or start a message with /plot."
 )
+
 # A /plot turn the resolver couldn't turn into a chart
 NOT_CHARTABLE_MSG = (
     "I couldn't turn that into a chart. Charts show values by day (a year or less), month, season, or year, "
     "e.g. `/plot average high and low for each month at Dulles` or "
     "`/plot summer highs at Reagan National with a trend line`."
 )
+
+# Generic clarification message
 GENERIC_CLARIFICATION_MSG = (
     "Could you rephrase that with a city and a time period? " "Type /help for examples."
 )
@@ -254,7 +258,6 @@ def coerce_dates(resolved: dict, question: str = "") -> None:
                 else q["aggregation"] == "earliest"
             )
             q["aggregation"] = "first_date" if first else "last_date"
-
 
 
 DAILY_WORDS = re.compile(
