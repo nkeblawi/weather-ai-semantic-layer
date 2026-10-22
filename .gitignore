@@ -28,7 +28,7 @@ tests/
 skills.zip
 
 # Local notes (issues log, etc.)
-logs/
+notes/
 
 # wxcore editable install metadata
 *.egg-info/
