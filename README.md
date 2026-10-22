@@ -10,7 +10,7 @@ query layer rather than general-purpose text-to-SQL conversions.
 The chat app is live at **https://weather-obs-chat.streamlit.app/**. It's
 public: no account or sign-in needed.
 
-Each session gets 10 questions, and the app as a whole answers up to 100 a
+Each session gets 20 questions, and the app as a whole answers up to 100 a
 day. Type `/help` in the chat for example questions, and start a question
 with `/plot` to get a chart (see [Charts](#charts-plot)).
 
@@ -27,7 +27,7 @@ with `/plot` to get a chart (see [Charts](#charts-plot)).
 - **User interface**: Streamlit sends the question in, and a second Claude
   call turns the query result into a plain-English answer.
 - **Charts**: a `/plot` question resolves the same way, but the SQL returns
-  a series of points, and fixed Altair templates in the app draw it. Claude
+  a series of points, and fixed Altair templates in `wxcore` draw it. Claude
   picks *what* to chart, never *how* it's drawn.
 - Everything runs on Databricks Free Edition and Streamlit Community Cloud,
   with no hyperscaler account.
@@ -165,23 +165,48 @@ Supporting files:
 - `assets/count_group_triggers.txt`: List of trigger words that gets loaded
   into the question-answer pipeline.
 - `scripts/resolve_date_range.py`: deterministic date math (seasons,
-  "last Friday", month lengths, leap years). The app exposes it to Claude as
-  a tool so the model never does calendar arithmetic itself.
+  "last Friday", month lengths, leap years), kept here so the skill works on
+  its own. The app runs an identical copy in `wxcore/dates.py` and exposes it
+  to Claude as a tool, so the model never does calendar arithmetic itself.
 
 ## 4. Front-end Application
 
-Path: `app/`
+Paths: `wxcore/` (the shared core) and `app/` (the Streamlit app)
 
 Ties the above together: a real Claude API call runs the skill to resolve a
 question into parameters (calling `lookup_station` and a local date-range
 resolver as tools along the way), the resolved parameters are used to call
 `answer_query` in Unity Catalog, and a second, smaller Claude call turns the
 numeric result into a natural-language answer in the same voice as the
-original question. `app/test_harness.py` is a terminal CLI over this
-pipeline for local testing; `app/chat_session.py` is the session wrapper
-behind the Streamlit chat UI (`app/streamlit_app.py`), with input and usage
-guardrails in `app/guardrails.py`. All of them import the same functions from
-`app/pipeline.py` rather than duplicating any of this logic.
+original question.
+
+The code is split in two:
+
+- **`wxcore/`** is the core. It takes structured query parameters and
+  returns data, values, or chart specs. It never calls Claude, never imports
+  Streamlit, and keeps no session state: station, units, and dates are
+  always explicit arguments.
+  - `db.py`: the Databricks connection, `lookup_station`, and `answer_query`
+  - `dates.py`: seasons, date labels, and the date-range resolver
+  - `units.py`: metric units and labels, and °F/°C conversion
+  - `answers.py`: answer payloads and ranking tables
+  - `validation.py`: the allowed values and limits a query must fit, and the
+    checks that run before anything reaches the warehouse
+  - `series.py`, `charts.py`: chart data and the Altair templates
+- **`app/`** is the Streamlit front end and everything Claude-specific:
+  `pipeline.py` (the resolver's tool loop, system prompt, and answer
+  phrasing), `guardrails.py` (usage limits, input checks, canned replies,
+  and the checks on the resolver's reply), `chat_session.py` (the session
+  wrapper behind the chat UI in `streamlit_app.py`), `chat_store.py` (chat
+  history), and `test_harness.py` (a terminal CLI for local testing). They
+  import data access, validation, and charting from `wxcore` rather than
+  duplicating it.
+
+To run it locally, `pip install -r requirements.txt` also installs `wxcore`
+(an editable install, defined in `pyproject.toml`), and `.env` must set
+`WX_CATALOG` (`weather` for prod, `weather_dev` for dev) along with the
+Databricks service principal settings. Nothing defaults to production: a
+missing `WX_CATALOG` stops with an error.
 
 The skill text is sent as a cached system-prompt block, with the date, home
 city, and conversation after it, so the 2-3 resolver calls per question
