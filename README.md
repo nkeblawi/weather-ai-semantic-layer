@@ -297,7 +297,9 @@ touching production data:
   the running app keeps the old
   versions. After pushing changes to any of them, **reboot the app** from
   the Community Cloud dashboard. Skill files (`skills/`) are read on every
-  question, so they take effect without a reboot.
+  question, so they take effect without a reboot. Usage limits set in the
+  app's secrets (`WX_*_LIMIT`) are read at startup, so changing one also
+  needs a reboot.
 
 ## Known limitations
 
