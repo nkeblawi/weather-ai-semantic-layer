@@ -26,7 +26,7 @@ if _APP_DIR not in sys.path:
 import pipeline  # noqa: E402
 import chat_store  # noqa: E402
 import guardrails  # noqa: E402
-from wxcore import series  # noqa: E402
+from wxcore import answers, db, series, validation  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +44,11 @@ def plot_mode_for(session: "QuerySession", question: str) -> tuple[str | None, s
     """
     text = question.strip()
     if text.lower() == PLOT_COMMAND or text.lower().startswith(PLOT_COMMAND + " "):
-        return guardrails.PLOT_EXPLICIT, text[len(PLOT_COMMAND):].strip()
+        return validation.PLOT_EXPLICIT, text[len(PLOT_COMMAND):].strip()
     last = next((t for t in reversed(session.history) if not t.get("ui_only")), None)
     if last and last.get("plot_turn"):
-        return guardrails.PLOT_INHERITED, text
-    return guardrails.PLOT_OFF, text
+        return validation.PLOT_INHERITED, text
+    return validation.PLOT_OFF, text
 
 
 @dataclass
@@ -60,7 +60,7 @@ class QuerySession:
     question.
 
     conn/client are supplied by the caller and are not owned or
-    closed here (construct via pipeline.get_databricks_connection() and
+    closed here (construct via wxcore.db.get_databricks_connection() and
     anthropic.Anthropic(), e.g. behind st.cache_resource).
     """
 
@@ -182,11 +182,11 @@ def get_answer(
         session.history.append({"question": question, "answer": blocked.reply, "query": None, "ui_only": True})
         return blocked.reply
     plot_mode, text = plot_mode_for(session, question)
-    if plot_mode == guardrails.PLOT_EXPLICIT and not text:
+    if plot_mode == validation.PLOT_EXPLICIT and not text:
         session.history.append({"question": question, "answer": PLOT_USAGE_MSG, "query": None, "ui_only": True})
         return PLOT_USAGE_MSG
     # Explicit chart words without /plot: offer the Plot it button, no model call
-    if plot_mode == guardrails.PLOT_OFF and guardrails.CHART_WORDS.search(text):
+    if plot_mode == validation.PLOT_OFF and guardrails.CHART_WORDS.search(text):
         session.history.append(
             {"question": question, "answer": guardrails.NEEDS_PLOT_MSG, "query": None, "ui_only": True, "needs_plot": True}
         )
@@ -228,11 +228,11 @@ def get_answer(
         problems = guardrails.validate_resolved(resolved, session.station_info, plot_mode=plot_mode)
         if problems:
             logger.warning("invalid resolver output session=%s: %s", session.session_id, problems)
-            if plot_mode == guardrails.PLOT_EXPLICIT and problems == ["/plot answered without a series"]:
+            if plot_mode == validation.PLOT_EXPLICIT and problems == ["/plot answered without a series"]:
                 # a single value for a /plot request: say what can be charted
                 answer_text = guardrails.NOT_CHARTABLE_MSG
                 status = "needs_clarification"
-            elif resolved.get("status") == "needs_clarification" and plot_mode == guardrails.PLOT_EXPLICIT:
+            elif resolved.get("status") == "needs_clarification" and plot_mode == validation.PLOT_EXPLICIT:
                 answer_text = guardrails.NOT_CHARTABLE_MSG
                 status = "needs_clarification"
             elif resolved.get("status") == "needs_clarification":
@@ -246,11 +246,11 @@ def get_answer(
         elif resolved.get("status") == "off_topic":
             answer_text = guardrails.OFF_TOPIC_MSG
             status = "off_topic"
-        elif resolved.get("reason") == "needs_plot" and plot_mode == guardrails.PLOT_EXPLICIT:
+        elif resolved.get("reason") == "needs_plot" and plot_mode == validation.PLOT_EXPLICIT:
             # told it was a /plot turn but asked for /plot anyway
             answer_text = guardrails.NOT_CHARTABLE_MSG
             status = "needs_clarification"
-        elif resolved.get("reason") == "needs_plot" and plot_mode == guardrails.PLOT_OFF:
+        elif resolved.get("reason") == "needs_plot" and plot_mode == validation.PLOT_OFF:
             # a chart request without /plot (e.g. "for each month"): canned
             # message plus the Plot it button
             answer_text = guardrails.NEEDS_PLOT_MSG
@@ -266,11 +266,11 @@ def get_answer(
             # a baseline also fetches its normals
             series_list = []
             for entry in resolved["queries"]:
-                result = pipeline.call_answer_query(session.conn, entry)
+                result = db.call_answer_query(session.conn, entry)
                 base_entry = series.baseline_entry(entry)
-                base = pipeline.call_answer_query(session.conn, base_entry) if base_entry else None
+                base = db.call_answer_query(session.conn, base_entry) if base_entry else None
                 rec_entry = series.records_entry(entry)
-                records = pipeline.call_answer_query(session.conn, rec_entry) if rec_entry else None
+                records = db.call_answer_query(session.conn, rec_entry) if rec_entry else None
                 series_list.append(
                     series.build_series(entry, result, base, session.station_info, session.temp_unit, records)
                 )
@@ -282,21 +282,21 @@ def get_answer(
         else:
             answer_payloads = []
             for entry in resolved["queries"]:
-                result = pipeline.call_answer_query(session.conn, entry)
-                if days := pipeline.matching_days(session.conn, entry, result):
+                result = db.call_answer_query(session.conn, entry)
+                if days := db.matching_days(session.conn, entry, result):
                     result = {**result, "matching_days": days}
                 answer_payloads.append(
-                    pipeline.build_answer_payload(
+                    answers.build_answer_payload(
                         entry, result, session.station_info, session.temp_unit
                     )
                 )
             answer_text = pipeline.generate_answer(
                 session.client, question, answer_payloads, history=model_history
             )
-            tables = [t for p in answer_payloads if (t := pipeline.ranking_table(p))]
-            if plot_mode == guardrails.PLOT_EXPLICIT and tables:
+            tables = [t for p in answer_payloads if (t := answers.ranking_table(p))]
+            if plot_mode == validation.PLOT_EXPLICIT and tables:
                 # /plot of a ranking: bars, with the table still under them
-                charts = [pipeline.ranking_chart(p, t) for p in answer_payloads if (t := pipeline.ranking_table(p))]
+                charts = [answers.ranking_chart(p, t) for p in answer_payloads if (t := answers.ranking_table(p))]
             status = "resolved"
     except Exception as exc:  # noqa: BLE001 -- parity with the CLI's main()
         answer_text = f"[error] {exc}"
@@ -339,7 +339,7 @@ def get_answer(
             "needs_plot": needs_plot,
             # keeps the next turn in plot mode: a chart, or a /plot turn that
             # asked a clarifying question (its answer is still a plot request)
-            "plot_turn": plot_mode is not guardrails.PLOT_OFF and (
+            "plot_turn": plot_mode is not validation.PLOT_OFF and (
                 bool(charts) or status == "needs_clarification"
             ),
         }

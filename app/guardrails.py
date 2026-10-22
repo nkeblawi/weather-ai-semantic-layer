@@ -9,11 +9,11 @@ to Claude and never written to chat_history (a write is warehouse compute
 too); callers log them instead.
 
 The query checks themselves (allowed values, limits, validate_queries) live
-in wxcore.validation, shared with the MCP server, and are re-exported below
-so `guardrails.<name>` keeps working. What stays here is the app's own: the
-session limits, canned replies, pre-checks, the checks on the rest of the
-resolver's reply (status, clarification text), and the fixes that read the
-question's wording.
+in wxcore.validation, shared with the MCP server; callers import those from
+wxcore directly. What stays here is the app's own: the session limits,
+canned replies, pre-checks, the checks on the rest of the resolver's reply
+(status, clarification text), and the fixes that read the question's
+wording.
 """
 
 from __future__ import annotations
@@ -23,47 +23,11 @@ import re
 from dataclasses import dataclass
 from datetime import date
 
-# Moved to wxcore.validation; re-exported so guardrails.<name> keeps working
-from wxcore.validation import (  # noqa: F401
-    AGGREGATIONS,
-    CALENDAR_DAY_AGGREGATIONS,
-    CLIMATOLOGY_UNITS,
-    CLIMOGRAPH_METRICS,
-    DAILY_DISPLAYS,
+from wxcore.validation import (
     DAILY_LIMIT_NOTE,
-    DATE_AGGREGATIONS,
     DATE_UNITS,
-    DISPLAYS,
-    EVENT_METRICS,
     EVENT_ONLY_AGGREGATIONS,
-    EVENT_VALUES,
-    HISTOGRAM_UNITS,
-    MAX_BASELINE_YEARS,
-    MAX_DAILY_SERIES_DAYS,
-    MAX_MONTHLY_SERIES_YEARS,
-    MAX_QUERIES_PER_QUESTION,
-    MAX_RANK_LIMIT,
-    METRICS,
-    MIN_BASELINE_YEARS,
-    MIN_DATE,
-    OPERATORS,
-    OUTPUT_UNITS,
-    PERIOD_AGGREGATIONS,
-    PLOT_EXPLICIT,
-    PLOT_INHERITED,
     PLOT_OFF,
-    RANKING_AGGREGATIONS,
-    SEASONS,
-    SERIES_PERIOD_AGGREGATIONS,
-    SERIES_UNITS,
-    THRESHOLD_PERIOD_AGGREGATIONS,
-    UNITS,
-    _check_threshold,
-    _cross_query_displays,
-    _is_number,
-    _parse_date,
-    _validate_query,
-    _validate_series,
     series_span,
     validate_queries,
 )

@@ -23,12 +23,11 @@ import anthropic
 
 from pipeline import (
     CLAUDE_MODEL,
-    build_answer_payload,
-    call_answer_query,
     generate_answer,
-    get_databricks_connection,
     resolve_question,
 )
+from wxcore.answers import build_answer_payload
+from wxcore.db import call_answer_query, get_databricks_connection
 from chat_store import (
     ensure_user,
     new_session_id,

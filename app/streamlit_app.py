@@ -2,11 +2,10 @@ import logging
 import os
 import anthropic
 import streamlit as st
-import pipeline
 import chat_session
 import chat_store
 import guardrails
-from wxcore import charts
+from wxcore import charts, db
 
 st.set_page_config(page_title="Weather Observations Chatbot", page_icon="🌤️")
 
@@ -49,7 +48,7 @@ def get_conn():
     """
     conn = st.session_state.get("conn")
     if conn is None or not conn.open:
-        conn = pipeline.get_databricks_connection()
+        conn = db.get_databricks_connection()
         st.session_state.conn = conn
         if "session" in st.session_state:
             st.session_state.session.conn = conn
@@ -66,7 +65,7 @@ def get_client():
 # Refreshed hourly so newly activated stations show up without a restart.
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_home_locations(_conn):
-    return pipeline.list_home_locations(_conn)
+    return db.list_home_locations(_conn)
 
 
 CLEAR_COMMAND = "/clear"

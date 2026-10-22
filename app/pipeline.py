@@ -14,9 +14,9 @@ only the two tools whose data actually live in Unity Catalog:
 - answer_query
 
 This module holds the Claude side: the resolver's tool loop, its system
-prompt, and answer phrasing. The data access and result shaping it builds on
-live in the wxcore package (shared with the MCP server) and are re-exported
-below, so `pipeline.<name>` keeps working for every caller.
+prompt, and answer phrasing. The data access and result shaping live in the
+wxcore package (shared with the MCP server); callers import those from
+wxcore directly.
 
 It has no CLI and no chat-history persistence of its own. Both
 app/test_harness.py (a CLI) and app/chat_session.py (a non-CLI session
@@ -32,7 +32,6 @@ Requires (add to your .env, loaded via python-dotenv):
                         (see wxcore/db.py)
 """
 
-import sys
 import re
 import json
 from datetime import date
@@ -41,6 +40,10 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from wxcore.dates import resolve_date_range
+from wxcore.db import call_lookup_station
+from wxcore.db import fill_station_info as _fill_station_info
+
 load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -48,61 +51,6 @@ SKILL_PATH = PROJECT_ROOT / "skills" / "SKILL.md"
 COUNT_GROUP_PATH = PROJECT_ROOT / "skills" / "references" / "count_group.md"
 ANSWER_PHRASING_PATH = PROJECT_ROOT / "skills" / "references" / "answer_phrasing.md"
 PLOTTING_PATH = PROJECT_ROOT / "skills" / "references" / "plotting.md"
-
-# wxcore is installed as a package (-e . in requirements.txt). If an
-# environment skipped that install, import it from the repo root instead.
-try:
-    import wxcore  # noqa: F401
-except ImportError:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-# Moved to wxcore; re-exported so pipeline.<name> keeps working
-from wxcore.db import (  # noqa: E402, F401
-    CATALOG,
-    MATCHING_DAYS_MAX,
-    _calendar_day_result,
-    _date_result,
-    _max_min_result,
-    _service_principal_credentials,
-    _sql_bucketing,
-    call_answer_query,
-    call_lookup_station,
-    get_databricks_connection,
-    list_home_locations,
-    matching_days,
-    place_label,
-    station_place,
-)
-from wxcore.db import fill_station_info as _fill_station_info
-from wxcore.dates import (  # noqa: E402, F401
-    NORMAL_SMOOTHING_DAYS,
-    SEASON_START_MONTH,
-    SNOW_SEASON_START_MONTH,
-    calendar_day_label,
-    resolve_date_range,
-    season_day,
-    season_label,
-    smooth_day_of_year,
-    snow_season_label,
-)
-from wxcore.units import (  # noqa: E402, F401
-    COUNT_UNITS as _COUNT_UNITS,
-    METRIC_LABELS as _METRIC_LABELS,
-    METRIC_UNITS as _METRIC_UNITS,
-    TEMP_METRICS as _TEMP_METRICS,
-    answer_units,
-    convert_value,
-)
-from wxcore.answers import (  # noqa: E402, F401
-    RANKING_AGGREGATIONS,
-    _converted_rows,
-    _fmt_day,
-    _fmt_span,
-    _round_value,
-    build_answer_payload,
-    ranking_chart,
-    ranking_table,
-)
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
