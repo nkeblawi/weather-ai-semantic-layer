@@ -22,9 +22,13 @@ tests/
 # Deploy/pull scripts against the live workspace
 .cicd/
 .databricks/
+.claude
 
 # Build artifacts
 skills.zip
 
 # Local notes (issues log, etc.)
 logs/
+
+# wxcore editable install metadata
+*.egg-info/

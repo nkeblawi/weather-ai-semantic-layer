@@ -1,0 +1,24 @@
+# Packages only wxcore, the core shared by the Streamlit app and the MCP
+# server, so `pip install -e .` makes it importable. The app's own pinned
+# dependencies stay in requirements.txt.
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wxcore"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "altair",
+    "databricks-sdk",
+    "databricks-sql-connector",
+    "numpy",
+    "pandas",
+    "python-dotenv",
+]
+
+# Explicit: the repo root has other top-level folders (app, src, skills, ...)
+# that setuptools' auto-discovery would refuse to package together
+[tool.setuptools]
+packages = ["wxcore"]

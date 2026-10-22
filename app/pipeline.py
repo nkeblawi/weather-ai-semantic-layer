@@ -56,6 +56,13 @@ ANSWER_PHRASING_PATH = PROJECT_ROOT / "skills" / "references" / "answer_phrasing
 PLOTTING_PATH = PROJECT_ROOT / "skills" / "references" / "plotting.md"
 SCRIPTS_PATH = PROJECT_ROOT / "skills" / "scripts"
 
+# wxcore is installed as a package (-e . in requirements.txt). If an
+# environment skipped that install, import it from the repo root instead.
+try:
+    import wxcore  # noqa: F401
+except ImportError:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
 # Unity Catalog catalog holding the analytics functions/views this app calls.
