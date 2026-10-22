@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the Unity Catalog SQL functions in functions/sql/ to dev or prod.
+# Deploy the Unity Catalog SQL functions in sql/uc/ to dev or prod.
 #
 # Usage: scripts/deploy_sql.sh --env dev|prod [--dry-run] [function ...]
 #
@@ -39,7 +39,7 @@ usage() {
 }
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SQL_DIR="$ROOT/functions/sql"
+SQL_DIR="$ROOT/sql/uc"
 ENV=""
 DRY_RUN=0
 FUNCTIONS=()
@@ -65,7 +65,7 @@ if [[ ${#FUNCTIONS[@]} -eq 0 ]]; then
 fi
 
 for fn in "${FUNCTIONS[@]}"; do
-    [[ -f "$SQL_DIR/$fn.sql" ]] || { echo "No such file: functions/sql/$fn.sql" >&2; exit 2; }
+    [[ -f "$SQL_DIR/$fn.sql" ]] || { echo "No such file: sql/uc/$fn.sql" >&2; exit 2; }
 done
 
 HTTP_PATH="$(grep -E '^DATABRICKS_HTTP=' "$ROOT/.env" | cut -d= -f2- | tr -d '"'"'"'')"
