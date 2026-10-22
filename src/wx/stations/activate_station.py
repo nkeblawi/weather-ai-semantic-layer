@@ -20,7 +20,7 @@ This is NOT part of any scheduled job. It is run on demand with usage:
 --activate requires the station to have an airport code (icao, or iata /
 faa) in station_merged: the app's home-city menu and code lookups need one.
 US stations get theirs from EMSHR; for others, add the codes to
-scripts/station_codes.sql, run it, and rerun wx_station_ingest first.
+sql/maintenance/station_codes.sql, run it, and rerun wx_station_ingest first.
 
 Uses parameterized SQL (args=) to avoid string interpolation for
 user-supplied values, matching the pattern already used elsewhere in this
@@ -60,7 +60,7 @@ def check_airport_code(spark, station_id: str) -> None:
     ).first()
     if row["icao"] is None and row["code"] is None:
         raise ValueError(
-            f'"{station_id}" has no ICAO/IATA code: add it to scripts/station_codes.sql, '
+            f'"{station_id}" has no ICAO/IATA code: add it to sql/maintenance/station_codes.sql, '
             "run that file, rerun wx_station_ingest, then activate."
         )
 

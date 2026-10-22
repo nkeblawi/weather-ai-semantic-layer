@@ -44,7 +44,7 @@ def merge_icao(wmo_df, emshr_df, codes_df, countries_df):
     EMSHR covers US stations only, so other stations get their codes and
     country from elsewhere:
       - icao / iata: cleaned.station_codes (hand-maintained, seeded from
-        scripts/station_codes.sql) wins where it has a row; otherwise EMSHR's
+        sql/maintenance/station_codes.sql) wins where it has a row; otherwise EMSHR's
         icao, and EMSHR's FAA code as the IATA code (the same for US
         commercial airports).
       - country_code: EMSHR, else the GHCN ID's first two letters (its FIPS

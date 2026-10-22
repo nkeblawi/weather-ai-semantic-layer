@@ -6,7 +6,7 @@ weather-query application's chat history so it can support multiple users:
 - `app.chat_history`  -- one row per prompt/answer turn, linked to a user by
                          user_id and grouped into conversations by session_id
 
-This is the src/wx counterpart of functions/sql for the `app` schema:
+This is the src/wx counterpart of sql/uc for the `app` schema:
 pipeline DDL run as a Databricks Job "Python script" task and deployed via
 the asset bundle. It runs as the single task in the wx_app_schema job; on
 demand, right after `databricks bundle deploy -t <target>`. No schedule.
