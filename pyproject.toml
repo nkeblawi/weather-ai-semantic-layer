@@ -15,7 +15,6 @@ dependencies = [
     "databricks-sql-connector",
     "numpy",
     "pandas",
-    "python-dotenv",
 ]
 
 # Explicit: the repo root has other top-level folders (app, src, skills, ...)

@@ -1,10 +1,11 @@
 """
 Persists application chat history to Unity Catalog: one row per user in
-{CATALOG}.app.users, one row per prompt/answer turn in
-{CATALOG}.app.chat_history (DDL: src/wx/app/create_chat_tables.py).
+{catalog}.app.users, one row per prompt/answer turn in
+{catalog}.app.chat_history (DDL: src/wx/app/create_chat_tables.py).
 
-{CATALOG} follows WX_CATALOG from .env so this writes to weather_dev.app.*
-when the harness is run against dev and weather.app.* in production.
+{catalog} is WX_CATALOG (wxcore.db.catalog(), read on each call), so this
+writes to weather_dev.app.* when run against dev and weather.app.* in
+production.
 
 Stub auth: there is no login yet. The caller passes a `username` (email or
 handle from the WX_APP_USER env var locally, or new_anonymous_username() for
@@ -19,15 +20,21 @@ record_turn() never raises: a logging failure must not take down the chat
 loop, so it logs a warning and returns.
 """
 
-import os
 import uuid
 import logging
 
+from wxcore.db import catalog
+
 logger = logging.getLogger(__name__)
 
-CATALOG = os.environ.get("WX_CATALOG", "weather")
-USERS_TABLE = f"{CATALOG}.app.users"
-CHAT_HISTORY_TABLE = f"{CATALOG}.app.chat_history"
+
+def _users_table() -> str:
+    return f"{catalog()}.app.users"
+
+
+def _chat_history_table() -> str:
+    return f"{catalog()}.app.chat_history"
+
 
 # Fixed namespace UUID so uuid5(username) is stable across processes and
 # machines. Arbitrary constant -- do not change it or existing user_ids move.
@@ -71,7 +78,7 @@ def ensure_user(
     with conn.cursor() as cur:
         cur.execute(
             f"""
-            MERGE INTO {USERS_TABLE} AS t
+            MERGE INTO {_users_table()} AS t
             USING (SELECT
                      CAST(:user_id       AS STRING) AS user_id,
                      CAST(:username      AS STRING) AS username,
@@ -105,7 +112,7 @@ def ensure_user(
             },
         )
         cur.execute(
-            f"SELECT temp_unit, home_location FROM {USERS_TABLE} WHERE user_id = :id",
+            f"SELECT temp_unit, home_location FROM {_users_table()} WHERE user_id = :id",
             parameters={"id": user_id},
         )
         row = cur.fetchone()
@@ -123,7 +130,7 @@ def update_user_prefs(conn, user_id, temp_unit, home_location) -> None:
     with conn.cursor() as cur:
         cur.execute(
             f"""
-            UPDATE {USERS_TABLE}
+            UPDATE {_users_table()}
             SET temp_unit = :temp_unit, home_location = :home_location
             WHERE user_id = :user_id
             """,
@@ -144,7 +151,7 @@ def count_resolved_turns_today(conn) -> int:
     """
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT count(*) FROM {CHAT_HISTORY_TABLE} "
+            f"SELECT count(*) FROM {_chat_history_table()} "
             "WHERE created_at >= current_date() AND status = 'resolved'"
         )
         return cur.fetchone()[0]
@@ -176,7 +183,7 @@ def record_turn(
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                INSERT INTO {CHAT_HISTORY_TABLE}
+                INSERT INTO {_chat_history_table()}
                     (turn_id, user_id, session_id, turn_index, created_at,
                      prompt, response, status, resolved_json, model, error,
                      station_id)

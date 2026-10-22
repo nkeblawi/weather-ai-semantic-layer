@@ -2,7 +2,10 @@
 Databricks access: the service principal connection, lookup_station, and
 answer_query, the Unity Catalog functions the front ends call.
 
-Requires (in .env, loaded via python-dotenv):
+Requires these environment variables, read when they're used (never at
+import). wxcore doesn't load .env files: the caller sets the environment
+(the app loads its .env; a hosted server gets them from the platform).
+    WX_CATALOG          (weather for prod, weather_dev for dev; no default)
     DATABRICKS_SERVER
     DATABRICKS_HTTP     (SQL warehouse connection details page in Databricks)
     DATABRICKS_CLIENT   (service principal application/client ID)
@@ -17,7 +20,6 @@ import json
 import os
 from datetime import date
 
-from dotenv import load_dotenv
 from databricks import sql as databricks_sql
 from databricks.sdk.core import Config, oauth_service_principal
 
@@ -30,11 +32,20 @@ from wxcore.dates import (
     smooth_day_of_year,
 )
 
-load_dotenv()
 
-# Unity Catalog catalog holding the analytics functions/views this app calls.
-# Defaults to prod; set WX_CATALOG=weather_dev in .env to run against dev.
-CATALOG = os.environ.get("WX_CATALOG", "weather")
+def catalog() -> str:
+    """
+    The Unity Catalog catalog holding the analytics functions and views:
+    WX_CATALOG, read on every call. Raises when it's unset rather than
+    falling back to prod.
+    """
+    name = os.environ.get("WX_CATALOG", "").strip()
+    if not name:
+        raise RuntimeError(
+            "WX_CATALOG is not set: set it to weather (prod) or weather_dev (dev) "
+            "in the environment, or in the app's .env"
+        )
+    return name
 
 
 def _service_principal_credentials():
@@ -57,7 +68,7 @@ def get_databricks_connection():
 def call_lookup_station(conn, location_text: str):
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT {CATALOG}.analytics.lookup_station(:location_text)",
+            f"SELECT {catalog()}.analytics.lookup_station(:location_text)",
             parameters={"location_text": location_text},
         )
         row = cur.fetchone()
@@ -85,7 +96,7 @@ def fill_station_info(conn, queries, station_info: dict) -> None:
     params = {f"id{i}": sid for i, sid in enumerate(sorted(missing))}
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT ghcn_id, name, city, state FROM {CATALOG}.analytics.stations "
+            f"SELECT ghcn_id, name, city, state FROM {catalog()}.analytics.stations "
             f"WHERE ghcn_id IN ({', '.join(':' + k for k in params)})",
             parameters=params,
         )
@@ -124,7 +135,7 @@ def list_home_locations(conn) -> dict[str, str]:
     with conn.cursor() as cur:
         cur.execute(f"""
             SELECT coalesce(icao, iata) AS code, city, state
-            FROM {CATALOG}.analytics.stations
+            FROM {catalog()}.analytics.stations
             WHERE coalesce(icao, iata) IS NOT NULL AND city IS NOT NULL
             ORDER BY city, code
             """)
@@ -231,7 +242,7 @@ def call_answer_query(conn, entry: dict):
     with conn.cursor() as cur:
         cur.execute(
             f"""
-            SELECT {CATALOG}.analytics.answer_query(
+            SELECT {catalog()}.analytics.answer_query(
                 p_station_id => :station_id,
                 p_metric => :metric,
                 p_aggregation => :aggregation,

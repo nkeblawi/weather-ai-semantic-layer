@@ -44,9 +44,12 @@ from wxcore.dates import resolve_date_range
 from wxcore.db import call_lookup_station
 from wxcore.db import fill_station_info as _fill_station_info
 
-load_dotenv()
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# The app's settings: the repo's .env locally (Streamlit Cloud sets them as
+# secrets instead). Loaded by path, so it's found from any working
+# directory; wxcore reads them when it's called.
+load_dotenv(PROJECT_ROOT / ".env")
 SKILL_PATH = PROJECT_ROOT / "skills" / "SKILL.md"
 COUNT_GROUP_PATH = PROJECT_ROOT / "skills" / "references" / "count_group.md"
 ANSWER_PHRASING_PATH = PROJECT_ROOT / "skills" / "references" / "answer_phrasing.md"
