@@ -26,7 +26,7 @@ if _APP_DIR not in sys.path:
 import pipeline  # noqa: E402
 import chat_store  # noqa: E402
 import guardrails  # noqa: E402
-import series  # noqa: E402
+from wxcore import series  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

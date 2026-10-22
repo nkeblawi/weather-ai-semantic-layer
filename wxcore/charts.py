@@ -1,11 +1,11 @@
 """
-Altair chart templates for /plot answers.
+Altair chart templates for chart answers.
 
-Each function takes a chart dict from series.group_charts (plain data, kept in
-the session history) and returns an Altair chart; the app draws it with
-st.altair_chart, which applies the Streamlit light/dark theme. The model never
-writes chart code -- it only picks the query; these fixed templates do the
-drawing.
+Each function takes a chart dict from series.group_charts (plain data) and
+returns an Altair chart; chart_spec gives its Vega-Lite spec, which a front
+end draws (the Streamlit app, with its light/dark theme) or renders to an
+image. The model never writes chart code -- it only picks the query; these
+fixed templates do the drawing.
 """
 
 from __future__ import annotations
@@ -311,7 +311,7 @@ def dates_chart(chart: dict) -> alt.Chart:
 
 
 def ranking_bar_chart(chart: dict) -> alt.Chart:
-    """A ranking (/plot of top/bottom) as horizontal bars, rank 1 on top, values at the bar ends."""
+    """A ranking (a chart of top/bottom) as horizontal bars, rank 1 on top, values at the bar ends."""
     df = _frame(chart)
     metric = chart["series"][0]["metric"]
     color = METRIC_COLORS.get(metric, PALETTE[0])
@@ -551,7 +551,7 @@ def build_chart(chart: dict) -> alt.Chart:
 
 def chart_spec(chart: dict) -> dict:
     """
-    The Vega-Lite spec the app draws (st.vega_lite_chart), with the legend
+    The chart's Vega-Lite spec, as front ends draw it, with the legend
     centered under the centered title. Vega supports legend layout, but
     Altair's schema rejects it, so it's added to the finished spec.
     """

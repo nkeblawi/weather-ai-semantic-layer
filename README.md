@@ -194,9 +194,9 @@ Command: `/plot`
 Start a question with the `/plot` command. A chart question without it ("average high
 and low for each month at Dulles") gets a **Plot it** button that resends
 it as `/plot`, and a follow-up to a chart ("now do Reagan National") stays
-a chart unless it asks for a single value. `app/series.py` turns the SQL
+a chart unless it asks for a single value. `wxcore/series.py` turns the SQL
 result into chart data (unit conversion, normals, trend fits) and
-`app/charts.py` holds the Altair templates.
+`wxcore/charts.py` holds the Altair templates.
 
 | Chart | Example |
 |---|---|
@@ -259,8 +259,8 @@ touching production data:
   not while a job that uses them is running.
 - **App:** Streamlit Community Cloud redeploys on every push to `main`, but
   it doesn't reliably reload changed Python modules (`app/guardrails.py`,
-  `app/pipeline.py`, `app/chat_session.py`, `app/series.py`,
-  `app/charts.py`); the running app keeps the old
+  `app/pipeline.py`, `app/chat_session.py`, and everything in `wxcore/`);
+  the running app keeps the old
   versions. After pushing changes to any of them, **reboot the app** from
   the Community Cloud dashboard. Skill files (`skills/`) are read on every
   question, so they take effect without a reboot.

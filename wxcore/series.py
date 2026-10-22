@@ -1,5 +1,5 @@
 """
-Series (/plot) results: turns answer_query's series JSON into chart-ready data.
+Series (chart) results: turns answer_query's series JSON into chart-ready data.
 
 A series query (references/plotting.md) returns every month, year, or season
 as a point. This module does everything between that result and the chart:
@@ -22,16 +22,16 @@ from datetime import date, timedelta
 
 import numpy as np
 
-import pipeline
+from wxcore.dates import ALL_TIME_START, season_day, season_label, smooth_day_of_year
+from wxcore.db import station_place
+from wxcore.units import METRIC_LABELS, METRIC_UNITS, TEMP_METRICS, TOTAL_METRICS
+from wxcore.validation import CLIMATOLOGY_UNITS
 
-CLIMATOLOGY_UNITS = {"month_of_year", "season_of_year", "day_of_year", "week_of_year"}
 # daily histogram bin widths in the data's units (temperatures: 2°F, 1°C)
 HISTOGRAM_BIN = {"PRCP": 0.1, "SNOW": 1.0, "SNWD": 1.0, "AWND": 2.0, "HDD": 2.0, "CDD": 2.0}
 SEASON_NAMES = ["winter", "spring", "summer", "fall"]
 # A normal needs at least this share of the baseline's years (24 of 30)
 NORMAL_COMPLETENESS = 0.8
-_TEMPS = {"TAVG", "TMAX", "TMIN"}
-_TOTALS = {"PRCP", "SNOW"}
 
 
 def baseline_entry(entry: dict) -> dict | None:
@@ -72,7 +72,7 @@ def records_entry(entry: dict) -> dict | None:
         return None
     return {
         "station_id": entry["station_id"], "metric": entry["metric"], "aggregation": "series",
-        "unit": "day_of_year", "start_date": "1800-01-01", "end_date": date.today().isoformat(),
+        "unit": "day_of_year", "start_date": ALL_TIME_START, "end_date": date.today().isoformat(),
     }
 
 
@@ -100,7 +100,7 @@ def _convert(entry: dict, temp_unit: str):
     """(value converter, spread converter) for the entry's output unit."""
     to_c = (
         not _is_count(entry) and not _is_odds(entry)
-        and entry["metric"] in _TEMPS
+        and entry["metric"] in TEMP_METRICS
         and (entry.get("output_unit") or temp_unit) == "C"
     )
     if to_c:
@@ -148,15 +148,15 @@ def _count_label(entry: dict, temp_unit: str) -> str:
     """'Days with high ≥ 90°F' -- the threshold in the user's units."""
     t = entry["threshold"]
     value = t["value"]
-    unit = pipeline._METRIC_UNITS.get(entry["metric"], "")
-    if entry["metric"] in _TEMPS:
+    unit = METRIC_UNITS.get(entry["metric"], "")
+    if entry["metric"] in TEMP_METRICS:
         if (entry.get("output_unit") or temp_unit) == "C":
             value, unit = round((value - 32) * 5 / 9, 1), "°C"
         value = int(value) if float(value).is_integer() else value
         label = f"{value}{unit}"
     else:
         label = f"{value} {'in.' if unit == 'inches' else unit}".strip()
-    what = pipeline._METRIC_LABELS.get(entry["metric"], entry["metric"]).lower()
+    what = METRIC_LABELS.get(entry["metric"], entry["metric"]).lower()
     what = {"high temperature": "high", "low temperature": "low", "average temperature": "average temperature"}.get(what, what)
     return f"Days with {what} {_OPERATOR_SIGNS.get(t['operator'], t['operator'])} {label}"
 
@@ -168,9 +168,9 @@ def _units(entry: dict, temp_unit: str) -> str:
         return "date"
     if _is_odds(entry):
         return "% of years"
-    if entry["metric"] in _TEMPS:
+    if entry["metric"] in TEMP_METRICS:
         return "°C" if (entry.get("output_unit") or temp_unit) == "C" else "°F"
-    return pipeline._METRIC_UNITS.get(entry["metric"], "")
+    return METRIC_UNITS.get(entry["metric"], "")
 
 
 _TWO_DECIMALS = {"PRCP", "SNOW", "SNWD"}
@@ -202,7 +202,7 @@ def _time_points(entry: dict, result: dict) -> list[dict]:
             x = date(y, m, 1)
             x_num = y + (m - 0.5) / 12
         else:
-            label = pipeline.season_label(entry, y) or str(y)
+            label = season_label(entry, y) or str(y)
             x = date(y, 1, 1)
             x_num = float(y)
         points.append({"x": x.isoformat(), "x_num": x_num, "label": label, "year": y, "month": m, "value": v})
@@ -213,8 +213,8 @@ def _climatology_points(entry: dict, result: dict) -> list[dict]:
     if entry["unit"] == "day_of_year":
         # smoothed normals on a leap-year axis (2000), records alongside
         days = result.get("days", [])
-        values = pipeline.smooth_day_of_year(result.get("values", []))
-        spread = pipeline.smooth_day_of_year(result.get("stddev", []))
+        values = smooth_day_of_year(result.get("values", []))
+        spread = smooth_day_of_year(result.get("stddev", []))
         return [
             {"x": f"2000-{d}", "label": f"{calendar.month_abbr[int(d[:2])]} {int(d[3:])}",
              "value": v, "stddev": sd, "n_years": n,
@@ -261,8 +261,8 @@ def _normals(entry: dict, base_result: dict | None, notes: list[str]) -> dict | 
     out, dropped = {}, 0
     if unit == "day":
         days = base_result.get("days", [])
-        normals = pipeline.smooth_day_of_year(base_result.get("values", []))
-        spreads = pipeline.smooth_day_of_year(base_result.get("stddev", []))
+        normals = smooth_day_of_year(base_result.get("values", []))
+        spreads = smooth_day_of_year(base_result.get("stddev", []))
         for d, v, sd, n in zip(days, normals, spreads, base_result.get("n_years", [])):
             # Feb 29 has a quarter of the years; its smoothed normal is still sound
             if n >= need or d == "02-29":
@@ -358,7 +358,7 @@ def build_series(
     temp_unit: str = "F",
     records_result: dict | None = None,
 ) -> dict:
-    """One chart line, JSON-safe so it can live in the session history."""
+    """One chart line, JSON-safe (plain data a front end can store or send)."""
     station = station_info.get(entry["station_id"], {})
     unit = entry["unit"]
     climatology = unit in CLIMATOLOGY_UNITS
@@ -382,18 +382,18 @@ def build_series(
             _dates_label(entry, temp_unit) if _is_dates(entry)
             else _count_label(entry, temp_unit) if _is_count(entry)
             else _count_label(entry, temp_unit).replace("Days with", "Chance of a day with") if _is_odds(entry)
-            else pipeline._METRIC_LABELS.get(entry["metric"], entry["metric"])
+            else METRIC_LABELS.get(entry["metric"], entry["metric"])
         ),
         "count": _is_count(entry),
         "odds": _is_odds(entry),
         "month_filter": entry.get("month_filter"),
         "station_id": entry["station_id"],
-        "place": pipeline.station_place(station, entry["station_id"]),
+        "place": station_place(station, entry["station_id"]),
         "station_name": station.get("name") or entry["station_id"],
         "units": _units(entry, temp_unit),
         # totals and day counts are amounts per bucket: bars, from zero
         "bars": _is_count(entry) or _is_odds(entry) or unit == "value" or (
-            entry["metric"] in _TOTALS and (entry.get("period_aggregation") == "sum" or unit == "day")
+            entry["metric"] in TOTAL_METRICS and (entry.get("period_aggregation") == "sum" or unit == "day")
         ),
         "baseline": (
             f"{entry['baseline']['start_year']}-{entry['baseline']['end_year']}" if entry.get("baseline") else None
@@ -417,8 +417,8 @@ def build_series(
                 missing += 1
                 continue
             ref = _ref_date(d, snow)
-            points.append({"x": f"{y}-01-01", "x_num": float(y), "label": pipeline.season_label(entry, y) or str(y),
-                           "year": y, "date": d, "y_ref": ref.isoformat(), "value": pipeline.season_day(d, snow),
+            points.append({"x": f"{y}-01-01", "x_num": float(y), "label": season_label(entry, y) or str(y),
+                           "year": y, "date": d, "y_ref": ref.isoformat(), "value": season_day(d, snow),
                            "when": date.fromisoformat(d).strftime("%b %-d, %Y")})
         if missing:
             notes.append(f"{missing} year(s) had no such day.")
@@ -432,7 +432,7 @@ def build_series(
 
     if unit == "value":
         pairs = [(conv(v), c) for v, c in zip(result.get("values", []), result.get("counts", []))]
-        if entry["metric"] in _TOTALS | {"SNWD"}:
+        if entry["metric"] in TOTAL_METRICS | {"SNWD"}:
             pairs = [(v, c) for v, c in pairs if v > 0]
             notes.append("Days with none are left out.")
         width = HISTOGRAM_BIN.get(entry["metric"], 1.0 if series["units"] == "°C" else 2.0)
@@ -455,7 +455,7 @@ def build_series(
             if p["stddev"] is not None:
                 p["lower"], p["upper"] = _round(p["value"] - p["stddev"]), _round(p["value"] + p["stddev"])
         series["points"] = points
-        if not entry.get("start_date", "").startswith("1800"):
+        if not entry.get("start_date", "").startswith(ALL_TIME_START[:4]):  # not the whole record
             series["baseline"] = f"{entry['start_date'][:4]}-{entry['end_date'][:4]}"
         return series
 
@@ -706,7 +706,7 @@ def phrasing_summary(series: dict) -> dict:
         "lowest": {"value": lo["value"], "when": lo["label"]},
         "mean": _r(float(np.mean([p["value"] for p in pts]))),
     })
-    if series["unit"] == "day" and series["metric"] in _TOTALS and not series.get("count"):
+    if series["unit"] == "day" and series["metric"] in TOTAL_METRICS and not series.get("count"):
         del out["lowest"]  # a dry day: 0, every time
     if series["baseline"]:
         out["normals_period"] = series["baseline"]

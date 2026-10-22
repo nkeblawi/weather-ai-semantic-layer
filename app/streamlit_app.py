@@ -6,7 +6,7 @@ import pipeline
 import chat_session
 import chat_store
 import guardrails
-import charts
+from wxcore import charts
 
 st.set_page_config(page_title="Weather Observations Chatbot", page_icon="🌤️")
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from wxcore.dates import ALL_TIME_START
 from wxcore.units import TEMP_METRICS, TOTAL_METRICS
 
 # ---------------------------------------------------------------------------
@@ -120,7 +121,7 @@ OUTPUT_UNITS = {"C", "F"}
 # (a chart request: all series, or a ranking drawn as bars), PLOT_INHERITED
 # (either kind, e.g. a follow-up to a chart), PLOT_OFF (no series).
 PLOT_EXPLICIT, PLOT_INHERITED, PLOT_OFF = "plot", "plot_inherited", None
-MIN_DATE = date(1800, 1, 1)
+MIN_DATE = date.fromisoformat(ALL_TIME_START)  # the start of every record
 
 # ---------------------------------------------------------------------------
 # Query validation (before the warehouse)
