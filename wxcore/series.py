@@ -24,7 +24,7 @@ import numpy as np
 
 from wxcore.dates import ALL_TIME_START, FALL_MONTHS, SPRING_MONTHS, season_day, season_label, smooth_day_of_year
 from wxcore.db import station_place
-from wxcore.units import METRIC_LABELS, METRIC_UNITS, TEMP_METRICS, TOTAL_METRICS
+from wxcore.units import METRIC_LABELS, METRIC_UNITS, TEMP_METRICS, TOTAL_METRICS, threshold_label
 from wxcore.validation import CLIMATOLOGY_UNITS, CONDITIONS
 
 # daily histogram bin widths in the data's units (temperatures: 2°F, 1°C)
@@ -143,24 +143,10 @@ def _is_odds(entry: dict) -> bool:
     return entry.get("period_aggregation") == "any"
 
 
-_OPERATOR_SIGNS = {">": ">", ">=": "≥", "<": "<", "<=": "≤", "=": "="}
-
-
 def _count_label(entry: dict, temp_unit: str) -> str:
     """'Days with high ≥ 90°F' -- the threshold in the user's units."""
-    t = entry["threshold"]
-    value = t["value"]
-    unit = METRIC_UNITS.get(entry["metric"], "")
-    if entry["metric"] in TEMP_METRICS:
-        if (entry.get("output_unit") or temp_unit) == "C":
-            value, unit = round((value - 32) * 5 / 9, 1), "°C"
-        value = int(value) if float(value).is_integer() else value
-        label = f"{value}{unit}"
-    else:
-        label = f"{value} {'in.' if unit == 'inches' else unit}".strip()
-    what = METRIC_LABELS.get(entry["metric"], entry["metric"]).lower()
-    what = {"high temperature": "high", "low temperature": "low", "average temperature": "average temperature"}.get(what, what)
-    return f"Days with {what} {_OPERATOR_SIGNS.get(t['operator'], t['operator'])} {label}"
+    celsius = (entry.get("output_unit") or temp_unit) == "C"
+    return f"Days with {threshold_label(entry['metric'], entry['threshold'], celsius)}"
 
 
 def _units(entry: dict, temp_unit: str) -> str:

@@ -4,12 +4,30 @@ plain facts an answer is phrased from, and top/bottom results as a display
 table or a ranking chart.
 """
 
+import calendar
 from datetime import date
 
-from wxcore.dates import season_label
+from wxcore.dates import (
+    ALL_TIME_START,
+    NORMAL_END_YEAR,
+    NORMAL_SMOOTHING_DAYS,
+    NORMAL_START_YEAR,
+    SEASON_MONTHS,
+    calendar_day_label,
+    season_label,
+)
 from wxcore.db import station_place
-from wxcore.units import COUNT_UNITS, METRIC_LABELS, METRIC_UNITS, TEMP_METRICS, answer_units, convert_value
-from wxcore.validation import MAX_RANK_LIMIT, RANKING_AGGREGATIONS
+from wxcore.units import (
+    COUNT_UNITS,
+    METRIC_LABELS,
+    METRIC_UNITS,
+    TEMP_METRICS,
+    answer_units,
+    convert_value,
+    natural_aggregation,
+    threshold_label,
+)
+from wxcore.validation import MAX_RANK_LIMIT, MIN_BUCKET_COVERAGE, RANKING_AGGREGATIONS
 
 
 def _round_value(entry: dict, value):
@@ -39,6 +57,197 @@ def _converted_rows(entry: dict, rows: list[dict], sentence: bool = False) -> li
             row["total"] = round(row["total"], 1)
         out.append(row)
     return out
+
+
+# ---------------------------------------------------------------------------
+# What was computed: a query described in words, for the answer to rest on
+# ---------------------------------------------------------------------------
+
+# bucket unit -> (singular, plural)
+BUCKET_NAMES = {
+    "month": ("month", "months"),
+    "year": ("calendar year", "calendar years"),
+    "snow_season": ("snow season", "snow seasons"),
+}
+SNOW_SEASON_NOTE = " (snow seasons run July-June)"
+DAILY_STATS = {
+    "mean": "Average daily {m}",
+    "median": "Median daily {m}",
+    "sum": "Total {m}",
+    "stddev": "Standard deviation of daily {m}",
+    "max": "Highest daily {m}",
+    "min": "Lowest daily {m}",
+    "top": "Days ranked by {m}, highest first",
+    "bottom": "Days ranked by {m}, lowest first",
+}
+ACROSS_BUCKETS = {
+    "mean": "Average of each {one}'s {v}",
+    "median": "Median of each {one}'s {v}",
+    "sum": "Sum of each {one}'s {v}",
+    "stddev": "Standard deviation of each {one}'s {v}",
+    "max": "The {one} with the highest {v}",
+    "min": "The {one} with the lowest {v}",
+    "top": "{Many} ranked by {v}, highest first",
+    "bottom": "{Many} ranked by {v}, lowest first",
+}
+ACROSS_EVENTS = {
+    "mean": "Average {v} of {ev}",
+    "median": "Median {v} of {ev}",
+    "sum": "Sum of the {v} of {ev}",
+    "max": "The largest of {ev}, by {v}",
+    "min": "The smallest of {ev}, by {v}",
+    "top": "{Ev} ranked by {v}, largest first",
+    "bottom": "{Ev} ranked by {v}, smallest first",
+    "latest": "The most recent of {ev}",
+    "earliest": "The earliest of {ev}",
+}
+
+
+def _metric_name(metric) -> str:
+    return METRIC_LABELS.get(metric, str(metric)).lower()
+
+
+def _celsius(entry: dict) -> bool:
+    return entry.get("output_unit") == "C"
+
+
+def _months_text(months) -> str:
+    """'Jun-Aug' for a run of months, else 'Jan, Mar, Jul'."""
+    names = [calendar.month_abbr[m] for m in months]
+    run = list(range(months[0], months[0] + len(months)))
+    if len(months) > 2 and list(months) == run:
+        return f"{names[0]}-{names[-1]}"
+    return ", ".join(names)
+
+
+def _when(entry: dict) -> str:
+    start, end = entry["start_date"], entry["end_date"]
+    if (start, end) == (f"{NORMAL_START_YEAR}-01-01", f"{NORMAL_END_YEAR}-12-31"):
+        return f"the {NORMAL_START_YEAR}-{NORMAL_END_YEAR} normals period"
+    if start == ALL_TIME_START:
+        return f"the whole record through {_fmt_day(end)}"
+    return _fmt_span(start, end)
+
+
+def _bucket_names(entry: dict) -> tuple[str, str]:
+    unit = entry["unit"]
+    if unit == "season":
+        return entry["season"], f"{entry['season']} seasons"
+    return BUCKET_NAMES[unit]
+
+
+def _bucket_note(entry: dict) -> str:
+    """' (summer: Jun-Aug)', or the snow season's months."""
+    if entry["unit"] == "snow_season":
+        return SNOW_SEASON_NOTE
+    if entry["unit"] == "season":
+        first, last = SEASON_MONTHS[entry["season"]]
+        return f" ({entry['season']}: {calendar.month_abbr[first]}-{calendar.month_abbr[last]})"
+    return ""
+
+
+def _bucket_value(entry: dict) -> str:
+    """'total snowfall', 'average high temperature': how each bucket's days were combined."""
+    per = entry.get("period_aggregation") or natural_aggregation(entry["metric"])
+    return f"{'total' if per == 'sum' else 'average'} {_metric_name(entry['metric'])}"
+
+
+def _describe_buckets(entry: dict) -> str:
+    one, many = _bucket_names(entry)
+    value = _bucket_value(entry)
+    agg = entry["aggregation"]
+    if agg == "count":
+        label = threshold_label(entry["metric"], entry["threshold"], _celsius(entry))
+        what = f"Number of {many} with {value.split()[0]} {label}"
+    else:
+        what = ACROSS_BUCKETS[agg].format(one=one, v=value, Many=many.capitalize())
+    if entry.get("month_filter") and entry["unit"] == "month":
+        what += f" ({_months_text(entry['month_filter'])} only)"
+    return what + _bucket_note(entry)
+
+
+def _describe_events(entry: dict) -> str:
+    metric, agg = entry["metric"], entry["aggregation"]
+    day = threshold_label(metric, entry["event_day_threshold"], _celsius(entry))
+    ev = f"events (runs of consecutive days with {day})"
+    duration = entry.get("event_value") == "duration"
+    value = "length in days" if duration else f"total {_metric_name(metric)}"
+    if agg == "count":
+        what = f"Number of {ev}"
+    else:
+        what = ACROSS_EVENTS[agg].format(v=value, ev=f"the {ev}", Ev=ev.capitalize())
+    if (t := entry.get("threshold")) and agg not in ("top", "bottom"):
+        sign = threshold_label(metric, t).split()[1]
+        if duration:
+            what += f", counting only events lasting {sign} {t['value']} days"
+        else:
+            what += f", counting only events with a total {threshold_label(metric, t, _celsius(entry))}"
+    return what
+
+
+def _describe_calendar_day(entry: dict) -> str:
+    day = calendar_day_label(entry["calendar_day"])
+    metric = _metric_name(entry["metric"])
+    if entry.get("period_aggregation") == "any":
+        label = threshold_label(entry["metric"], entry["threshold"], _celsius(entry))
+        return f"Percent of years with {label} on {day}"
+    if entry["aggregation"] in ("max", "min"):
+        word = "Highest" if entry["aggregation"] == "max" else "Lowest"
+        return f"{word} {metric} on record for {day}"
+    smoothing = f"smoothed over +/-{NORMAL_SMOOTHING_DAYS} days"
+    return f"Average {metric} on {day} ({smoothing})"
+
+
+def _describe_dates(entry: dict) -> str:
+    which = "First" if entry["aggregation"] == "first_date" else "Last"
+    unit = entry.get("unit", "year")
+    label = threshold_label(entry["metric"], entry["threshold"], _celsius(entry))
+    what = f"{which} date each {BUCKET_NAMES[unit][0]} with {label}"
+    if entry.get("month_filter"):
+        what += f", searched in {_months_text(entry['month_filter'])}"
+    return what + (SNOW_SEASON_NOTE if unit == "snow_season" else "")
+
+
+def describe(entry: dict) -> str:
+    """
+    One sentence saying what a query computed, from its fields after
+    apply_defaults: the statistic, which days or periods, any threshold or
+    month filter, and the dates. For an answer to rest on (a season isn't
+    read as a year, a count's threshold is the one used).
+    """
+    unit = entry.get("unit", "day")
+    agg = entry["aggregation"]
+    if agg in ("first_date", "last_date"):
+        what = _describe_dates(entry)
+    elif unit == "day_of_year":
+        what = _describe_calendar_day(entry)
+    elif unit == "event":
+        what = _describe_events(entry)
+    elif unit in ("month", "year", "season", "snow_season"):
+        what = _describe_buckets(entry)
+    elif agg == "count":
+        label = threshold_label(entry["metric"], entry["threshold"], _celsius(entry))
+        what = f"Number of days with {label}"
+    else:
+        what = DAILY_STATS[agg].format(m=_metric_name(entry["metric"]))
+    if entry.get("month_filter") and unit == "day":
+        what += f" in {_months_text(entry['month_filter'])}"
+    # TAVG and AWND are already averages: "average daily temperature", not "average daily average"
+    what = what.replace("daily average ", "daily ").replace("verage average ", "verage ")
+    return f"{what}, {_when(entry)}."
+
+
+def excluded(entry: dict) -> str | None:
+    """What the SQL functions' coverage rule leaves out of a month/year/season answer; None for daily answers."""
+    unit = entry.get("unit", "day")
+    if unit not in ("month", "year", "season", "snow_season") or entry["aggregation"] in ("first_date", "last_date"):
+        return None
+    many = _bucket_names(entry)[1]
+    share = f"{MIN_BUCKET_COVERAGE:.0%}"
+    return (
+        f"{many.capitalize()} with under {share} of their days observed within these dates are left out, "
+        f"so one cut off by the start or end date isn't counted."
+    )
 
 
 def build_answer_payload(
@@ -75,7 +284,10 @@ def build_answer_payload(
         "start_date": entry["start_date"],
         "end_date": entry["end_date"],
         "value": value,
+        "computed": describe(entry),
     }
+    if note := excluded(entry):
+        payload["excluded"] = note
     if result:
         for key in (
             "obs_date",

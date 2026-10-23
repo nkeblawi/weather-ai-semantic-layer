@@ -61,6 +61,28 @@ METRIC_LABELS = {
 }
 
 
+OPERATOR_SIGNS = {">": ">", ">=": "≥", "<": "<", "<=": "≤", "=": "="}
+# a metric as the subject of a threshold ("high ≥ 90°F")
+_THRESHOLD_SUBJECTS = {"high temperature": "high", "low temperature": "low"}
+
+
+def threshold_label(metric: str, threshold: dict, celsius: bool = False) -> str:
+    """'high ≥ 90°F', 'snowfall ≥ 0.5 in.' -- a threshold in the answer's units."""
+    value = threshold["value"]
+    unit = METRIC_UNITS.get(metric, "")
+    if metric in TEMP_METRICS:
+        if celsius:
+            value, unit = round((value - 32) * 5 / 9, 1), "°C"
+        value = int(value) if float(value).is_integer() else value
+        label = f"{value}{unit}"
+    else:
+        label = f"{value} {'in.' if unit == 'inches' else unit}".strip()
+    what = METRIC_LABELS.get(metric, metric).lower()
+    what = _THRESHOLD_SUBJECTS.get(what, what)
+    sign = OPERATOR_SIGNS.get(threshold["operator"], threshold["operator"])
+    return f"{what} {sign} {label}"
+
+
 def answer_units(entry: dict) -> str:
     """Physical unit the answer value should be stated in."""
     grain = entry.get("unit", "day")

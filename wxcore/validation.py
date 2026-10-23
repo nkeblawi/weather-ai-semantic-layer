@@ -34,6 +34,9 @@ MAX_MONTHLY_SERIES_YEARS = 100
 MAX_DAILY_SERIES_DAYS = 366
 MIN_BASELINE_YEARS, MAX_BASELINE_YEARS = 10, 50
 
+# A month, year, or season counts only with this share of its days observed (the SQL functions' coverage rule)
+MIN_BUCKET_COVERAGE = 0.9
+
 # ---------------------------------------------------------------------------
 # Allowed values (SKILL.md Step 6, plus references/plotting.md for series)
 # ---------------------------------------------------------------------------
