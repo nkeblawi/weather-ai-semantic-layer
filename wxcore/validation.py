@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from wxcore.dates import ALL_TIME_START
+from wxcore.dates import ALL_TIME_START, FALL_MONTHS, SPRING_MONTHS
 from wxcore.units import TEMP_METRICS, TOTAL_METRICS, natural_aggregation
 
 # ---------------------------------------------------------------------------
@@ -123,6 +123,10 @@ THRESHOLD_PERIOD_AGGREGATIONS = {"count", "any"} | DATE_AGGREGATIONS
 SERIES_PERIOD_AGGREGATIONS = PERIOD_AGGREGATIONS | THRESHOLD_PERIOD_AGGREGATIONS
 OUTPUT_UNITS = {"C", "F"}
 
+# Halves of the year a first/last date is searched in: the last spring freeze
+# is in spring's half, the first fall freeze in fall's (wxcore.defaults turns
+# half_year into month_filter).
+HALF_YEARS = {"spring": SPRING_MONTHS, "fall": FALL_MONTHS}
 # Named day conditions: name -> (metric, operator, value). A query with a
 # condition gets its metric and threshold from it (wxcore.defaults).
 # Freeze is a low at or below 32F (0C).
@@ -167,6 +171,20 @@ def _parse_date(value) -> date | None:
         return date.fromisoformat(value)
     except (TypeError, ValueError):
         return None
+
+
+def _check_half_year(q, aggregation) -> list[str]:
+    half = q["half_year"]
+    if not isinstance(half, str) or half not in HALF_YEARS:
+        return [f"half_year {half!r} not allowed"]
+    problems = []
+    if aggregation not in DATE_AGGREGATIONS and q.get("period_aggregation") not in DATE_AGGREGATIONS:
+        problems.append("half_year only applies to a first_date or last_date")
+    if q.get("unit", "day") != "year":
+        problems.append(f"half_year needs unit 'year', got {q.get('unit', 'day')!r}")
+    if q.get("month_filter") != HALF_YEARS[half]:
+        problems.append(f"half_year {half!r} means month_filter {HALF_YEARS[half]}, got {q.get('month_filter')!r}")
+    return problems
 
 
 def _check_condition(q, metric, unit) -> list[str]:
@@ -300,6 +318,13 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         and not (aggregation == "series" and q.get("period_aggregation") == "count")
     ):
         problems.append(f"unit 'snow_season' requires SNOW, got {metric!r}")
+    # a winter's snow is grouped July-June, so an October or March storm stays in its winter
+    if unit == "season" and metric == "SNOW":
+        problems.append(
+            "snowfall by winter or season uses unit 'snow_season' (July-June), not 'season'"
+        )
+    if "half_year" in q:
+        problems += _check_half_year(q, aggregation)
 
     for name in ("threshold", "event_day_threshold"):
         if name in q:

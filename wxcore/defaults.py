@@ -10,6 +10,8 @@ resolver):
 
 - metric and threshold, from a named condition (validation.CONDITIONS, e.g.
   snow_day: SNOW >= 0.5); not for events
+- month_filter, from half_year (validation.HALF_YEARS: spring = Jan-Jun,
+  fall = Jul-Dec), for a first/last date
 - aggregation, for daily queries: count with a condition, else the metric's
   units.natural_aggregation (mean or sum)
 - event_day_threshold, for events: EVENT_DAY_THRESHOLDS below
@@ -30,7 +32,7 @@ from datetime import date
 
 from wxcore.dates import ALL_TIME_START, NORMAL_END_YEAR, NORMAL_START_YEAR
 from wxcore.units import natural_aggregation
-from wxcore.validation import CONDITIONS, DATE_AGGREGATIONS
+from wxcore.validation import CONDITIONS, DATE_AGGREGATIONS, HALF_YEARS
 
 # an event is a run of consecutive rain days or snow days
 EVENT_DAY_THRESHOLDS = {
@@ -72,6 +74,10 @@ def apply_defaults(queries, today: date | None = None) -> None:
             q.setdefault("metric", cond_metric)
             q.setdefault("threshold", {"operator": operator, "value": value})
         metric = q.get("metric")
+
+        half = q.get("half_year")
+        if isinstance(half, str) and half in HALF_YEARS and "month_filter" not in q:
+            q["month_filter"] = list(HALF_YEARS[half])
 
         if unit == "day" and "aggregation" not in q:
             if condition:
