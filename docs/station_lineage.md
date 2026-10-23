@@ -73,7 +73,7 @@ Last reviewed: 2026-10-21 (43 active stations, prod catalog `weather`).
 | Washington, DC | US | USW00013743 | KDCA | 72405 | 1941-06-01 | 2026-09-09 | single | 0 |
 
 Activated dates are UTC, from the `wx_activate_station` run history; the 30-station expansion runs
-are in `notes/activate_runs_prod.tsv`. Washington, DC's station sits in Virginia (Reagan National);
+are in `notes/stations/activate_runs_prod.tsv`. Washington, DC's station sits in Virginia (Reagan National);
 Cincinnati's in Kentucky (CVG). Both cities are labeled with their own state ("Washington, DC",
 "Cincinnati, OH") so the app doesn't append the station's state (VA, KY); every other city is
 labeled bare and the app shows it with its state ("Portland, OR").
@@ -124,7 +124,7 @@ downtown station holds earlier years and is not included. Candidates for a futur
 
 A spliced station's record joins one or more older GHCN IDs to the current ID, for stations whose
 ID changed (renumbering, automation) or whose airport moved. Used for the Canadian stations
-(tranche 7 in `notes/station_expansion_plan.md`).
+(tranche 7 in `notes/stations/station_expansion_plan.md`).
 
 **Method (one-time history load):** old IDs are downloaded once and written to `raw.obs_ghcn`
 **under the current ID**, then the current ID is activated as usual
@@ -215,7 +215,7 @@ days neither ID reported.
 - Re-running the loader for a station is safe (same keys and values). A `--full` re-ingest of the
   current ID is safe (missing days don't overwrite loaded values; days the current ID has replace
   the old ID's, which is intended).
-- Converted rows don't pick up later edits (issue #8 in `notes/issues.txt`). To redo a station,
+- Converted rows don't pick up later edits (issue #8 in `notes/issues/issues.txt`). To redo a station,
   delete its rows from `obs_ghcn_conv`, `obs_merged`, `obs_pivot` and `observations`, then re-run the
   loader and the activation job.
 - QC allowlist entries for spliced years use the current ID.
