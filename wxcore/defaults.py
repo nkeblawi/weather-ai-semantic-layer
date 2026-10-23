@@ -11,7 +11,7 @@ resolver):
 - metric and threshold, from a named condition (validation.CONDITIONS, e.g.
   snow_day: SNOW >= 0.5); not for events
 - month_filter, from half_year (validation.HALF_YEARS: spring = Jan-Jun,
-  fall = Jul-Dec), for a first/last date
+  fall = Jul-Dec), for a first/last date by calendar year
 - aggregation, for daily queries: count with a condition, else the metric's
   units.natural_aggregation (mean or sum)
 - event_day_threshold, for events: EVENT_DAY_THRESHOLDS below
@@ -19,9 +19,9 @@ resolver):
   metric's natural_aggregation
 - start_date / end_date, when both are left out: the normals period for a
   query marked "normal": true; else the whole record (ALL_TIME_START to
-  today) for a series, a superlative or ranking, a bucketed or calendar-day
-  query, or one with a month_filter. A plain daily mean, sum, or count has
-  no default period.
+  today) for a series, a superlative or ranking, a count, a bucketed or
+  calendar-day query, or one with a month_filter. A plain daily mean or sum
+  has no default period.
 
 A top/bottom limit isn't defaulted here: the SQL functions default it.
 """
@@ -61,7 +61,7 @@ def _fill_dates(q, unit, today: date) -> None:
         q["start_date"] = f"{NORMAL_START_YEAR}-01-01"
         q["end_date"] = f"{NORMAL_END_YEAR}-12-31"
     elif (
-        q.get("aggregation") in SUPERLATIVE_AGGREGATIONS | {"series"}
+        q.get("aggregation") in SUPERLATIVE_AGGREGATIONS | {"series", "count"}
         or unit in WHOLE_RECORD_UNITS
         or "month_filter" in q
     ):
@@ -91,7 +91,7 @@ def apply_defaults(queries, today: date | None = None) -> None:
         metric = q.get("metric")
 
         half = q.get("half_year")
-        if isinstance(half, str) and half in HALF_YEARS and "month_filter" not in q:
+        if isinstance(half, str) and half in HALF_YEARS and "month_filter" not in q and unit == "year":
             q["month_filter"] = list(HALF_YEARS[half])
 
         if unit == "day" and "aggregation" not in q:

@@ -178,7 +178,7 @@ tool with `current_date` and the shape's parameters (e.g. `{"current_date": "202
 | "last 30 days" | `relative_days` | `days` |
 | "in January" / "last March" — a month name with **no year**, asking for that one period | `recent_month` | `month` (1-12) — the most recent such month that has started; never a future month. (An *average/typical/normal* month with no year — "average January high" — is a whole-record climate average instead: see `references/count_group.md`.) |
 | "last Friday" / "this past Friday" / "on Friday" (a past weekday, single day) | `weekday` | `weekday` (lowercase name, e.g. `friday`) — resolves to the most recent such day *strictly before* `current_date` (asked on a Friday, it's a week ago). Never work out the weekday's date yourself. |
-| "ever", "on record", "all-time", "in history" | — | omit both dates: the app uses the whole record |
+| "ever", "on record", "all-time", "in history", or a count of days with no time period ("how many 100-degree days has Dulles had") | — | omit both dates: the app uses the whole record |
 | "the last / most recent <event>" with no time period stated (e.g. "the last storm over 6 inches") | — | omit both dates: the whole record is searched for the most recent one; do **not** ask the user how far back to look |
 | a ranking or extreme (`top`, `bottom`, `max`, `min`) with no time period stated (e.g. "the coldest days at Reagan National", "the biggest snowstorms", "the snowiest winter") | — | omit both dates: an unqualified superlative means "on record"; do **not** ask the user how far back to look. (Averages, totals, and counts with no period stated still need one: ask.) |
 

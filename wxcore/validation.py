@@ -192,9 +192,14 @@ def _check_half_year(q, aggregation) -> list[str]:
     problems = []
     if aggregation not in DATE_AGGREGATIONS and q.get("period_aggregation") not in DATE_AGGREGATIONS:
         problems.append("half_year only applies to a first_date or last_date")
+    if q.get("unit", "day") == "snow_season":
+        return problems + [
+            "half_year doesn't apply to snowfall: snow dates are grouped by snow season (July-June), "
+            "which already starts before fall; drop half_year"
+        ]
     if q.get("unit", "day") != "year":
         problems.append(f"half_year needs unit 'year', got {q.get('unit', 'day')!r}")
-    if q.get("month_filter") != HALF_YEARS[half]:
+    elif q.get("month_filter") != HALF_YEARS[half]:
         problems.append(f"half_year {half!r} means month_filter {HALF_YEARS[half]}, got {q.get('month_filter')!r}")
     return problems
 
@@ -329,7 +334,10 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         and metric != "SNOW"
         and not (aggregation == "series" and q.get("period_aggregation") == "count")
     ):
-        problems.append(f"unit 'snow_season' requires SNOW, got {metric!r}")
+        problems.append(
+            f"unit 'snow_season' requires SNOW, got {metric!r}; for winter values of another metric "
+            "use unit 'season' with season 'winter' (Dec-Feb)"
+        )
     # a winter's snow is grouped July-June, so an October or March storm stays in its winter
     if unit == "season" and metric == "SNOW":
         problems.append(
@@ -369,7 +377,11 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
             )
 
     start, end = _parse_date(q.get("start_date")), _parse_date(q.get("end_date"))
-    if start is None or end is None:
+    if q.get("start_date") is None and q.get("end_date") is None:
+        problems.append(
+            f"no period: give start_date and end_date (the whole record is {MIN_DATE.isoformat()} to today)"
+        )
+    elif start is None or end is None:
         problems.append("start_date/end_date must be YYYY-MM-DD")
     else:
         if start > end:
@@ -480,7 +492,7 @@ def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> No
                     problems.append(f"{name} doesn't apply to a histogram")
         elif q["display"] in DAILY_DISPLAYS:
             if unit != "day":
-                problems.append(f"display {q['display']!r} needs unit day")
+                problems.append(f"display {q['display']!r} needs daily points: use a period of a year or less")
             if q.get("metric") not in DAILY_DISPLAYS[q["display"]]:
                 problems.append(
                     f"display {q['display']!r} doesn't apply to {q.get('metric')!r}"

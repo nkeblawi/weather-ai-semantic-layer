@@ -164,6 +164,24 @@ def _date_unit(q) -> str:
     return "snow_season" if metric == "SNOW" else "year"
 
 
+def _no_half_year_for_snow(q, half_year) -> None:
+    """Snowfall dates are by snow season, which already runs July-June: no spring/fall half."""
+    if half_year is not None and q["unit"] == "snow_season":
+        raise ToolArgumentError(
+            "half_year doesn't apply to snowfall: snow dates are grouped by snow season (July-June), "
+            "which already starts before fall; drop half_year"
+        )
+
+
+def _snow_season_needs_snow(metric, unit, arg) -> None:
+    """snow_season groups snowfall; other metrics' winters are the season 'winter'."""
+    if unit == "snow_season" and metric != "SNOW":
+        raise ToolArgumentError(
+            f"{arg} 'snow_season' is for SNOW, not {metric!r}; for winter values use "
+            f"{arg}='season' with season='winter'"
+        )
+
+
 def _select(name, select, choices, ranked, n) -> dict:
     """The aggregation (and limit) for a choice, single or ranked: n implies ranked."""
     single, ranking = choices[_choice(name, select, choices)]
@@ -296,7 +314,7 @@ def count_days(
     months=None,
     today=None,
 ) -> dict:
-    """How many days met a named condition, or a metric's threshold."""
+    """How many days met a named condition, or a metric's threshold. No period: the whole record."""
     q = {"station_id": station, "aggregation": "count"}
     _condition_or_threshold(q, condition, metric, threshold)
     _with_period(q, period, months, today)
@@ -359,6 +377,7 @@ def first_last_date(
     }
     _condition_or_threshold(q, condition, metric, threshold)
     q["unit"] = _date_unit(q)
+    _no_half_year_for_snow(q, half_year)
     if half_year is not None:
         q["half_year"] = half_year
     _with_period(q, period, None, today)
@@ -425,6 +444,7 @@ def compare_periods(
         "metric": metric,
         "unit": _choice("period_type", period_type, PERIOD_TYPES),
     }
+    _snow_season_needs_snow(metric, q["unit"], "period_type")
     q.update(_select("select", select, PERIOD_SELECTS, ranked, n))
     if season is not None:
         q["season"] = season
@@ -477,6 +497,7 @@ def chart_over_time(
             unit = "season"
         else:
             unit = _grain(m, dates)
+        _snow_season_needs_snow(m, unit, "grain")
         q = _series(st, m, unit)
         if season is not None:
             q["season"] = season
@@ -594,6 +615,10 @@ def chart_dates_by_year(
         _condition_or_threshold(q, condition, metric, threshold)
         q["unit"] = _date_unit(q)
         q["period_aggregation"] = agg
+        if which in ("first", "last"):
+            _no_half_year_for_snow(q, half)
+        elif q["unit"] == "snow_season":
+            half = None  # a snow season's first and last dates: no halves needed
         if half is not None:
             q["half_year"] = half
         if trend:
