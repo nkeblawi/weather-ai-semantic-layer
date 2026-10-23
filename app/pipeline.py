@@ -54,6 +54,10 @@ SKILL_PATH = PROJECT_ROOT / "skills" / "SKILL.md"
 COUNT_GROUP_PATH = PROJECT_ROOT / "skills" / "references" / "count_group.md"
 ANSWER_PHRASING_PATH = PROJECT_ROOT / "skills" / "references" / "answer_phrasing.md"
 PLOTTING_PATH = PROJECT_ROOT / "skills" / "references" / "plotting.md"
+# Worked examples live as data, one set per file above; each file has a marker
+# line where its set is rendered (skill_text below)
+EXAMPLES_PATH = PROJECT_ROOT / "skills" / "assets" / "examples.json"
+EXAMPLES_MARKER = "<!-- worked examples: {} (skills/assets/examples.json) -->"
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
@@ -357,6 +361,35 @@ def needs_count_group(question: str, history: list | None = None) -> bool:
     return False
 
 
+def _example_json(resolved: dict) -> str:
+    """A resolver output as the skill shows it: one line, or one query per line."""
+    queries = resolved.get("queries")
+    if not queries:
+        return json.dumps(resolved, ensure_ascii=False)
+    head = json.dumps({k: v for k, v in resolved.items() if k != "queries"}, ensure_ascii=False)[:-1]
+    lines = ",\n".join("  " + json.dumps(q, ensure_ascii=False) for q in queries)
+    return f'{head}, "queries": [\n{lines}\n]}}'
+
+
+def render_example(example: dict) -> str:
+    """One worked example (an entry of examples.json) as Markdown."""
+    line = f"**Q:** {example['question']}"
+    if "note" in example:
+        line += f" ({example['note']})"
+    if "context" in example:
+        line = f"{example['context']} — {line}"
+    explanation = f"\n{example['explanation']}\n" if "explanation" in example else ""
+    return f"{line}\n{explanation}```json\n{_example_json(example['resolved'])}\n```"
+
+
+def skill_text(path: Path, examples_key: str) -> str:
+    """A skill file with its set of worked examples rendered in at the marker."""
+    examples = json.loads(EXAMPLES_PATH.read_text())[examples_key]
+    return path.read_text().replace(
+        EXAMPLES_MARKER.format(examples_key), "\n\n".join(render_example(e) for e in examples)
+    )
+
+
 def build_system_prompt(
     question: str,
     history: list | None = None,
@@ -370,12 +403,12 @@ def build_system_prompt(
     then this turn's details (date, plot mode, home city, conversation),
     which must come after the cache point or every call would miss.
     """
-    skill_text = SKILL_PATH.read_text()
-    skill_text = re.sub(r"^---\n.*?\n---\n\n", "", skill_text, count=1, flags=re.DOTALL)
+    text = skill_text(SKILL_PATH, "skill")
+    text = re.sub(r"^---\n.*?\n---\n\n", "", text, count=1, flags=re.DOTALL)
     if plot_mode:
         # Up front, not only after the long skill text: without it the model
         # sometimes applies SKILL.md's single-value rules to a chart request
-        skill_text = (
+        text = (
             "# PLOT MODE\n\n"
             + (
                 "This turn is a `/plot` request. Follow `references/plotting.md` (appended below): every "
@@ -387,15 +420,15 @@ def build_system_prompt(
                 "Never return `reason: \"needs_plot\"`.\n\n"
             )
             + "---\n\n"
-            + skill_text
+            + text
         )
 
     # plotting.md builds on count_group.md's season/snow_season units, so a
     # plot turn loads both
     if plot_mode or needs_count_group(question, history):
-        skill_text += "\n\n---\n\n" + COUNT_GROUP_PATH.read_text()
+        text += "\n\n---\n\n" + skill_text(COUNT_GROUP_PATH, "count_group")
     if plot_mode:
-        skill_text += "\n\n---\n\n" + PLOTTING_PATH.read_text()
+        text += "\n\n---\n\n" + skill_text(PLOTTING_PATH, "plotting")
 
     # Per-turn details: after the cache point
     turn_text = f"## Today's date\n\n{date.today().isoformat()}"
@@ -445,6 +478,6 @@ def build_system_prompt(
         )
 
     return [
-        {"type": "text", "text": skill_text, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": text, "cache_control": {"type": "ephemeral"}},
         {"type": "text", "text": turn_text},
     ]

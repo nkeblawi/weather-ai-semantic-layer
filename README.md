@@ -160,11 +160,11 @@ aggregation, date range) needed to call the query layer above.
 
 Supporting files:
 
-- `references/count_group.md`: rules and worked examples for events
+- `references/count_group.md`: rules for events
   (storms, rain spells), month/year aggregates, and climate averages such
   as "average January high". The app adds it to the system prompt only when
   the question needs it, to keep the base prompt small.
-- `references/plotting.md`: rules and worked examples for `/plot`
+- `references/plotting.md`: rules for `/plot`
   questions: picking the grain, normals and anomalies, trend lines, daily
   climate graphs, and running totals. Loaded only on chart turns.
 - `references/answer_phrasing.md`: the prompt for the second Claude call,
@@ -174,6 +174,11 @@ Supporting files:
   each metric and station field.
 - `assets/count_group_triggers.txt`: List of trigger words that gets loaded
   into the question-answer pipeline.
+- `assets/examples.json`: the worked examples, in three sets (`skill`,
+  `count_group`, `plotting`). Each Markdown file has a marker line where the
+  app renders its set into the system prompt (`app/pipeline.py`), so the
+  examples are data that tests can check. Read the Markdown files directly
+  and the examples are missing.
 - `scripts/resolve_date_range.py`: deterministic date math (seasons,
   "last Friday", month lengths, leap years), kept here so the skill works on
   its own. The app runs an identical copy in `wxcore/dates.py` and exposes it
