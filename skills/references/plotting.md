@@ -54,7 +54,7 @@ counting idioms; "measurable snow" → SNOW `>= 0.1`, "measurable rain" → PRCP
 **Counting days per period** ("90-degree days per year", "freeze days each winter", "how many 70-degree nights each summer", "days
 with snow each month"): `period_aggregation: "count"` plus `threshold`, with any unit except `day` — including the climatologies ("average
 number of 90-degree days in each month"). Thresholds follow SKILL.md Step 4's counting idioms; also "90-degree days" → TMAX `>= 90`,
-"100-degree days" → TMAX `>= 100`, "70-degree nights" / "warm nights" with a number → TMIN `>=` that number, "freeze days" → TMIN `< 32`.
+"100-degree days" → TMAX `>= 100`, "70-degree nights" / "warm nights" with a number → TMIN `>=` that number, "freeze days" → TMIN `<= 32`.
 A count series works with `baseline`, `display`, and `trend` like any other (e.g. "90-degree days per year with a trend line").
 
 A climatology covers the date range you give it: no period stated → the whole record (`all_time`); "the 1991-2020 normals" → that range
@@ -281,7 +281,7 @@ On top of SKILL.md Step 6's query fields:
 **Q:** /plot freeze days each winter at Reagan National since 1970 (a whole cold season → snow-season years, Jul-Jun)
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00013743", "metric": "TMIN", "aggregation": "series", "unit": "snow_season", "period_aggregation": "count", "threshold": {"operator": "<", "value": 32}, "start_date": "1969-07-01", "end_date": "2026-08-04"}
+  {"station_id": "USW00013743", "metric": "TMIN", "aggregation": "series", "unit": "snow_season", "period_aggregation": "count", "threshold": {"operator": "<=", "value": 32}, "start_date": "1969-07-01", "end_date": "2026-08-04"}
 ]}
 ```
 

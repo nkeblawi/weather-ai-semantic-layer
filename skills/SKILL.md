@@ -104,7 +104,7 @@ By default, `aggregation` operates on raw daily rows — this is `unit: "day"`, 
 | snow day(s), how many days did it snow | SNOW | `>= 0.5` |
 | rain day(s), how many days did it rain | PRCP | `>= 0.05` |
 | dry day(s), how many days with no rain | PRCP | `= 0` |
-| freezing day(s), how many days the low dropped below freezing | TMIN | `< 32` |
+| freezing day(s), how many days the low was at or below freezing | TMIN | `<= 32` |
 | days above/below N degrees (explicit number stated) | TAVG, or TMAX/TMIN if a high/low cue is present | operator and value taken directly from the question |
 
 If the question asks "how many days" but doesn't match one of these idioms and doesn't state an explicit threshold itself, ask the user what condition defines "a day" rather than guessing a cutoff.
