@@ -207,6 +207,8 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         problems.append(f"metric {metric!r} not allowed")
     if "condition" in q:
         problems += _check_condition(q, metric, unit)
+    if "normal" in q and q["normal"] is not True:
+        problems.append(f"normal must be true or omitted, got {q['normal']!r}")
     if aggregation not in AGGREGATIONS:
         problems.append(f"aggregation {aggregation!r} not allowed")
     if unit not in UNITS:

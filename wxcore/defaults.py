@@ -15,12 +15,20 @@ resolver):
 - event_day_threshold, for events: EVENT_DAY_THRESHOLDS below
 - period_aggregation, for month/year/season/snow_season buckets: the
   metric's natural_aggregation
+- start_date / end_date, when both are left out: the normals period for a
+  query marked "normal": true; else the whole record (ALL_TIME_START to
+  today) for a superlative or ranking, a bucketed or calendar-day query, or
+  one with a month_filter. A plain daily mean, sum, or count has no default
+  period. Not for series.
 
 A top/bottom limit isn't defaulted here: the SQL functions default it.
 """
 
 from __future__ import annotations
 
+from datetime import date
+
+from wxcore.dates import ALL_TIME_START, NORMAL_END_YEAR, NORMAL_START_YEAR
 from wxcore.units import natural_aggregation
 from wxcore.validation import CONDITIONS, DATE_AGGREGATIONS
 
@@ -30,10 +38,28 @@ EVENT_DAY_THRESHOLDS = {
     for metric, operator, value in (CONDITIONS["rain_day"], CONDITIONS["snow_day"])
 }
 BUCKET_UNITS = {"month", "year", "season", "snow_season"}
+SUPERLATIVE_AGGREGATIONS = {"max", "min", "top", "bottom", "latest", "earliest"} | DATE_AGGREGATIONS
+WHOLE_RECORD_UNITS = BUCKET_UNITS | {"day_of_year"}
 
 
-def apply_defaults(queries) -> None:
+def _fill_dates(q, unit, today: date) -> None:
+    if "start_date" in q or "end_date" in q or q.get("aggregation") == "series":
+        return
+    if q.get("normal") is True:
+        q["start_date"] = f"{NORMAL_START_YEAR}-01-01"
+        q["end_date"] = f"{NORMAL_END_YEAR}-12-31"
+    elif (
+        q.get("aggregation") in SUPERLATIVE_AGGREGATIONS
+        or unit in WHOLE_RECORD_UNITS
+        or "month_filter" in q
+    ):
+        q["start_date"] = ALL_TIME_START
+        q["end_date"] = today.isoformat()
+
+
+def apply_defaults(queries, today: date | None = None) -> None:
     """Fills each query's missing defaultable fields, in place."""
+    today = today or date.today()
     for q in queries or []:
         if not isinstance(q, dict):
             continue
@@ -64,3 +90,5 @@ def apply_defaults(queries) -> None:
         ):
             if period := natural_aggregation(metric):
                 q["period_aggregation"] = period
+
+        _fill_dates(q, unit, today)
