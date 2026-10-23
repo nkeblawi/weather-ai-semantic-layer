@@ -9,6 +9,11 @@ and the MCP server run; a parity test keeps the two in step.
 import calendar
 from datetime import date, timedelta
 
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 SNOW_SEASON_START_MONTH = 7  # NWS snow season: July 1 - June 30
 # halves of the year for first/last dates: the last spring freeze, the first fall freeze
 SPRING_MONTHS = list(range(1, 7))
@@ -22,6 +27,56 @@ NORMAL_START_YEAR, NORMAL_END_YEAR = 1991, 2020
 SEASON_START_MONTH = {"winter": 12}
 
 NORMAL_SMOOTHING_DAYS = 7  # a daily normal averages +/- this many days
+
+
+# --- resolve_date_range (copied from skills/scripts/resolve_date_range.py) ---
+ALL_TIME_START = "1800-01-01"
+
+# (start_month, end_month) of each season; winter wraps into the prior year.
+SEASON_MONTHS = {
+    "winter": (12, 2),
+    "spring": (3, 5),
+    "summer": (6, 8),
+    "fall": (9, 11),
+    "autumn": (9, 11),
+}
+
+WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
+
+# --- resolve_date_range (copied from skills/scripts/resolve_date_range.py) ---
+
+
+def _last_day(year, month):
+    return calendar.monthrange(year, month)[1]
+
+
+def _season_range(season, end_year):
+    season = season.lower()
+    if season not in SEASON_MONTHS:
+        raise ValueError(f"unknown season: {season}")
+    start_month, end_month = SEASON_MONTHS[season]
+    start_year = end_year - 1 if season == "winter" else end_year
+    start = date(start_year, start_month, 1)
+    end = date(end_year, end_month, _last_day(end_year, end_month))
+    return start, end
+
+
+def _most_recent_completed_season(season, current):
+    for end_year in (current.year, current.year - 1, current.year - 2):
+        start, end = _season_range(season, end_year)
+        if end <= current:
+            return start, end
+    raise ValueError("could not resolve most recently completed season")
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def smooth_day_of_year(values: list) -> list:
@@ -80,45 +135,7 @@ def season_label(entry: dict, bucket_year: int, sentence: bool = False) -> str |
     return None
 
 
-# ---------------------------------------------------------------------------
-# resolve_date_range (copied from skills/scripts/resolve_date_range.py)
-# ---------------------------------------------------------------------------
-
-ALL_TIME_START = "1800-01-01"
-
-# (start_month, end_month) of each season; winter wraps into the prior year.
-SEASON_MONTHS = {
-    "winter": (12, 2),
-    "spring": (3, 5),
-    "summer": (6, 8),
-    "fall": (9, 11),
-    "autumn": (9, 11),
-}
-
-WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-
-
-def _last_day(year, month):
-    return calendar.monthrange(year, month)[1]
-
-
-def _season_range(season, end_year):
-    season = season.lower()
-    if season not in SEASON_MONTHS:
-        raise ValueError(f"unknown season: {season}")
-    start_month, end_month = SEASON_MONTHS[season]
-    start_year = end_year - 1 if season == "winter" else end_year
-    start = date(start_year, start_month, 1)
-    end = date(end_year, end_month, _last_day(end_year, end_month))
-    return start, end
-
-
-def _most_recent_completed_season(season, current):
-    for end_year in (current.year, current.year - 1, current.year - 2):
-        start, end = _season_range(season, end_year)
-        if end <= current:
-            return start, end
-    raise ValueError("could not resolve most recently completed season")
+# --- resolve_date_range (copied from skills/scripts/resolve_date_range.py) ---
 
 
 def resolve(payload):

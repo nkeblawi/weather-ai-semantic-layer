@@ -33,6 +33,109 @@ from wxcore.dates import (
 )
 
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+MATCHING_DAYS_MAX = 5  # a day count this small also names the days
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
+
+
+def _service_principal_credentials():
+    config = Config(
+        host=f"https://{os.environ['DATABRICKS_SERVER']}",
+        client_id=os.environ["DATABRICKS_CLIENT"],
+        client_secret=os.environ["DATABRICKS_SECRET"],
+    )
+    return oauth_service_principal(config)
+
+
+def _sql_bucketing(entry: dict) -> tuple[str, list | None, int | None]:
+    """
+    (p_unit, p_month_filter, p_year_start_month) for answer_query. The
+    resolver's snow_season and season units are year buckets in SQL: a
+    snow season starts in July; a season keeps only its months.
+    """
+    unit = entry.get("unit", "day")
+    if unit == "snow_season":
+        return "year", None, SNOW_SEASON_START_MONTH
+    if unit == "season":
+        season = entry["season"]
+        return "year", season_months(season), SEASON_START_MONTH.get(season)
+    return unit, entry.get("month_filter"), None
+
+
+def _calendar_day_result(entry: dict, result: dict | None) -> dict | None:
+    """
+    One calendar day out of a day_of_year result, as a single-value result:
+    the record (max/min, with the year set) or the smoothed normal (mean).
+    """
+    if not result or result.get("error") or entry["calendar_day"] not in result.get("days", []):
+        return {"value": None}
+    i = result["days"].index(entry["calendar_day"])
+    agg = entry["aggregation"]
+    out = {"calendar_day": calendar_day_label(entry["calendar_day"]), "n_years": result["n_years"][i]}
+    if entry.get("period_aggregation") == "any":
+        # odds: the share of years the condition held on that day, as a percent
+        out["value"] = round(result["values"][i] * 100, 1)
+    elif agg in ("max", "min"):
+        out.update(value=result[agg][i], record_year=result[f"{agg}_year"][i])
+    else:
+        out["value"] = smooth_day_of_year(result["values"])[i]
+    return out
+
+
+def _date_result(entry: dict, result: dict | None) -> dict:
+    """
+    first_date / last_date answers: one year -> that date; several -> the
+    earliest and latest (by time of year) with their years, the median date,
+    and how many years had no such day.
+    """
+    field = "first" if entry["aggregation"] == "first_date" else "last"
+    if not result or result.get("error"):
+        return {"value": None}
+    pairs = [(y, d) for y, d in zip(result.get("years", []), result.get(field, []))]
+    found = [(y, d) for y, d in pairs if d]
+    if len(pairs) == 1:
+        return {"value": found[0][1] if found else None, "bucket_year": pairs[0][0]}
+    if not found:
+        return {"value": None, "years_counted": len(pairs)}
+    snow = entry.get("unit") == "snow_season"
+    by_day = sorted(found, key=lambda yd: season_day(yd[1], snow))
+    mid = by_day[len(by_day) // 2][1]
+    # every year that shares the earliest (or latest) day: a tie is reported, not broken
+    tied = lambda end: [d for _, d in found if season_day(d, snow) == season_day(end, snow)]
+    one_or_all = lambda ds: ds[0] if len(ds) == 1 else sorted(ds)
+    years = [y for y, _ in pairs]
+    return {"value": None, "typical_date": date.fromisoformat(mid).strftime("%B %-d"),
+            "earliest_on_record": one_or_all(tied(by_day[0][1])), "latest_on_record": one_or_all(tied(by_day[-1][1])),
+            "data_years": f"{min(years)}-{max(years)}", "years_counted": len(pairs), "years_without": len(pairs) - len(found)}
+
+
+def _max_min_result(ranked: dict | None) -> dict:
+    """
+    max/min answers come from the top/bottom 1, so a tie is reported, not
+    broken: the answer is the most recent rank-1 row (rows are in date order
+    within a rank), and with a tie, `ties` lists every rank-1 row.
+    """
+    rows = (ranked or {}).get("rows") or []
+    if not rows:
+        return {"value": None}
+    result = dict(rows[-1])
+    if len(rows) > 1:
+        result["ties"] = rows
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+
 def catalog() -> str:
     """
     The Unity Catalog catalog holding the analytics functions and views:
@@ -46,15 +149,6 @@ def catalog() -> str:
             "in the environment, or in the app's .env"
         )
     return name
-
-
-def _service_principal_credentials():
-    config = Config(
-        host=f"https://{os.environ['DATABRICKS_SERVER']}",
-        client_id=os.environ["DATABRICKS_CLIENT"],
-        client_secret=os.environ["DATABRICKS_SECRET"],
-    )
-    return oauth_service_principal(config)
 
 
 def get_databricks_connection():
@@ -146,83 +240,6 @@ def list_home_locations(conn) -> dict[str, str]:
     }
 
 
-def _sql_bucketing(entry: dict) -> tuple[str, list | None, int | None]:
-    """
-    (p_unit, p_month_filter, p_year_start_month) for answer_query. The
-    resolver's snow_season and season units are year buckets in SQL: a
-    snow season starts in July; a season keeps only its months.
-    """
-    unit = entry.get("unit", "day")
-    if unit == "snow_season":
-        return "year", None, SNOW_SEASON_START_MONTH
-    if unit == "season":
-        season = entry["season"]
-        return "year", season_months(season), SEASON_START_MONTH.get(season)
-    return unit, entry.get("month_filter"), None
-
-
-def _calendar_day_result(entry: dict, result: dict | None) -> dict | None:
-    """
-    One calendar day out of a day_of_year result, as a single-value result:
-    the record (max/min, with the year set) or the smoothed normal (mean).
-    """
-    if not result or result.get("error") or entry["calendar_day"] not in result.get("days", []):
-        return {"value": None}
-    i = result["days"].index(entry["calendar_day"])
-    agg = entry["aggregation"]
-    out = {"calendar_day": calendar_day_label(entry["calendar_day"]), "n_years": result["n_years"][i]}
-    if entry.get("period_aggregation") == "any":
-        # odds: the share of years the condition held on that day, as a percent
-        out["value"] = round(result["values"][i] * 100, 1)
-    elif agg in ("max", "min"):
-        out.update(value=result[agg][i], record_year=result[f"{agg}_year"][i])
-    else:
-        out["value"] = smooth_day_of_year(result["values"])[i]
-    return out
-
-
-def _date_result(entry: dict, result: dict | None) -> dict:
-    """
-    first_date / last_date answers: one year -> that date; several -> the
-    earliest and latest (by time of year) with their years, the median date,
-    and how many years had no such day.
-    """
-    field = "first" if entry["aggregation"] == "first_date" else "last"
-    if not result or result.get("error"):
-        return {"value": None}
-    pairs = [(y, d) for y, d in zip(result.get("years", []), result.get(field, []))]
-    found = [(y, d) for y, d in pairs if d]
-    if len(pairs) == 1:
-        return {"value": found[0][1] if found else None, "bucket_year": pairs[0][0]}
-    if not found:
-        return {"value": None, "years_counted": len(pairs)}
-    snow = entry.get("unit") == "snow_season"
-    by_day = sorted(found, key=lambda yd: season_day(yd[1], snow))
-    mid = by_day[len(by_day) // 2][1]
-    # every year that shares the earliest (or latest) day: a tie is reported, not broken
-    tied = lambda end: [d for _, d in found if season_day(d, snow) == season_day(end, snow)]
-    one_or_all = lambda ds: ds[0] if len(ds) == 1 else sorted(ds)
-    years = [y for y, _ in pairs]
-    return {"value": None, "typical_date": date.fromisoformat(mid).strftime("%B %-d"),
-            "earliest_on_record": one_or_all(tied(by_day[0][1])), "latest_on_record": one_or_all(tied(by_day[-1][1])),
-            "data_years": f"{min(years)}-{max(years)}", "years_counted": len(pairs), "years_without": len(pairs) - len(found)}
-
-
-def _max_min_result(ranked: dict | None) -> dict:
-    """
-    max/min answers come from the top/bottom 1, so a tie is reported, not
-    broken: the answer is the most recent rank-1 row (rows are in date order
-    within a rank), and with a tie, `ties` lists every rank-1 row.
-    """
-    rows = (ranked or {}).get("rows") or []
-    if not rows:
-        return {"value": None}
-    result = dict(rows[-1])
-    if len(rows) > 1:
-        result["ties"] = rows
-    return result
-
-
 def call_answer_query(conn, entry: dict):
     # A record or normal for one calendar day ("record high on July 4") is a
     # day_of_year series in SQL, reduced to that day here
@@ -283,9 +300,6 @@ def call_answer_query(conn, entry: dict):
     if not row or row[0] is None:
         return None
     return json.loads(row[0])
-
-
-MATCHING_DAYS_MAX = 5  # a day count this small also names the days
 
 
 def matching_days(conn, entry: dict, result: dict | None) -> list[dict] | None:

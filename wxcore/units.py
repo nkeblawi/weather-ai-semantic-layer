@@ -3,6 +3,11 @@ Metric units and labels, and the conversion of answer values to the
 query's output unit.
 """
 
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 # Physical unit each metric is stored in (the pipeline converts to imperial).
 METRIC_UNITS = {
     "TAVG": "°F",
@@ -38,15 +43,6 @@ TOTAL_METRICS = {"PRCP", "SNOW"}
 MEAN_METRICS = TEMP_METRICS | {"AWND", "SNWD"}
 SUM_METRICS = TOTAL_METRICS | {"HDD", "CDD"}
 
-
-def natural_aggregation(metric) -> str | None:
-    """'mean' or 'sum' for a metric's daily values, None for an unknown metric."""
-    if metric in MEAN_METRICS:
-        return "mean"
-    if metric in SUM_METRICS:
-        return "sum"
-    return None
-
 # Display names for the ranking table header.
 METRIC_LABELS = {
     "TAVG": "Average temperature",
@@ -64,6 +60,20 @@ METRIC_LABELS = {
 OPERATOR_SIGNS = {">": ">", ">=": "≥", "<": "<", "<=": "≤", "=": "="}
 # a metric as the subject of a threshold ("high ≥ 90°F")
 _THRESHOLD_SUBJECTS = {"high temperature": "high", "low temperature": "low"}
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+
+def natural_aggregation(metric) -> str | None:
+    """'mean' or 'sum' for a metric's daily values, None for an unknown metric."""
+    if metric in MEAN_METRICS:
+        return "mean"
+    if metric in SUM_METRICS:
+        return "sum"
+    return None
 
 
 def threshold_label(metric: str, threshold: dict, celsius: bool = False) -> str:

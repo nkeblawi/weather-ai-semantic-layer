@@ -44,6 +44,11 @@ from wxcore.dates import resolve_date_range
 from wxcore.db import call_lookup_station
 from wxcore.db import fill_station_info as _fill_station_info
 
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # The app's settings: the repo's .env locally (Streamlit Cloud sets them as
@@ -65,13 +70,101 @@ CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 MAX_CONTEXT_TURNS = 6
 
 
-def fill_station_info(conn, resolved: dict, station_info: dict) -> None:
-    """
-    wxcore.db.fill_station_info on the resolver's queries: adds the real
-    stations it used without calling lookup_station this session, so
-    validate_resolved accepts them.
-    """
-    _fill_station_info(conn, resolved.get("queries"), station_info)
+RETRY_PROMPT = (
+    "Your JSON failed these checks:\n{problems}\n\n"
+    "Fix only what they name and reply with the corrected JSON object (Step 6)."
+)
+
+
+# Tool definitions for the Claude API. Only lookup_station & resolve_date_range.
+# The model needs both to complete the resolved JSON itself (Step 2 / Step 5).
+
+TOOLS = [
+    {
+        "name": "lookup_station",
+        "description": (
+            "Resolves free text (city, airport name/alias, ICAO or IATA code) to an "
+            "active station. Returns {ghcn_id, name, city, state}, or nothing if there's no match."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"location_text": {"type": "string"}},
+            "required": ["location_text"],
+        },
+    },
+    {
+        "name": "resolve_date_range",
+        "description": (
+            "Resolves a classified time expression to {start_date, end_date} in "
+            "YYYY-MM-DD, per weather-query-resolver Step 5. kind is one of: "
+            "absolute_year, absolute_year_range, absolute_month, absolute_day, "
+            "season, relative_days, weekday, recent_month, all_time. Only include the fields "
+            "that apply to the chosen kind."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "current_date": {"type": "string"},
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "absolute_year",
+                        "absolute_year_range",
+                        "absolute_month",
+                        "absolute_day",
+                        "season",
+                        "relative_days",
+                        "weekday",
+                        "recent_month",
+                        "all_time",
+                    ],
+                },
+                "year": {"type": "integer"},
+                "month": {"type": "integer"},
+                "day": {"type": "integer"},
+                "start_year": {"type": "integer"},
+                "end_year": {"type": "integer"},
+                "season": {
+                    "type": "string",
+                    "enum": ["winter", "spring", "summer", "fall", "autumn"],
+                },
+                "days": {"type": "integer"},
+                "weekday": {
+                    "type": "string",
+                    "enum": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                        "sunday",
+                    ],
+                },
+            },
+            "required": ["current_date", "kind"],
+        },
+    },
+]
+
+
+# Whether the question needs count_group.md appended, applying Step 4's
+# trigger rule in app code instead of as a model-invoked tool call;
+# this is decided upfront, and applied to the system prompt.
+
+# The trigger words live in skills/assets/count_group_triggers.txt (one regex
+# fragment per line), so they can be edited next to the guide they load.
+TRIGGERS_PATH = PROJECT_ROOT / "skills" / "assets" / "count_group_triggers.txt"
+_TRIGGERS = [
+    line.strip() for line in TRIGGERS_PATH.read_text().splitlines()
+    if line.strip() and not line.lstrip().startswith("#")
+]
+TRIGGER_PATTERN = re.compile(rf"\b({'|'.join(_TRIGGERS)})\b", re.IGNORECASE)
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
 
 
 def _for_phrasing(payload: dict) -> dict:
@@ -93,6 +186,49 @@ def _for_phrasing(payload: dict) -> dict:
     ]
     out["table_rows"] = len(rows)
     return out
+
+
+# --- Secondary in-app tools ---
+
+
+def _extract_json(text: str) -> str:
+    """
+    Models sometimes add prose or markdown fencing around the JSON despite
+    Step 6 saying not to (seen from claude-haiku-4-5: a "**Step 6:**" header
+    followed by a fenced ```json block). Pull the JSON out defensively
+    rather than requiring byte-perfect output. Prefers a fenced block
+    wherever it appears in the text; falls back to the outermost {...}.
+    """
+    fence_match = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL)
+    if fence_match:
+        return fence_match.group(1)
+    if "{" in text and "}" in text:
+        return text[text.index("{") : text.rindex("}") + 1]
+    return text
+
+
+def _example_json(resolved: dict) -> str:
+    """A resolver output as the skill shows it: one line, or one query per line."""
+    queries = resolved.get("queries")
+    if not queries:
+        return json.dumps(resolved, ensure_ascii=False)
+    head = json.dumps({k: v for k, v in resolved.items() if k != "queries"}, ensure_ascii=False)[:-1]
+    lines = ",\n".join("  " + json.dumps(q, ensure_ascii=False) for q in queries)
+    return f'{head}, "queries": [\n{lines}\n]}}'
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+
+def fill_station_info(conn, resolved: dict, station_info: dict) -> None:
+    """
+    wxcore.db.fill_station_info on the resolver's queries: adds the real
+    stations it used without calling lookup_station this session, so
+    validate_resolved accepts them.
+    """
+    _fill_station_info(conn, resolved.get("queries"), station_info)
 
 
 def generate_answer(client, question: str, results: list[dict], history=None) -> str:
@@ -117,12 +253,6 @@ def generate_answer(client, question: str, results: list[dict], history=None) ->
     return "".join(
         block.text for block in response.content if block.type == "text"
     ).strip()
-
-
-RETRY_PROMPT = (
-    "Your JSON failed these checks:\n{problems}\n\n"
-    "Fix only what they name and reply with the corrected JSON object (Step 6)."
-)
 
 
 def resolve_question(
@@ -224,123 +354,12 @@ def resolve_question(
         messages.append({"role": "user", "content": tool_results})
 
 
-# ---------------------------------------------------------------------------
-# Secondary in-app tools
-# ---------------------------------------------------------------------------
-
-
-def _extract_json(text: str) -> str:
-    """
-    Models sometimes add prose or markdown fencing around the JSON despite
-    Step 6 saying not to (seen from claude-haiku-4-5: a "**Step 6:**" header
-    followed by a fenced ```json block). Pull the JSON out defensively
-    rather than requiring byte-perfect output. Prefers a fenced block
-    wherever it appears in the text; falls back to the outermost {...}.
-    """
-    fence_match = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL)
-    if fence_match:
-        return fence_match.group(1)
-    if "{" in text and "}" in text:
-        return text[text.index("{") : text.rindex("}") + 1]
-    return text
-
-
-# ---------------------------------------------------------------------------
-# Tool definitions for the Claude API. Only lookup_station & resolve_date_range.
-# The model needs both to complete the resolved JSON itself (Step 2 / Step 5).
-# ---------------------------------------------------------------------------
-
-TOOLS = [
-    {
-        "name": "lookup_station",
-        "description": (
-            "Resolves free text (city, airport name/alias, ICAO or IATA code) to an "
-            "active station. Returns {ghcn_id, name, city, state}, or nothing if there's no match."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {"location_text": {"type": "string"}},
-            "required": ["location_text"],
-        },
-    },
-    {
-        "name": "resolve_date_range",
-        "description": (
-            "Resolves a classified time expression to {start_date, end_date} in "
-            "YYYY-MM-DD, per weather-query-resolver Step 5. kind is one of: "
-            "absolute_year, absolute_year_range, absolute_month, absolute_day, "
-            "season, relative_days, weekday, recent_month, all_time. Only include the fields "
-            "that apply to the chosen kind."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "current_date": {"type": "string"},
-                "kind": {
-                    "type": "string",
-                    "enum": [
-                        "absolute_year",
-                        "absolute_year_range",
-                        "absolute_month",
-                        "absolute_day",
-                        "season",
-                        "relative_days",
-                        "weekday",
-                        "recent_month",
-                        "all_time",
-                    ],
-                },
-                "year": {"type": "integer"},
-                "month": {"type": "integer"},
-                "day": {"type": "integer"},
-                "start_year": {"type": "integer"},
-                "end_year": {"type": "integer"},
-                "season": {
-                    "type": "string",
-                    "enum": ["winter", "spring", "summer", "fall", "autumn"],
-                },
-                "days": {"type": "integer"},
-                "weekday": {
-                    "type": "string",
-                    "enum": [
-                        "monday",
-                        "tuesday",
-                        "wednesday",
-                        "thursday",
-                        "friday",
-                        "saturday",
-                        "sunday",
-                    ],
-                },
-            },
-            "required": ["current_date", "kind"],
-        },
-    },
-]
-
-
 def execute_tool(conn, name: str, tool_input: dict):
     if name == "lookup_station":
         return call_lookup_station(conn, tool_input["location_text"])
     if name == "resolve_date_range":
         return resolve_date_range(tool_input)
     raise ValueError(f"unknown tool: {name}")
-
-
-# ---------------------------------------------------------------------------
-# Whether the question needs count_group.md appended, applying Step 4's
-# trigger rule in app code instead of as a model-invoked tool call;
-# this is decided upfront, and applied to the system prompt.
-# ---------------------------------------------------------------------------
-
-# The trigger words live in skills/assets/count_group_triggers.txt (one regex
-# fragment per line), so they can be edited next to the guide they load.
-TRIGGERS_PATH = PROJECT_ROOT / "skills" / "assets" / "count_group_triggers.txt"
-_TRIGGERS = [
-    line.strip() for line in TRIGGERS_PATH.read_text().splitlines()
-    if line.strip() and not line.lstrip().startswith("#")
-]
-TRIGGER_PATTERN = re.compile(rf"\b({'|'.join(_TRIGGERS)})\b", re.IGNORECASE)
 
 
 def needs_count_group(question: str, history: list | None = None) -> bool:
@@ -359,16 +378,6 @@ def needs_count_group(question: str, history: list | None = None) -> bool:
         if (turn.get("query") or {}).get("unit", "day") != "day":
             return True
     return False
-
-
-def _example_json(resolved: dict) -> str:
-    """A resolver output as the skill shows it: one line, or one query per line."""
-    queries = resolved.get("queries")
-    if not queries:
-        return json.dumps(resolved, ensure_ascii=False)
-    head = json.dumps({k: v for k, v in resolved.items() if k != "queries"}, ensure_ascii=False)[:-1]
-    lines = ",\n".join("  " + json.dumps(q, ensure_ascii=False) for q in queries)
-    return f'{head}, "queries": [\n{lines}\n]}}'
 
 
 def render_example(example: dict) -> str:

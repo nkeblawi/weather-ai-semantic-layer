@@ -18,10 +18,12 @@ from datetime import date
 from wxcore.dates import ALL_TIME_START, FALL_MONTHS, SPRING_MONTHS
 from wxcore.units import TEMP_METRICS, TOTAL_METRICS, natural_aggregation
 
+
 # ---------------------------------------------------------------------------
-# Limits
+# Constants
 # ---------------------------------------------------------------------------
 
+# --- Limits ---
 MAX_QUERIES_PER_QUESTION = 4  # each query is a warehouse call
 MAX_RANK_LIMIT = 15  # top/bottom ranks per query; answer_query clamps to the same
 
@@ -37,10 +39,8 @@ MIN_BASELINE_YEARS, MAX_BASELINE_YEARS = 10, 50
 # A month, year, or season counts only with this share of its days observed (the SQL functions' coverage rule)
 MIN_BUCKET_COVERAGE = 0.9
 
-# ---------------------------------------------------------------------------
-# Allowed values (SKILL.md Step 6, plus references/plotting.md for series)
-# ---------------------------------------------------------------------------
 
+# --- Allowed values (SKILL.md Step 6, plus references/plotting.md for series) ---
 METRICS = {"TAVG", "TMAX", "TMIN", "PRCP", "SNOW", "SNWD", "AWND", "HDD", "CDD"}
 AGGREGATIONS = {
     "mean",
@@ -150,9 +150,18 @@ CONDITIONS = {
 PLOT_EXPLICIT, PLOT_INHERITED, PLOT_OFF = "plot", "plot_inherited", None
 MIN_DATE = date.fromisoformat(ALL_TIME_START)  # the start of every record
 
+
+# --- Query validation (before the warehouse) ---
+DAILY_LIMIT_NOTE = (
+    "Daily points are limited to a year or less, so this shows monthly values."
+)
+
+
 # ---------------------------------------------------------------------------
-# Query validation (before the warehouse)
+# Helper Functions
 # ---------------------------------------------------------------------------
+
+# --- Query validation (before the warehouse) ---
 
 
 def _is_number(value) -> bool:
@@ -375,29 +384,6 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
     return problems
 
 
-def cap_rank_limits(queries) -> None:
-    """
-    Trims a top/bottom limit over MAX_RANK_LIMIT down to it, in place, and
-    keeps what was asked for as requested_limit so the answer can say so
-    ("top 20" -> 15 ranks). Runs before validate_queries, so an over-cap
-    limit is answered instead of rejected; anything else odd about limit
-    (not an integer, below 1) is still left for validation to reject.
-    A limit of 1 on max/min ("which year was wettest" asked as max with
-    limit 1) is dropped: max/min already is the single top value.
-    """
-    for q in queries or []:
-        if not isinstance(q, dict):
-            continue
-        if q.get("aggregation") in {"max", "min"} and q.get("limit") == 1:
-            del q["limit"]
-        if q.get("aggregation") not in RANKING_AGGREGATIONS:
-            continue
-        lim = q.get("limit")
-        if isinstance(lim, int) and not isinstance(lim, bool) and lim > MAX_RANK_LIMIT:
-            q["requested_limit"] = lim
-            q["limit"] = MAX_RANK_LIMIT
-
-
 def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> None:
     """Fields only a series (a chart query, references/plotting.md) may carry."""
     if unit not in SERIES_UNITS:
@@ -505,9 +491,66 @@ def _validate_series(q: dict, unit: str, today: date, problems: list[str]) -> No
             problems.append("display needs a baseline")
 
 
-DAILY_LIMIT_NOTE = (
-    "Daily points are limited to a year or less, so this shows monthly values."
-)
+def _cross_query_displays(queries: list[dict]) -> list[str]:
+    """Displays that need a set of queries: a difference pairs two, a climograph needs both kinds of line."""
+    problems = []
+    diff = [q for q in queries if q.get("display") == "difference"]
+    if diff and (
+        len(diff) != 2
+        or len({q.get("metric") for q in diff}) != 1
+        or len({q.get("unit") for q in diff}) != 1
+        or len({q.get("station_id") for q in diff}) != 2
+    ):
+        problems.append(
+            "display 'difference' needs exactly two queries: same metric and unit, two stations"
+        )
+    grow = [q for q in queries if q.get("display") == "growing_season"]
+    if grow and sorted(q.get("period_aggregation") for q in grow) != [
+        "first_date",
+        "last_date",
+    ]:
+        problems.append(
+            "display 'growing_season' needs a last_date (spring) and a first_date (fall) query"
+        )
+    clim = [q for q in queries if q.get("display") == "climograph"]
+    if clim and not (
+        {q.get("metric") for q in clim} & TEMP_METRICS
+        and {q.get("metric") for q in clim} & TOTAL_METRICS
+    ):
+        problems.append(
+            "display 'climograph' needs a temperature query and a PRCP/SNOW query"
+        )
+    return problems
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+# --- Query validation (before the warehouse) ---
+
+
+def cap_rank_limits(queries) -> None:
+    """
+    Trims a top/bottom limit over MAX_RANK_LIMIT down to it, in place, and
+    keeps what was asked for as requested_limit so the answer can say so
+    ("top 20" -> 15 ranks). Runs before validate_queries, so an over-cap
+    limit is answered instead of rejected; anything else odd about limit
+    (not an integer, below 1) is still left for validation to reject.
+    A limit of 1 on max/min ("which year was wettest" asked as max with
+    limit 1) is dropped: max/min already is the single top value.
+    """
+    for q in queries or []:
+        if not isinstance(q, dict):
+            continue
+        if q.get("aggregation") in {"max", "min"} and q.get("limit") == 1:
+            del q["limit"]
+        if q.get("aggregation") not in RANKING_AGGREGATIONS:
+            continue
+        lim = q.get("limit")
+        if isinstance(lim, int) and not isinstance(lim, bool) and lim > MAX_RANK_LIMIT:
+            q["requested_limit"] = lim
+            q["limit"] = MAX_RANK_LIMIT
 
 
 def series_span(q: dict) -> tuple[date | None, date | None, bool]:
@@ -557,38 +600,6 @@ def coerce_series(queries) -> None:
             q.setdefault("notes", []).append(
                 f"Monthly points are limited to {MAX_MONTHLY_SERIES_YEARS} years, so this shows yearly values."
             )
-
-
-def _cross_query_displays(queries: list[dict]) -> list[str]:
-    """Displays that need a set of queries: a difference pairs two, a climograph needs both kinds of line."""
-    problems = []
-    diff = [q for q in queries if q.get("display") == "difference"]
-    if diff and (
-        len(diff) != 2
-        or len({q.get("metric") for q in diff}) != 1
-        or len({q.get("unit") for q in diff}) != 1
-        or len({q.get("station_id") for q in diff}) != 2
-    ):
-        problems.append(
-            "display 'difference' needs exactly two queries: same metric and unit, two stations"
-        )
-    grow = [q for q in queries if q.get("display") == "growing_season"]
-    if grow and sorted(q.get("period_aggregation") for q in grow) != [
-        "first_date",
-        "last_date",
-    ]:
-        problems.append(
-            "display 'growing_season' needs a last_date (spring) and a first_date (fall) query"
-        )
-    clim = [q for q in queries if q.get("display") == "climograph"]
-    if clim and not (
-        {q.get("metric") for q in clim} & TEMP_METRICS
-        and {q.get("metric") for q in clim} & TOTAL_METRICS
-    ):
-        problems.append(
-            "display 'climograph' needs a temperature query and a PRCP/SNOW query"
-        )
-    return problems
 
 
 def validate_queries(

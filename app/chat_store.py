@@ -28,7 +28,25 @@ import logging
 
 from wxcore.db import catalog
 
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 logger = logging.getLogger(__name__)
+
+
+# Fixed namespace UUID so uuid5(username) is stable across processes and
+# machines. Arbitrary constant -- do not change it or existing user_ids move.
+_USER_ID_NAMESPACE = uuid.UUID("6f9619ff-8b86-d011-b42d-00cf4fc964ff")
+
+
+ANONYMOUS_PREFIX = "anon-"
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
 
 
 def _users_table() -> str:
@@ -39,17 +57,14 @@ def _chat_history_table() -> str:
     return f"{catalog()}.app.chat_history"
 
 
-# Fixed namespace UUID so uuid5(username) is stable across processes and
-# machines. Arbitrary constant -- do not change it or existing user_ids move.
-_USER_ID_NAMESPACE = uuid.UUID("6f9619ff-8b86-d011-b42d-00cf4fc964ff")
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def derive_user_id(username: str) -> str:
     """Deterministic user_id for a username (case/space-insensitive)."""
     return str(uuid.uuid5(_USER_ID_NAMESPACE, username.strip().lower()))
-
-
-ANONYMOUS_PREFIX = "anon-"
 
 
 def new_anonymous_username() -> str:

@@ -15,6 +15,11 @@ import json
 import altair as alt
 import pandas as pd
 
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 # Line colors by metric.
 METRIC_COLORS = {
     "TMAX": "#E4572E",  # red: highs
@@ -33,6 +38,16 @@ PALETTE = ["#F2A541", "#8E7DBE", "#17A398", "#E4572E", "#87CEEB"]
 ABOVE, BELOW = "#E4572E", "#2E86DE"  # anomaly bars: warmer/wetter vs cooler/drier
 NORMAL_GRAY = "#8C8C8C"
 HEIGHT = 320
+
+
+# Climate graph (NWS style): record range behind the normal range, daily bars on top
+CLIMATE_PARTS = ["Record range", "Normal range", "Daily range", "Record high set", "Record low set"]
+CLIMATE_COLORS = ["#B8C0CC", "#D9C8A9", "#4F6FA8", "#E4572E", "#2E86DE"]
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
 
 
 def _colors(chart: dict) -> tuple[list[str], list[str]]:
@@ -166,6 +181,58 @@ def _tooltip(chart: dict, extra: list[str] | None = None) -> list:
     ]
 
 
+def _trend_layers(chart: dict, field: str) -> list:
+    """A dashed least-squares line per series that asked for a trend."""
+    rows = []
+    for s in chart["series"]:
+        t = s.get("trend")
+        if t:
+            label = f"{s['name']} trend ({t['per_decade']:+} {chart['units']}/decade)"
+            rows += [
+                {"x": t["start"]["x"], field: t["start"]["value"], "trend": label},
+                {"x": t["end"]["x"], field: t["end"]["value"], "trend": label},
+            ]
+    if not rows:
+        return []
+    return [
+        alt.Chart(pd.DataFrame(rows)).mark_line(strokeDash=[2, 3], strokeWidth=2, color="#888888").encode(
+            x=alt.X("x:T", scale=alt.Scale(type="utc")), y=f"{field}:Q", detail="trend:N",
+            tooltip=[alt.Tooltip("trend:N", title="Trend")],
+        )
+    ]
+
+
+def _title(chart: dict) -> alt.TitleParams:
+    """What is plotted, drawn inside the chart so it stays with a downloaded PNG."""
+    text = chart.get("heading") or chart["title"]
+    # Long headings wrap at their natural break so they fit a phone-width chart
+    for sep in (" — ", ", "):
+        if len(text) > 40 and sep in text:
+            head, tail = text.split(sep, 1)
+            text = [head, tail[0].upper() + tail[1:]]
+            break
+    return alt.TitleParams(
+        text=text,
+        subtitle=chart.get("subtitle") or [],
+        anchor="middle", fontSize=15, subtitleFontSize=12, offset=8,
+        # Streamlit's theme colors the title but not the subtitle; mid gray reads on light and dark
+        subtitleColor=NORMAL_GRAY,
+    )
+
+
+def _encodings(spec: dict):
+    """Every encoding block in a (possibly layered) spec."""
+    if "encoding" in spec:
+        yield spec["encoding"]
+    for layer in spec.get("layer", []):
+        yield from _encodings(layer)
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+
 def time_series_chart(chart: dict) -> alt.Chart:
     """Values over time (or a climatology): lines, or bars for PRCP/SNOW totals."""
     df = _frame(chart)
@@ -280,11 +347,6 @@ def anomaly_chart(chart: dict) -> alt.Chart:
                             **({"xOffset": "series:N"} if name_axis else {})).add_params(hidden)
     zero = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(strokeWidth=1).encode(y="y:Q")
     return alt.layer(marks, zero, *_trend_layers(chart, "anomaly")).properties(height=HEIGHT)
-
-
-# Climate graph (NWS style): record range behind the normal range, daily bars on top
-CLIMATE_PARTS = ["Record range", "Normal range", "Daily range", "Record high set", "Record low set"]
-CLIMATE_COLORS = ["#B8C0CC", "#D9C8A9", "#4F6FA8", "#E4572E", "#2E86DE"]
 
 
 def dates_chart(chart: dict) -> alt.Chart:
@@ -485,45 +547,6 @@ def cumulative_chart(chart: dict) -> alt.Chart:
     return alt.layer(*layers).properties(height=HEIGHT)
 
 
-def _trend_layers(chart: dict, field: str) -> list:
-    """A dashed least-squares line per series that asked for a trend."""
-    rows = []
-    for s in chart["series"]:
-        t = s.get("trend")
-        if t:
-            label = f"{s['name']} trend ({t['per_decade']:+} {chart['units']}/decade)"
-            rows += [
-                {"x": t["start"]["x"], field: t["start"]["value"], "trend": label},
-                {"x": t["end"]["x"], field: t["end"]["value"], "trend": label},
-            ]
-    if not rows:
-        return []
-    return [
-        alt.Chart(pd.DataFrame(rows)).mark_line(strokeDash=[2, 3], strokeWidth=2, color="#888888").encode(
-            x=alt.X("x:T", scale=alt.Scale(type="utc")), y=f"{field}:Q", detail="trend:N",
-            tooltip=[alt.Tooltip("trend:N", title="Trend")],
-        )
-    ]
-
-
-def _title(chart: dict) -> alt.TitleParams:
-    """What is plotted, drawn inside the chart so it stays with a downloaded PNG."""
-    text = chart.get("heading") or chart["title"]
-    # Long headings wrap at their natural break so they fit a phone-width chart
-    for sep in (" — ", ", "):
-        if len(text) > 40 and sep in text:
-            head, tail = text.split(sep, 1)
-            text = [head, tail[0].upper() + tail[1:]]
-            break
-    return alt.TitleParams(
-        text=text,
-        subtitle=chart.get("subtitle") or [],
-        anchor="middle", fontSize=15, subtitleFontSize=12, offset=8,
-        # Streamlit's theme colors the title but not the subtitle; mid gray reads on light and dark
-        subtitleColor=NORMAL_GRAY,
-    )
-
-
 def build_chart(chart: dict) -> alt.Chart:
     """The Altair chart for a chart dict from series.group_charts."""
     if chart["kind"] == "dates":
@@ -564,14 +587,6 @@ def chart_spec(chart: dict) -> dict:
             if isinstance(color, dict) and isinstance(color.get("legend"), dict) and "field" in color:
                 color["legend"]["encode"] = _toggled_legend_encode(color["field"])
     return spec
-
-
-def _encodings(spec: dict):
-    """Every encoding block in a (possibly layered) spec."""
-    if "encoding" in spec:
-        yield spec["encoding"]
-    for layer in spec.get("layer", []):
-        yield from _encodings(layer)
 
 
 def to_csv(chart: dict) -> str:

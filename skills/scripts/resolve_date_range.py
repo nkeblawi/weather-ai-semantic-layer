@@ -39,6 +39,11 @@ import json
 import calendar
 from datetime import date, timedelta
 
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 ALL_TIME_START = "1800-01-01"
 
 # (start_month, end_month) of each season; winter wraps into the prior year.
@@ -51,6 +56,11 @@ SEASON_MONTHS = {
 }
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
 
 
 def _last_day(year, month):
@@ -74,6 +84,11 @@ def _most_recent_completed_season(season, current):
         if end <= current:
             return start, end
     raise ValueError("could not resolve most recently completed season")
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def resolve(payload):
@@ -144,6 +159,10 @@ def main():
         sys.exit(1)
     print(json.dumps({"start_date": start.isoformat(), "end_date": end.isoformat()}))
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

@@ -9,15 +9,15 @@ import chat_store
 import guardrails
 from wxcore import charts, db
 
-st.set_page_config(page_title="Weather Observations Chatbot", page_icon="🌤️")
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
 logger = logging.getLogger(__name__)
 
 
-# -------------------------------------------------------------------------
-# Canned replies and error handling (limits live in guardrails.py)
-# -------------------------------------------------------------------------
-
+# --- Canned replies and error handling (limits live in guardrails.py) ---
 CONNECTING_MSG = "Connecting to the weather database server. Please wait..."
 
 # Shown instead of raw exception text, which can leak internals to visitors.
@@ -33,6 +33,55 @@ GENERIC_ERROR_MSG = (
 # Best-effort match for Databricks quota / compute-unavailable errors; the
 # exact Free Edition wording isn't documented, so match on common markers.
 _QUOTA_MARKERS = ("quota", "resource_exhausted", "usage limit", "limit exceeded")
+
+
+CLEAR_COMMAND = "/clear"
+HELP_COMMAND = "/help"
+PLOT_COMMAND = chat_session.PLOT_COMMAND
+
+WELCOME_MSG = (
+    "Welcome to the Weather Observations Chat! I answer questions about past weather observations "
+    "(temperatures, rain, snow, and wind) at major cities around the US. Just ask a question, "
+    "or type `/help` for example questions you could ask."
+)
+
+# Example questions for the /help command.
+HELP_EXAMPLES = [
+    "What was the hottest day in Chicago this past summer?",
+    "How much snow did Dulles Airport get in its last snowstorm over 6 inches?",
+    "How many days did it rain in Miami in 2025?",
+]
+PLOT_EXAMPLES = [
+    "/plot average high and low temperature for each month at Chicago",
+    "/plot monthly temperatures at New York City in 2025 against normal",
+    "/plot the number of 90-degree days per year at Washington DC",
+]
+
+
+# Chat avatars: an emoji on a colored tile (CSS below sets the tile colors).
+AVATARS = {"user": "🧑", "assistant": "⛅"}
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
+
+
+def _start_saving():
+    # on_click runs before the rerun, so the button already renders
+    # disabled in the run that performs the save
+    st.session_state.prefs_saving = True
+
+
+def _plot_it(turn: dict):
+    # on_click runs before the rerun: queue the same question as /plot, once
+    turn["plot_it_used"] = True
+    st.session_state.pending_question = f"{PLOT_COMMAND} {turn['question']}"
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def friendly_error(error_text: str) -> str:
@@ -70,29 +119,6 @@ def get_home_locations(_conn):
     return db.list_home_locations(_conn)
 
 
-CLEAR_COMMAND = "/clear"
-HELP_COMMAND = "/help"
-PLOT_COMMAND = chat_session.PLOT_COMMAND
-
-WELCOME_MSG = (
-    "Welcome to the Weather Observations Chat! I answer questions about past weather observations "
-    "(temperatures, rain, snow, and wind) at major cities around the US. Just ask a question, "
-    "or type `/help` for example questions you could ask."
-)
-
-# Example questions for the /help command.
-HELP_EXAMPLES = [
-    "What was the hottest day in Chicago this past summer?",
-    "How much snow did Dulles Airport get in its last snowstorm over 6 inches?",
-    "How many days did it rain in Miami in 2025?",
-]
-PLOT_EXAMPLES = [
-    "/plot average high and low temperature for each month at Chicago",
-    "/plot monthly temperatures at New York City in 2025 against normal",
-    "/plot the number of 90-degree days per year at Washington DC",
-]
-
-
 def render_help():
     examples = "\n".join(f"- {q}" for q in HELP_EXAMPLES)
     st.markdown(
@@ -108,10 +134,6 @@ def render_help():
     )
 
 
-# Chat avatars: an emoji on a colored tile (CSS below sets the tile colors).
-AVATARS = {"user": "🧑", "assistant": "⛅"}
-
-
 def chat_message(role: str):
     return st.chat_message(role, avatar=AVATARS[role])
 
@@ -121,69 +143,6 @@ def render_help_cards_at(position):
     for _ in range(st.session_state.get("help_after", []).count(position)):
         with chat_message("assistant"):
             render_help()
-
-
-# - Preferences header: sticky just under Streamlit's 3.75rem top bar. Set on
-#   the form's wrapper, whose parent is the main column that grows with the
-#   chat (sticky only works within its parent's height). It needs an opaque
-#   background so scrolled messages don't show through: only .stApp carries
-#   the theme's, and the elements between it and the header are transparent,
-#   so each of them inherits it -- the header then follows a theme switch
-#   live (st.context.theme follows the browser, not the app's theme menu).
-# - Update and Plot it buttons: sky blue when clickable. Only the enabled
-#   state is restyled, so Streamlit's own gray disabled style shows while saving.
-# - Chat: user messages on the right (avatar flipped to the right, bubble
-#   shrunk to its text), answers stay left -- messaging-app layout. Emoji
-#   avatars carry no role test id, so rows are matched by the content's
-#   aria-label; the avatar tile is the row's first child.
-# st.html (not st.markdown): a style-only block takes no layout space.
-st.html(f"""
-    <style>
-    [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"]
-        > [data-testid="stLayoutWrapper"]:has(> .st-key-prefs_header) {{
-        position: sticky;
-        top: 3.75rem;
-        z-index: 99;
-        padding-bottom: 0.5rem;
-    }}
-    [data-testid="stApp"] :has(.st-key-prefs_header) {{
-        background-color: inherit;
-    }}
-    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from user"]) {{
-        flex-direction: row-reverse;
-        width: fit-content;
-        max-width: 85%;
-        margin-left: auto;
-    }}
-    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from user"]) > div:first-child {{
-        /* pale enough that the yellow emoji face still stands out */
-        background-color: #FFF4B8;
-        border-color: #FFF4B8;
-    }}
-    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from assistant"]) > div:first-child {{
-        background-color: #87CEEB;
-        border-color: #87CEEB;
-    }}
-    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled),
-    [data-testid="stBaseButton-primary"]:not(:disabled) {{
-        background-color: #87CEEB;
-        border-color: #87CEEB;
-        color: #0E1117;
-    }}
-    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled):hover,
-    [data-testid="stBaseButton-primary"]:not(:disabled):hover {{
-        background-color: #5DB8DE;
-        border-color: #5DB8DE;
-        color: #0E1117;
-    }}
-    </style>
-    """)
-
-
-def _start_saving():
-    # on_click runs before the rerun, so the button already renders
-    # disabled in the run that performs the save
-    st.session_state.prefs_saving = True
 
 
 def render_preferences(session, locations):
@@ -288,12 +247,6 @@ def daily_limit_reached(conn) -> bool:
         return False
 
 
-def _plot_it(turn: dict):
-    # on_click runs before the rerun: queue the same question as /plot, once
-    turn["plot_it_used"] = True
-    st.session_state.pending_question = f"{PLOT_COMMAND} {turn['question']}"
-
-
 def render_answer(turn: dict, index: int):
     answer = turn["answer"]
     if answer.startswith("[error]"):
@@ -338,6 +291,70 @@ def render_answer(turn: dict, index: int):
                 mime="text/csv",
                 key=f"csv_{index}_{j}",
             )
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+st.set_page_config(page_title="Weather Observations Chatbot", page_icon="🌤️")
+
+
+# - Preferences header: sticky just under Streamlit's 3.75rem top bar. Set on
+#   the form's wrapper, whose parent is the main column that grows with the
+#   chat (sticky only works within its parent's height). It needs an opaque
+#   background so scrolled messages don't show through: only .stApp carries
+#   the theme's, and the elements between it and the header are transparent,
+#   so each of them inherits it -- the header then follows a theme switch
+#   live (st.context.theme follows the browser, not the app's theme menu).
+# - Update and Plot it buttons: sky blue when clickable. Only the enabled
+#   state is restyled, so Streamlit's own gray disabled style shows while saving.
+# - Chat: user messages on the right (avatar flipped to the right, bubble
+#   shrunk to its text), answers stay left -- messaging-app layout. Emoji
+#   avatars carry no role test id, so rows are matched by the content's
+#   aria-label; the avatar tile is the row's first child.
+# st.html (not st.markdown): a style-only block takes no layout space.
+st.html(f"""
+    <style>
+    [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"]
+        > [data-testid="stLayoutWrapper"]:has(> .st-key-prefs_header) {{
+        position: sticky;
+        top: 3.75rem;
+        z-index: 99;
+        padding-bottom: 0.5rem;
+    }}
+    [data-testid="stApp"] :has(.st-key-prefs_header) {{
+        background-color: inherit;
+    }}
+    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from user"]) {{
+        flex-direction: row-reverse;
+        width: fit-content;
+        max-width: 85%;
+        margin-left: auto;
+    }}
+    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from user"]) > div:first-child {{
+        /* pale enough that the yellow emoji face still stands out */
+        background-color: #FFF4B8;
+        border-color: #FFF4B8;
+    }}
+    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from assistant"]) > div:first-child {{
+        background-color: #87CEEB;
+        border-color: #87CEEB;
+    }}
+    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled),
+    [data-testid="stBaseButton-primary"]:not(:disabled) {{
+        background-color: #87CEEB;
+        border-color: #87CEEB;
+        color: #0E1117;
+    }}
+    [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled):hover,
+    [data-testid="stBaseButton-primary"]:not(:disabled):hover {{
+        background-color: #5DB8DE;
+        border-color: #5DB8DE;
+        color: #0E1117;
+    }}
+    </style>
+    """)
 
 
 # Page order: header, welcome, then the connecting spinner. The header needs

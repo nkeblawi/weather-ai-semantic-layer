@@ -37,10 +37,12 @@ from wxcore.validation import (
 from wxcore.validation import cap_rank_limits as _cap_rank_limits
 from wxcore.validation import coerce_series as _coerce_series_params
 
+
 # ---------------------------------------------------------------------------
-# Limits
+# Constants
 # ---------------------------------------------------------------------------
 
+# --- Limits ---
 # Usage caps. They mainly protect the Databricks Free Edition daily compute
 # quota, which the ingest jobs share. Question caps count only resolved
 # questions (ones that ran answer_query); clarifications and errors are free.
@@ -68,17 +70,13 @@ IP_LIMIT_WINDOW_SECS = 3600
 GLOBAL_SESSION_LIMIT = int(os.environ.get("WX_GLOBAL_SESSION_LIMIT", "30"))
 GLOBAL_SESSION_WINDOW_SECS = 60
 
-# ---------------------------------------------------------------------------
-# Allowed values of the resolver's reply itself (SKILL.md Step 6)
-# ---------------------------------------------------------------------------
 
+# --- Allowed values of the resolver's reply itself (SKILL.md Step 6) ---
 CLARIFICATION_REASONS = {"needs_plot"}
 STATUSES = {"resolved", "needs_clarification", "off_topic"}
 
-# ---------------------------------------------------------------------------
-# Canned replies (shown instead of model-written text)
-# ---------------------------------------------------------------------------
 
+# --- Canned replies (shown instead of model-written text) ---
 OFF_TOPIC_MSG = (
     "I can only answer questions about past weather at the stations in the "
     "Home city list. Type /help for examples."
@@ -151,9 +149,28 @@ INJECTION_PATTERNS = [
 ]
 
 
+# --- Resolver output validation (before the warehouse) ---
+DAILY_WORDS = re.compile(
+    r"\b(daily|each day|every day|per day|day[- ]by[- ]day)\b", re.IGNORECASE
+)
+
+
 # ---------------------------------------------------------------------------
-# Session limits
+# Helper Functions
 # ---------------------------------------------------------------------------
+
+# --- Pre-checks (before Claude) ---
+
+
+def _normalize(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+# --- Session limits ---
 
 
 @dataclass
@@ -194,9 +211,7 @@ def session_limit(session) -> SessionLimit | None:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Pre-checks (before Claude)
-# ---------------------------------------------------------------------------
+# --- Pre-checks (before Claude) ---
 
 
 @dataclass
@@ -206,10 +221,6 @@ class Blocked:
     reply: str
     reason: str
     off_topic: bool = False  # counts toward the off-topic streak
-
-
-def _normalize(text: str) -> str:
-    return " ".join(text.lower().split())
 
 
 def pre_check(
@@ -251,9 +262,7 @@ def pre_check(
     return None
 
 
-# ---------------------------------------------------------------------------
-# Limits across sessions (per IP, app-wide)
-# ---------------------------------------------------------------------------
+# --- Limits across sessions (per IP, app-wide) ---
 
 
 class SlidingWindow:
@@ -311,9 +320,7 @@ class RateLimits:
         return None
 
 
-# ---------------------------------------------------------------------------
-# Resolver output validation (before the warehouse)
-# ---------------------------------------------------------------------------
+# --- Resolver output validation (before the warehouse) ---
 
 
 def coerce_dates(resolved: dict, question: str = "") -> None:
@@ -337,11 +344,6 @@ def coerce_dates(resolved: dict, question: str = "") -> None:
                 else q["aggregation"] == "earliest"
             )
             q["aggregation"] = "first_date" if first else "last_date"
-
-
-DAILY_WORDS = re.compile(
-    r"\b(daily|each day|every day|per day|day[- ]by[- ]day)\b", re.IGNORECASE
-)
 
 
 def cap_rank_limits(resolved: dict) -> None:

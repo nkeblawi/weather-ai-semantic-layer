@@ -31,6 +31,7 @@ from wxcore.validation import (
     MAX_QUERIES_PER_QUESTION,
 )
 
+
 # ---------------------------------------------------------------------------
 # Constants: each tool's choices -> query values
 # ---------------------------------------------------------------------------
@@ -96,6 +97,7 @@ COUNT_PER = (GRAINS - {"day"}) | {f"{k}_of_year" for k in ("month", "season", "w
 AGAINST_NORMAL = {"overlay", "anomaly"}
 CHART_DATES = {"first", "last", "both", "growing_season"}
 NORMAL_BASELINE = {"start_year": NORMAL_START_YEAR, "end_year": NORMAL_END_YEAR}
+
 
 # ---------------------------------------------------------------------------
 # Helper Functions
@@ -252,8 +254,11 @@ def _to_date(metric, today) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Basic Tools
+# Functions
 # ---------------------------------------------------------------------------
+
+# --- Basic Tools ---
+
 
 # Each basic tool returns a flat query dict
 
@@ -435,9 +440,8 @@ def compare_periods(
     return q
 
 
-# ---------------------------------------------------------------------------
-# Charting Tools
-# ---------------------------------------------------------------------------
+# --- Charting Tools ---
+
 
 # Each chart tool returns a list of series queries: one per line on the chart.
 

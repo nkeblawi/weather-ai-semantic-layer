@@ -34,6 +34,11 @@ from wxcore.dates import ALL_TIME_START, NORMAL_END_YEAR, NORMAL_START_YEAR
 from wxcore.units import natural_aggregation
 from wxcore.validation import CONDITIONS, DATE_AGGREGATIONS, HALF_YEARS
 
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 # an event is a run of consecutive rain days or snow days
 EVENT_DAY_THRESHOLDS = {
     metric: {"operator": operator, "value": value}
@@ -42,6 +47,11 @@ EVENT_DAY_THRESHOLDS = {
 BUCKET_UNITS = {"month", "year", "season", "snow_season"}
 SUPERLATIVE_AGGREGATIONS = {"max", "min", "top", "bottom", "latest", "earliest"} | DATE_AGGREGATIONS
 WHOLE_RECORD_UNITS = BUCKET_UNITS | {"day_of_year"}
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
 
 
 def _fill_dates(q, unit, today: date) -> None:
@@ -57,6 +67,11 @@ def _fill_dates(q, unit, today: date) -> None:
     ):
         q["start_date"] = ALL_TIME_START
         q["end_date"] = today.isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def apply_defaults(queries, today: date | None = None) -> None:

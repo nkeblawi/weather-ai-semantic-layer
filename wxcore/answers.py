@@ -30,40 +30,11 @@ from wxcore.units import (
 from wxcore.validation import MAX_RANK_LIMIT, MIN_BUCKET_COVERAGE, RANKING_AGGREGATIONS
 
 
-def _round_value(entry: dict, value):
-    if value is None:
-        return None
-    # counts and event durations are whole numbers of days/events
-    whole = entry["aggregation"] == "count" or (
-        entry.get("unit") == "event" and entry.get("event_value") == "duration"
-    )
-    return int(value) if whole else round(value, 1)
-
-
-def _converted_rows(entry: dict, rows: list[dict], sentence: bool = False) -> list[dict]:
-    """
-    A top/bottom result's rows with output_unit applied to each value and
-    rounded, the same way a single value is. An event row's total is PRCP or
-    SNOW (never converted), so it's only rounded.
-    """
-    out = []
-    for row in rows:
-        row = dict(row)
-        row["value"] = _round_value(entry, convert_value(entry, row.get("value")))
-        if row.get("bucket_year") and (label := season_label(entry, row["bucket_year"], sentence)):
-            del row["bucket_year"]
-            row["season"] = label
-        if row.get("total") is not None:
-            row["total"] = round(row["total"], 1)
-        out.append(row)
-    return out
-
-
 # ---------------------------------------------------------------------------
-# What was computed: a query described in words, for the answer to rest on
+# Constants
 # ---------------------------------------------------------------------------
 
-# bucket unit -> (singular, plural)
+# What was computed (describe): bucket unit -> (singular, plural)
 BUCKET_NAMES = {
     "month": ("month", "months"),
     "year": ("calendar year", "calendar years"),
@@ -101,6 +72,40 @@ ACROSS_EVENTS = {
     "latest": "The most recent of {ev}",
     "earliest": "The earliest of {ev}",
 }
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
+
+
+def _round_value(entry: dict, value):
+    if value is None:
+        return None
+    # counts and event durations are whole numbers of days/events
+    whole = entry["aggregation"] == "count" or (
+        entry.get("unit") == "event" and entry.get("event_value") == "duration"
+    )
+    return int(value) if whole else round(value, 1)
+
+
+def _converted_rows(entry: dict, rows: list[dict], sentence: bool = False) -> list[dict]:
+    """
+    A top/bottom result's rows with output_unit applied to each value and
+    rounded, the same way a single value is. An event row's total is PRCP or
+    SNOW (never converted), so it's only rounded.
+    """
+    out = []
+    for row in rows:
+        row = dict(row)
+        row["value"] = _round_value(entry, convert_value(entry, row.get("value")))
+        if row.get("bucket_year") and (label := season_label(entry, row["bucket_year"], sentence)):
+            del row["bucket_year"]
+            row["season"] = label
+        if row.get("total") is not None:
+            row["total"] = round(row["total"], 1)
+        out.append(row)
+    return out
 
 
 def _metric_name(metric) -> str:
@@ -206,6 +211,27 @@ def _describe_dates(entry: dict) -> str:
     if entry.get("month_filter"):
         what += f", searched in {_months_text(entry['month_filter'])}"
     return what + (SNOW_SEASON_NOTE if unit == "snow_season" else "")
+
+
+def _fmt_day(iso: str) -> str:
+    d = date.fromisoformat(iso)
+    return f"{d:%b} {d.day}, {d.year}"
+
+
+def _fmt_span(start: str, end: str) -> str:
+    s, e = date.fromisoformat(start), date.fromisoformat(end)
+    if s == e:
+        return _fmt_day(start)
+    if (s.year, s.month) == (e.year, e.month):
+        return f"{s:%b} {s.day}–{e.day}, {s.year}"
+    if s.year == e.year:
+        return f"{s:%b} {s.day} – {e:%b} {e.day}, {s.year}"
+    return f"{_fmt_day(start)} – {_fmt_day(end)}"
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def describe(entry: dict) -> str:
@@ -331,22 +357,6 @@ def build_answer_payload(
             if entry.get("unit") == "event":
                 payload["event_value"] = entry.get("event_value", "total")
     return payload
-
-
-def _fmt_day(iso: str) -> str:
-    d = date.fromisoformat(iso)
-    return f"{d:%b} {d.day}, {d.year}"
-
-
-def _fmt_span(start: str, end: str) -> str:
-    s, e = date.fromisoformat(start), date.fromisoformat(end)
-    if s == e:
-        return _fmt_day(start)
-    if (s.year, s.month) == (e.year, e.month):
-        return f"{s:%b} {s.day}–{e.day}, {s.year}"
-    if s.year == e.year:
-        return f"{s:%b} {s.day} – {e:%b} {e.day}, {s.year}"
-    return f"{_fmt_day(start)} – {_fmt_day(end)}"
 
 
 def ranking_chart(payload: dict, table: dict) -> dict:

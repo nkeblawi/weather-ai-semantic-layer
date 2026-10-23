@@ -28,10 +28,58 @@ import chat_store  # noqa: E402
 import guardrails  # noqa: E402
 from wxcore import answers, db, defaults, series, validation  # noqa: E402
 
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 logger = logging.getLogger(__name__)
 
 PLOT_COMMAND = "/plot"
 PLOT_USAGE_MSG = "Add a question after /plot, e.g. `/plot average high and low for each month at Dulles`."
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
+
+
+def _check_resolved(
+    session: QuerySession, resolved: dict, text: str, plot_mode
+) -> list[str]:
+    """The steps between the resolver's reply and the warehouse; returns validate_resolved's problems."""
+    try:
+        pipeline.fill_station_info(session.conn, resolved, session.station_info)
+    except Exception as exc:  # noqa: BLE001 -- unchecked ids are rejected below
+        logger.warning(
+            "station id check failed session=%s: %s", session.session_id, exc
+        )
+    defaults.apply_defaults(resolved.get("queries"))
+    guardrails.cap_rank_limits(resolved)
+    guardrails.coerce_dates(resolved, text)
+    guardrails.coerce_series(resolved, text)
+    return guardrails.validate_resolved(
+        resolved, session.station_info, plot_mode=plot_mode
+    )
+
+
+def _retryable(resolved: dict, problems: list[str], plot_mode) -> bool:
+    """
+    Whether to send the problems back to the model: only a resolved reply
+    that would otherwise get INVALID_MSG. Clarifications and /plot without
+    a series keep their own replies.
+    """
+    if resolved.get("status") != "resolved":
+        return False
+    return not (
+        plot_mode == validation.PLOT_EXPLICIT
+        and problems == ["/plot answered without a series"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def plot_mode_for(session: "QuerySession", question: str) -> tuple[str | None, str]:
@@ -148,39 +196,6 @@ def update_preferences(
         chat_store.check_temp_unit(temp_unit)
     session.temp_unit = temp_unit
     session.home_location = home_location
-
-
-def _check_resolved(
-    session: QuerySession, resolved: dict, text: str, plot_mode
-) -> list[str]:
-    """The steps between the resolver's reply and the warehouse; returns validate_resolved's problems."""
-    try:
-        pipeline.fill_station_info(session.conn, resolved, session.station_info)
-    except Exception as exc:  # noqa: BLE001 -- unchecked ids are rejected below
-        logger.warning(
-            "station id check failed session=%s: %s", session.session_id, exc
-        )
-    defaults.apply_defaults(resolved.get("queries"))
-    guardrails.cap_rank_limits(resolved)
-    guardrails.coerce_dates(resolved, text)
-    guardrails.coerce_series(resolved, text)
-    return guardrails.validate_resolved(
-        resolved, session.station_info, plot_mode=plot_mode
-    )
-
-
-def _retryable(resolved: dict, problems: list[str], plot_mode) -> bool:
-    """
-    Whether to send the problems back to the model: only a resolved reply
-    that would otherwise get INVALID_MSG. Clarifications and /plot without
-    a series keep their own replies.
-    """
-    if resolved.get("status") != "resolved":
-        return False
-    return not (
-        plot_mode == validation.PLOT_EXPLICIT
-        and problems == ["/plot answered without a series"]
-    )
 
 
 def get_answer(

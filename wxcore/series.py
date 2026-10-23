@@ -27,6 +27,11 @@ from wxcore.db import station_place
 from wxcore.units import METRIC_LABELS, METRIC_UNITS, TEMP_METRICS, TOTAL_METRICS, threshold_label
 from wxcore.validation import CLIMATOLOGY_UNITS, CONDITIONS
 
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 # daily histogram bin widths in the data's units (temperatures: 2°F, 1°C)
 HISTOGRAM_BIN = {"PRCP": 0.1, "SNOW": 1.0, "SNWD": 1.0, "AWND": 2.0, "HDD": 2.0, "CDD": 2.0}
 SEASON_NAMES = ["winter", "spring", "summer", "fall"]
@@ -34,46 +39,15 @@ SEASON_NAMES = ["winter", "spring", "summer", "fall"]
 NORMAL_COMPLETENESS = 0.8
 
 
-def baseline_entry(entry: dict) -> dict | None:
-    """
-    The query for a target series' normals: the baseline years at the
-    target's grain (monthly -> month_of_year, a season -> season_of_year,
-    yearly / snow season -> the same unit, averaged in build_series).
-    None when the entry has no baseline.
-    """
-    baseline = entry.get("baseline")
-    if not baseline:
-        return None
-    sy, ey = baseline["start_year"], baseline["end_year"]
-    base = {
-        "station_id": entry["station_id"],
-        "metric": entry["metric"],
-        "aggregation": "series",
-        **{k: entry[k] for k in ("period_aggregation", "threshold") if k in entry},
-        "start_date": f"{sy}-01-01",
-        "end_date": f"{ey}-12-31",
-    }
-    unit = entry["unit"]
-    if unit == "day":
-        return {**base, "unit": "day_of_year"}
-    if unit == "month":
-        return {**base, "unit": "month_of_year"}
-    if unit == "season":
-        return {**base, "unit": "season_of_year"}
-    if unit == "snow_season":
-        # seasons ending in sy..ey (labeled by the year they end in)
-        return {**base, "unit": "snow_season", "start_date": f"{sy - 1}-07-01", "end_date": f"{ey}-06-30"}
-    return {**base, "unit": unit}
+_TWO_DECIMALS = {"PRCP", "SNOW", "SNWD"}
 
 
-def records_entry(entry: dict) -> dict | None:
-    """The whole-record day_of_year query a climate graph's record envelope needs."""
-    if entry.get("display") != "climate":
-        return None
-    return {
-        "station_id": entry["station_id"], "metric": entry["metric"], "aggregation": "series",
-        "unit": "day_of_year", "start_date": ALL_TIME_START, "end_date": date.today().isoformat(),
-    }
+TREND_CAVEAT = "Trend lines use the station's raw record, so they include station changes (instrument swaps, site moves) as well as climate."
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
 
 
 def _aligned_x(iso: str, start: date) -> str:
@@ -159,9 +133,6 @@ def _units(entry: dict, temp_unit: str) -> str:
     if entry["metric"] in TEMP_METRICS:
         return "°C" if (entry.get("output_unit") or temp_unit) == "C" else "°F"
     return METRIC_UNITS.get(entry["metric"], "")
-
-
-_TWO_DECIMALS = {"PRCP", "SNOW", "SNWD"}
 
 
 def _rounder(metric: str, count: bool = False):
@@ -338,6 +309,101 @@ def _trend(points: list[dict], key: str) -> dict | None:
     }
 
 
+def _difference(a: dict, b: dict) -> dict:
+    """Two stations' series as one: a minus b at each shared point."""
+    bv = {p["x"]: p["value"] for p in b["points"]}
+    pts = [{**p, "value": round(p["value"] - bv[p["x"]], 2)} for p in a["points"]
+           if p["value"] is not None and bv.get(p["x"]) is not None]
+    for p in pts:
+        for k in ("normal", "lower", "upper", "anomaly", "stddev", "record_high", "record_low"):
+            p.pop(k, None)
+    return {**a, "kind": "difference", "points": pts, "trend": None, "baseline": None,
+            "name": f"{a['place']} minus {b['place']}", "minus_place": b["place"]}
+
+
+def _growing_season(a: dict, b: dict) -> dict:
+    """Days between the last spring freeze and the first fall freeze, per year."""
+    spring, fall = (a, b) if a["metric_label"].startswith("Last") else (b, a)
+    fall_by_year = {p["year"]: p["date"] for p in fall["points"]}
+    pts = []
+    for p in spring["points"]:
+        if p["year"] in fall_by_year:
+            days = (date.fromisoformat(fall_by_year[p["year"]]) - date.fromisoformat(p["date"])).days
+            pts.append({"x": p["x"], "x_num": p["x_num"], "label": p["label"], "year": p["year"], "value": days})
+    out = {**spring, "kind": "time_series", "units": "days", "metric_label": "Growing season (days between freezes)",
+           "points": pts, "display": None, "bars": False}
+    out["trend"] = _trend(pts, "value") if (spring.get("trend") or fall.get("trend")) else None
+    return out
+
+
+def _climograph_chart(members: list[dict]) -> dict:
+    """Monthly temperatures (lines) and precipitation (bars) in one two-axis chart."""
+    for m in members:
+        m["name"] = m["metric_label"]
+    place = members[0]["place"]
+    period = members[0]["baseline"]
+    return {"kind": "climograph", "unit": "month_of_year", "units": members[0]["units"],
+            "title": f"Climograph · {place}", "heading": "Climograph" + (f" ({period})" if period else ""),
+            "subtitle": place, "series": members,
+            "notes": list(dict.fromkeys(n for m in members for n in m["notes"])) + ["Click a legend item to hide or show it."]}
+
+
+def _climatology_table(members: list[dict], units: str) -> list[dict]:
+    rows = {}
+    for m in members:
+        for p in m["points"]:
+            row = rows.setdefault(p["x"], {"": p["label"]})
+            row[m["name"]] = f"{p['value']}{units if units.startswith('°') else ' ' + units}"
+    return [rows[k] for k in sorted(rows)]
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+
+def baseline_entry(entry: dict) -> dict | None:
+    """
+    The query for a target series' normals: the baseline years at the
+    target's grain (monthly -> month_of_year, a season -> season_of_year,
+    yearly / snow season -> the same unit, averaged in build_series).
+    None when the entry has no baseline.
+    """
+    baseline = entry.get("baseline")
+    if not baseline:
+        return None
+    sy, ey = baseline["start_year"], baseline["end_year"]
+    base = {
+        "station_id": entry["station_id"],
+        "metric": entry["metric"],
+        "aggregation": "series",
+        **{k: entry[k] for k in ("period_aggregation", "threshold") if k in entry},
+        "start_date": f"{sy}-01-01",
+        "end_date": f"{ey}-12-31",
+    }
+    unit = entry["unit"]
+    if unit == "day":
+        return {**base, "unit": "day_of_year"}
+    if unit == "month":
+        return {**base, "unit": "month_of_year"}
+    if unit == "season":
+        return {**base, "unit": "season_of_year"}
+    if unit == "snow_season":
+        # seasons ending in sy..ey (labeled by the year they end in)
+        return {**base, "unit": "snow_season", "start_date": f"{sy - 1}-07-01", "end_date": f"{ey}-06-30"}
+    return {**base, "unit": unit}
+
+
+def records_entry(entry: dict) -> dict | None:
+    """The whole-record day_of_year query a climate graph's record envelope needs."""
+    if entry.get("display") != "climate":
+        return None
+    return {
+        "station_id": entry["station_id"], "metric": entry["metric"], "aggregation": "series",
+        "unit": "day_of_year", "start_date": ALL_TIME_START, "end_date": date.today().isoformat(),
+    }
+
+
 def build_series(
     entry: dict,
     result: dict | None,
@@ -509,48 +575,6 @@ def build_series(
     return series
 
 
-TREND_CAVEAT = "Trend lines use the station's raw record, so they include station changes (instrument swaps, site moves) as well as climate."
-
-
-def _difference(a: dict, b: dict) -> dict:
-    """Two stations' series as one: a minus b at each shared point."""
-    bv = {p["x"]: p["value"] for p in b["points"]}
-    pts = [{**p, "value": round(p["value"] - bv[p["x"]], 2)} for p in a["points"]
-           if p["value"] is not None and bv.get(p["x"]) is not None]
-    for p in pts:
-        for k in ("normal", "lower", "upper", "anomaly", "stddev", "record_high", "record_low"):
-            p.pop(k, None)
-    return {**a, "kind": "difference", "points": pts, "trend": None, "baseline": None,
-            "name": f"{a['place']} minus {b['place']}", "minus_place": b["place"]}
-
-
-def _growing_season(a: dict, b: dict) -> dict:
-    """Days between the last spring freeze and the first fall freeze, per year."""
-    spring, fall = (a, b) if a["metric_label"].startswith("Last") else (b, a)
-    fall_by_year = {p["year"]: p["date"] for p in fall["points"]}
-    pts = []
-    for p in spring["points"]:
-        if p["year"] in fall_by_year:
-            days = (date.fromisoformat(fall_by_year[p["year"]]) - date.fromisoformat(p["date"])).days
-            pts.append({"x": p["x"], "x_num": p["x_num"], "label": p["label"], "year": p["year"], "value": days})
-    out = {**spring, "kind": "time_series", "units": "days", "metric_label": "Growing season (days between freezes)",
-           "points": pts, "display": None, "bars": False}
-    out["trend"] = _trend(pts, "value") if (spring.get("trend") or fall.get("trend")) else None
-    return out
-
-
-def _climograph_chart(members: list[dict]) -> dict:
-    """Monthly temperatures (lines) and precipitation (bars) in one two-axis chart."""
-    for m in members:
-        m["name"] = m["metric_label"]
-    place = members[0]["place"]
-    period = members[0]["baseline"]
-    return {"kind": "climograph", "unit": "month_of_year", "units": members[0]["units"],
-            "title": f"Climograph · {place}", "heading": "Climograph" + (f" ({period})" if period else ""),
-            "subtitle": place, "series": members,
-            "notes": list(dict.fromkeys(n for m in members for n in m["notes"])) + ["Click a legend item to hide or show it."]}
-
-
 def group_charts(series_list: list[dict]) -> list[dict]:
     """
     Series that share a chart kind, grain, and unit of measure go on one
@@ -649,15 +673,6 @@ def group_charts(series_list: list[dict]) -> list[dict]:
             chart["table"] = _climatology_table(members, units)
         charts.append(chart)
     return charts
-
-
-def _climatology_table(members: list[dict], units: str) -> list[dict]:
-    rows = {}
-    for m in members:
-        for p in m["points"]:
-            row = rows.setdefault(p["x"], {"": p["label"]})
-            row[m["name"]] = f"{p['value']}{units if units.startswith('°') else ' ' + units}"
-    return [rows[k] for k in sorted(rows)]
 
 
 def phrasing_summary(series: dict) -> dict:
