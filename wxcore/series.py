@@ -22,10 +22,10 @@ from datetime import date, timedelta
 
 import numpy as np
 
-from wxcore.dates import ALL_TIME_START, season_day, season_label, smooth_day_of_year
+from wxcore.dates import ALL_TIME_START, FALL_MONTHS, SPRING_MONTHS, season_day, season_label, smooth_day_of_year
 from wxcore.db import station_place
 from wxcore.units import METRIC_LABELS, METRIC_UNITS, TEMP_METRICS, TOTAL_METRICS
-from wxcore.validation import CLIMATOLOGY_UNITS
+from wxcore.validation import CLIMATOLOGY_UNITS, CONDITIONS
 
 # daily histogram bin widths in the data's units (temperatures: 2°F, 1°C)
 HISTOGRAM_BIN = {"PRCP": 0.1, "SNOW": 1.0, "SNWD": 1.0, "AWND": 2.0, "HDD": 2.0, "CDD": 2.0}
@@ -124,8 +124,10 @@ def _dates_label(entry: dict, temp_unit: str) -> str:
     t = entry["threshold"]
     first = entry["period_aggregation"] == "first_date"
     months = set(entry.get("month_filter") or [])
-    half = " spring" if months and months <= set(range(1, 7)) else " fall" if months and months <= set(range(7, 13)) else ""
-    if entry["metric"] == "TMIN" and t["operator"] in ("<", "<=") and t["value"] == 32:
+    half = " spring" if months and months <= set(SPRING_MONTHS) else " fall" if months and months <= set(FALL_MONTHS) else ""
+    freeze_metric, freeze_op, freeze_value = CONDITIONS["freeze"]
+    # "<" too: queries written before freeze became <= 32 still read as a freeze
+    if entry["metric"] == freeze_metric and t["operator"] in (freeze_op, "<") and t["value"] == freeze_value:
         return f"{'First' if first else 'Last'}{half} freeze"
     return f"{'First' if first else 'Last'}{half} " + _count_label(entry, temp_unit).replace("Days with", "day with")
 

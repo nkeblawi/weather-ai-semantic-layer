@@ -10,6 +10,9 @@ import calendar
 from datetime import date, timedelta
 
 SNOW_SEASON_START_MONTH = 7  # NWS snow season: July 1 - June 30
+# halves of the year for first/last dates: the last spring freeze, the first fall freeze
+SPRING_MONTHS = list(range(1, 7))
+FALL_MONTHS = list(range(7, 13))
 
 # Meteorological seasons (SEASON_MONTHS, below). Winter's year starts in
 # December so Dec-Feb stays one bucket, labeled by the year it ends in

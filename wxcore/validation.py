@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import date
 
 from wxcore.dates import ALL_TIME_START
-from wxcore.units import TEMP_METRICS, TOTAL_METRICS
+from wxcore.units import TEMP_METRICS, TOTAL_METRICS, natural_aggregation
 
 # ---------------------------------------------------------------------------
 # Limits
@@ -55,6 +55,7 @@ AGGREGATIONS = {
     "first_date",
     "last_date",
 }
+
 # the first/last day each year (or Jul-Jun season) meeting a threshold: freeze dates, first 90-degree day
 DATE_AGGREGATIONS = {"first_date", "last_date"}
 DATE_UNITS = {"year", "snow_season"}
@@ -78,6 +79,7 @@ CLIMATOLOGY_UNITS = {
     "day_of_year",
     "week_of_year",
 }  # series only, except day_of_year (below)
+
 # day_of_year outside a series: one calendar day's record (max/min) or normal (mean)
 CALENDAR_DAY_AGGREGATIONS = {"max", "min", "mean"}
 SERIES_UNITS = {
@@ -98,10 +100,13 @@ DISPLAYS = {
     "climograph",
     "growing_season",
 }
+
 # difference: two stations' series as one A - B line; climograph: monthly temps + precip in one chart
 CLIMOGRAPH_METRICS = {"TMAX", "TMIN", "TAVG", "PRCP", "SNOW"}
+
 # histogram of per-period values (the spread of annual snowfall); unit value is always one
 HISTOGRAM_UNITS = {"month", "year", "season", "snow_season"}
+
 # climate: NWS-style daily graph (normals + records); cumulative: running total
 DAILY_DISPLAYS = {"climate": TEMP_METRICS, "cumulative": TOTAL_METRICS}
 SEASONS = {"winter", "spring", "summer", "fall"}
@@ -110,12 +115,27 @@ EVENT_METRICS = TOTAL_METRICS
 EVENT_ONLY_AGGREGATIONS = {"latest", "earliest"}
 EVENT_VALUES = {"total", "duration"}
 PERIOD_AGGREGATIONS = {"mean", "sum"}
+
 # a series bucket can also count the days meeting its threshold (90F+ days per year);
 # any: 1 if a day in the bucket meets the threshold -- a climatology of it is the share of years;
 # first/last_date: the first/last such day. All three need a threshold.
 THRESHOLD_PERIOD_AGGREGATIONS = {"count", "any"} | DATE_AGGREGATIONS
 SERIES_PERIOD_AGGREGATIONS = PERIOD_AGGREGATIONS | THRESHOLD_PERIOD_AGGREGATIONS
 OUTPUT_UNITS = {"C", "F"}
+
+# Named day conditions: name -> (metric, operator, value). A query with a
+# condition gets its metric and threshold from it (wxcore.defaults).
+# Freeze is a low at or below 32F (0C).
+CONDITIONS = {
+    "snow_day": ("SNOW", ">=", 0.5),
+    "measurable_snow": ("SNOW", ">=", 0.1),
+    "rain_day": ("PRCP", ">=", 0.05),
+    "measurable_rain": ("PRCP", ">=", 0.01),
+    "dry_day": ("PRCP", "=", 0),
+    "freeze": ("TMIN", "<=", 32),
+    "hard_freeze": ("TMIN", "<=", 28),
+    "snow_on_ground": ("SNWD", ">=", 1),
+}
 
 # Plot modes, which say whether queries may or must be series: PLOT_EXPLICIT
 # (a chart request: all series, or a ranking drawn as bars), PLOT_INHERITED
@@ -149,6 +169,25 @@ def _parse_date(value) -> date | None:
         return None
 
 
+def _check_condition(q, metric, unit) -> list[str]:
+    name = q["condition"]
+    if not isinstance(name, str) or name not in CONDITIONS:
+        return [f"condition {name!r} not allowed"]
+    want_metric, operator, value = CONDITIONS[name]
+    problems = []
+    if metric != want_metric:
+        problems.append(
+            f"condition {name!r} is for {want_metric}, got metric {metric!r}"
+        )
+    if unit == "event":
+        problems.append(f"condition {name!r} doesn't apply to unit 'event'")
+    elif q.get("threshold") != {"operator": operator, "value": value}:
+        problems.append(
+            f"condition {name!r} means threshold {operator} {value}, got {q.get('threshold')!r}"
+        )
+    return problems
+
+
 def _validate_query(q, station_info: dict, today: date) -> list[str]:
     if not isinstance(q, dict):
         return ["query is not an object"]
@@ -166,6 +205,8 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
     unit = q.get("unit", "day")
     if metric not in METRICS:
         problems.append(f"metric {metric!r} not allowed")
+    if "condition" in q:
+        problems += _check_condition(q, metric, unit)
     if aggregation not in AGGREGATIONS:
         problems.append(f"aggregation {aggregation!r} not allowed")
     if unit not in UNITS:
@@ -302,7 +343,6 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         if start > today:
             problems.append("start_date is in the future")
     return problems
-
 
 
 def cap_rank_limits(queries) -> None:
@@ -443,7 +483,11 @@ DAILY_LIMIT_NOTE = (
 def series_span(q: dict) -> tuple[date | None, date | None, bool]:
     """(start, end, long_span): the query's dates, and whether they span more than daily points allow."""
     start, end = _parse_date(q.get("start_date")), _parse_date(q.get("end_date"))
-    return start, end, bool(start and end and (end - start).days > MAX_DAILY_SERIES_DAYS)
+    return (
+        start,
+        end,
+        bool(start and end and (end - start).days > MAX_DAILY_SERIES_DAYS),
+    )
 
 
 def coerce_series(queries) -> None:
@@ -464,7 +508,7 @@ def coerce_series(queries) -> None:
             # monthly buckets need one; a daily mean is the closest reading
             q.setdefault(
                 "period_aggregation",
-                "sum" if q.get("metric") in TOTAL_METRICS else "mean",
+                natural_aggregation(q.get("metric")) or "mean",
             )
             q.setdefault("notes", []).append(DAILY_LIMIT_NOTE)
         elif (
@@ -535,9 +579,7 @@ def validate_queries(
     if len(queries) > MAX_QUERIES_PER_QUESTION:
         return [f"{len(queries)} queries (max {MAX_QUERIES_PER_QUESTION})"]
     problems = [p for q in queries for p in _validate_query(q, station_info, today)]
-    series = [
-        isinstance(q, dict) and q.get("aggregation") == "series" for q in queries
-    ]
+    series = [isinstance(q, dict) and q.get("aggregation") == "series" for q in queries]
     rankings = [
         isinstance(q, dict) and q.get("aggregation") in RANKING_AGGREGATIONS
         for q in queries
