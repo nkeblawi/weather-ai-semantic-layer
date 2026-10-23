@@ -40,17 +40,17 @@ last 30 days") resolve from it (Step 5).
 ## Step 2 — Resolve the location to a GHCN station ID
 
 1. Extract the place reference from the question (city, airport name/code, ICAO/IATA code, or "near me" / "here" style phrasing).
-2. Call the `lookup_station` tool with that text, plus the place's `latitude` and `longitude` (your best estimate) when it's a
-   city or town. It matches case-insensitively and punctuation-insensitively against each active station's ICAO code, IATA code,
-   city, name, and known aliases.
+2. Call the `lookup_station` tool with that text. It matches case-insensitively and punctuation-insensitively against each
+   active station's ICAO code, IATA code, city, name, and known aliases, and finds any other city or town by name (add the state
+   or country when the name is ambiguous: "Vienna, VA", "Paris, France").
 3. A result with `ghcn_id` is the station to use, including one with `nearest_to` and `miles` (a station a few miles from a place
    that has none of its own, e.g. LaGuardia for New York).
-4. A result with `"match": "none"` means no station serves the place directly. Stop and set `clarification_question` to its
+4. A result with `ask_user` means no station serves the place directly. Stop and set `clarification_question` to its
    `ask_user` text exactly, adding nothing. If the user then agrees ("yes", or names one of the stations offered), call
    `lookup_station` with that station's name or code.
 5. Never set `station_id` to a station that didn't come back from a `lookup_station` call, and never guess one from memory.
 6. Call `lookup_station` even for a place that seems outside the covered region (e.g. Paris, France): its `ask_user` names the
-   cities that are covered.
+   countries that are covered.
 7. On success, set `station_id` to the returned `ghcn_id`, never the airport code or city name.
 
 If the question names no location, resolve it in order: (a) inherit `station_id` from the **Conversation context** section (see "Follow-up

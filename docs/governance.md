@@ -28,9 +28,9 @@ Both catalogs have the same schemas:
 
 | Schema | Holds | Written by |
 |---|---|---|
-| `raw` | Source data as loaded (GHCN, ACIS, EMSHR, station list) | Ingest jobs |
-| `cleaned` | Converted, merged, and QC'd observations and stations | Transform jobs |
-| `analytics` | `observations`, `stations`, `station_aliases`, and the UC SQL functions | Transform jobs, `scripts/deploy_sql.sh` |
+| `raw` | Source data as loaded (GHCN, ACIS, EMSHR, station list, GeoNames) | Ingest jobs |
+| `cleaned` | Converted, merged, and QC'd observations and stations; `places` (GeoNames) | Transform jobs |
+| `analytics` | `observations`, `stations`, `station_aliases`, `places`, and the UC SQL functions | Transform jobs, `scripts/deploy_sql.sh` |
 | `app` | `users`, `chat_history`, and `usage_daily` (application state, not weather data) | The app; the retention job (section 8) |
 
 ## 3. Grants
@@ -95,6 +95,7 @@ All jobs are defined in `resources/*.yml` and deployed with
 | `wx_station_ingest` | Fetches, filters, and merges the EMSHR and GHCN station lists | `raw`, `cleaned` | On demand | Yes (and on success) |
 | `wx_activate_station` | Activates a station, recreates the `stations` view, and backfills its observations | `raw`, `cleaned`, `analytics` | On demand (job parameters) | No |
 | `wx_load_station_history` | Loads observations from a station's older IDs (has `dry_run`) | `raw.obs_ghcn` | On demand (job parameters) | No |
+| `wx_places_ingest` | Loads the GeoNames gazetteer (places with 1,000+ people) and recreates the `places` view | `raw.geonames_raw`, `cleaned.places`, `analytics.places` | On demand only | Yes |
 | `wx_app_schema` | Creates the `app` schema and tables (`IF NOT EXISTS`) | `app` | On demand, after a deploy | Yes |
 | `wx_app_retention` | Rolls up daily usage, then deletes old turns (section 8) | `app` | Daily 03:00 ET | Yes |
 

@@ -17,9 +17,11 @@ native-parameters feature.
 """
 
 import json
+import logging
 import math
 import os
 import re
+import unicodedata
 from datetime import date
 
 from databricks import sql as databricks_sql
@@ -33,7 +35,6 @@ from wxcore.dates import (
     season_months,
     smooth_day_of_year,
 )
-
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -49,14 +50,61 @@ NEARBY_MILES = 50
 FAR_MILES = 150
 MAX_NEARBY = 3
 EARTH_RADIUS_MILES = 3958.8
+
 # station-name abbreviations, spelled out for the user ("WASHINGTON DULLES INTL AP")
-NAME_WORDS = {"INTL": "International", "NATL": "National", "AP": "Airport", "A": "Airport"}
+NAME_WORDS = {
+    "INTL": "International",
+    "NATL": "National",
+    "AP": "Airport",
+    "A": "Airport",
+}
+
 # Where the stations are, in a no-station reply: countries ("the US and
 # Canada"), or continents once there are more than MAX_COUNTRIES_NAMED.
 # Countries not listed here use the stations table's country_name.
 MAX_COUNTRIES_NAMED = 5
 COUNTRY_NAMES = {"US": "the US", "GB": "the UK"}
-CONTINENTS = {"US": "North America", "CA": "North America", "MX": "North America", "PR": "North America"}
+CONTINENTS = {
+    "US": "North America",
+    "CA": "North America",
+    "MX": "North America",
+    "PR": "North America",
+}
+
+# A place's coordinates come from analytics.places (GeoNames cities with
+# 1,000+ people). Qualifiers after the name ("Vienna, VA", "Paris, France")
+# match a state/province or country by code or name; these are the other
+# ways people write them. Canadian provinces have numeric GeoNames codes.
+COUNTRY_ALIASES = {
+    "usa": "us",
+    "united states of america": "us",
+    "america": "us",
+    "uk": "gb",
+    "england": "gb",
+    "scotland": "gb",
+    "wales": "gb",
+    "britain": "gb",
+    "great britain": "gb",
+}
+PROVINCE_NAMES = {
+    "ab": "alberta",
+    "bc": "british columbia",
+    "mb": "manitoba",
+    "nb": "new brunswick",
+    "nl": "newfoundland and labrador",
+    "ns": "nova scotia",
+    "nt": "northwest territories",
+    "nu": "nunavut",
+    "on": "ontario",
+    "pe": "prince edward island",
+    "qc": "quebec",
+    "sk": "saskatchewan",
+    "yt": "yukon",
+}
+# a qualifier with no comma before it is at most this many words ("Newfoundland and Labrador")
+MAX_QUALIFIER_WORDS = 3
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -101,32 +149,137 @@ def _nearby(conn, latitude: float, longitude: float) -> list[dict]:
             continue
         miles = round(_miles(latitude, longitude, lat, lon))
         if miles <= FAR_MILES:
-            stations.append({"ghcn_id": ghcn_id, "name": name, "city": city, "state": state, "iata": iata,
-                             "miles": miles})
+            stations.append(
+                {
+                    "ghcn_id": ghcn_id,
+                    "name": name,
+                    "city": city,
+                    "state": state,
+                    "iata": iata,
+                    "miles": miles,
+                }
+            )
     return sorted(stations, key=lambda s: s["miles"])[:MAX_NEARBY]
+
+
+def _ascii_key(text: str) -> str:
+    """'Montréal ' -> 'montreal': accents dropped, lowercased, spaces collapsed (as places.name_key)."""
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return " ".join(text.lower().split())
+
+
+def _place_label(place: dict) -> str:
+    """'Vienna, VA' in the US, else 'Paris, France': a place as the user would write it."""
+    name = place["place_name"]
+    if "," in name:
+        return name  # already qualified ("Washington, D.C.")
+    if place["country_code"] == "US" and place.get("admin1_code"):
+        return f"{name}, {place['admin1_code']}"
+    return f"{name}, {place['country_name']}" if place.get("country_name") else name
+
+
+def _query_place(conn, name: str, qualifiers: list[str]) -> dict | None:
+    """
+    The place analytics.places has for a name: an exact name before a
+    longer one starting with it ("New York" -> New York City, "Washington"
+    -> Washington, D.C.), then the most populous, narrowed by qualifiers
+    (state/province or country, by code or name). Raises if the table
+    isn't there.
+    """
+    params = {"name": name, "prefix": f"{name} %", "comma": f"{name},%"}
+    where = []
+    for i, q in enumerate(qualifiers):
+        params[f"q{i}"] = q
+        params[f"c{i}"] = COUNTRY_ALIASES.get(q, q)
+        params[f"p{i}"] = PROVINCE_NAMES.get(q, q)
+        where.append(
+            f"(lower(admin1_code) = :q{i} OR lower(admin1_name) IN (:q{i}, :p{i}) "
+            f"OR lower(country_code) = :c{i} OR lower(country_name) = :q{i})"
+        )
+    sql = (
+        "SELECT place_name, country_code, country_name, admin1_code, admin1_name, latitude, longitude "
+        f"FROM {catalog()}.analytics.places WHERE (name_key = :name OR name_key LIKE :prefix OR name_key LIKE :comma) "
+        + "".join(f"AND {w} " for w in where)
+        + "ORDER BY name_key = :name DESC, population DESC LIMIT 1"
+    )
+    with conn.cursor() as cur:
+        cur.execute(sql, parameters=params)
+        row = cur.fetchone()
+    if not row:
+        return None
+    keys = (
+        "place_name",
+        "country_code",
+        "country_name",
+        "admin1_code",
+        "admin1_name",
+        "latitude",
+        "longitude",
+    )
+    return dict(zip(keys, row))
+
+
+def _find_place(conn, location_text: str) -> dict | None:
+    """
+    The place a name means (_query_place), with qualifiers after commas
+    ("Vienna, VA"). Without commas, the whole text is tried as a name first,
+    then its last one to MAX_QUALIFIER_WORDS words as the qualifier ("Vienna
+    VA", "Paris Texas", "Vienna West Virginia"). None when nothing matches,
+    or the table isn't there yet.
+    """
+    parts = [re.sub(r"[%_]", "", _ascii_key(part)) for part in location_text.split(",")]
+    name, qualifiers = parts[0], [q for q in parts[1:] if q]
+    if not name:
+        return None
+    tries = [(name, qualifiers)]
+    words = name.split()
+    if len(parts) == 1:
+        tries += [
+            (" ".join(words[:-k]), [" ".join(words[-k:])])
+            for k in range(1, min(MAX_QUALIFIER_WORDS, len(words) - 1) + 1)
+        ]
+    try:
+        for place_name, quals in tries:
+            if place := _query_place(conn, place_name, quals):
+                return place
+    except Exception:  # analytics.places not loaded yet: fall back to the caller's coordinates
+        logger.warning("place lookup failed for %r", location_text, exc_info=True)
+    return None
 
 
 def _same_place(place: str, station: dict) -> bool:
     """'New York' or 'new york, ny' names the station's city 'New York, NY'."""
+
     def city(text):
         return re.sub(r"[^a-z ]", "", text.split(",")[0].lower()).strip()
+
     return city(place) == city(station["city"])
 
 
 def _and_list(names: list[str]) -> str:
     """'A', 'A and B', 'A, B, and C'."""
-    return " and ".join(names) if len(names) <= 2 else ", ".join(names[:-1]) + f", and {names[-1]}"
+    return (
+        " and ".join(names)
+        if len(names) <= 2
+        else ", ".join(names[:-1]) + f", and {names[-1]}"
+    )
 
 
 def _covered_places(conn) -> str:
     """'the US and Canada', or continents when there are many countries: where the active stations are."""
     with conn.cursor() as cur:
-        cur.execute(f"SELECT DISTINCT country_code, country_name FROM {catalog()}.analytics.stations")
+        cur.execute(
+            f"SELECT DISTINCT country_code, country_name FROM {catalog()}.analytics.stations"
+        )
         rows = sorted(cur.fetchall(), key=lambda r: (r[0] != "US", r[0] or ""))
     if len(rows) > MAX_COUNTRIES_NAMED:
-        continents = list(dict.fromkeys(CONTINENTS.get(code, "other regions") for code, _ in rows))
+        continents = list(
+            dict.fromkeys(CONTINENTS.get(code, "other regions") for code, _ in rows)
+        )
         return _and_list(continents)
-    return _and_list([COUNTRY_NAMES.get(code) or (name or code).title() for code, name in rows])
+    return _and_list(
+        [COUNTRY_NAMES.get(code) or (name or code).title() for code, name in rows]
+    )
 
 
 def _sql_bucketing(entry: dict) -> tuple[str, list | None, int | None]:
@@ -149,11 +302,18 @@ def _calendar_day_result(entry: dict, result: dict | None) -> dict | None:
     One calendar day out of a day_of_year result, as a single-value result:
     the record (max/min, with the year set) or the smoothed normal (mean).
     """
-    if not result or result.get("error") or entry["calendar_day"] not in result.get("days", []):
+    if (
+        not result
+        or result.get("error")
+        or entry["calendar_day"] not in result.get("days", [])
+    ):
         return {"value": None}
     i = result["days"].index(entry["calendar_day"])
     agg = entry["aggregation"]
-    out = {"calendar_day": calendar_day_label(entry["calendar_day"]), "n_years": result["n_years"][i]}
+    out = {
+        "calendar_day": calendar_day_label(entry["calendar_day"]),
+        "n_years": result["n_years"][i],
+    }
     if entry.get("period_aggregation") == "any":
         # odds: the share of years the condition held on that day, as a percent
         out["value"] = round(result["values"][i] * 100, 1)
@@ -183,12 +343,20 @@ def _date_result(entry: dict, result: dict | None) -> dict:
     by_day = sorted(found, key=lambda yd: season_day(yd[1], snow))
     mid = by_day[len(by_day) // 2][1]
     # every year that shares the earliest (or latest) day: a tie is reported, not broken
-    tied = lambda end: [d for _, d in found if season_day(d, snow) == season_day(end, snow)]
+    tied = lambda end: [
+        d for _, d in found if season_day(d, snow) == season_day(end, snow)
+    ]
     one_or_all = lambda ds: ds[0] if len(ds) == 1 else sorted(ds)
     years = [y for y, _ in pairs]
-    return {"value": None, "typical_date": date.fromisoformat(mid).strftime("%B %-d"),
-            "earliest_on_record": one_or_all(tied(by_day[0][1])), "latest_on_record": one_or_all(tied(by_day[-1][1])),
-            "data_years": f"{min(years)}-{max(years)}", "years_counted": len(pairs), "years_without": len(pairs) - len(found)}
+    return {
+        "value": None,
+        "typical_date": date.fromisoformat(mid).strftime("%B %-d"),
+        "earliest_on_record": one_or_all(tied(by_day[0][1])),
+        "latest_on_record": one_or_all(tied(by_day[-1][1])),
+        "data_years": f"{min(years)}-{max(years)}",
+        "years_counted": len(pairs),
+        "years_without": len(pairs) - len(found),
+    }
 
 
 def _max_min_result(ranked: dict | None) -> dict:
@@ -241,11 +409,13 @@ def get_databricks_connection():
 def call_lookup_station(conn, location_text: str, latitude=None, longitude=None):
     """
     The active station a place names: {ghcn_id, name, city, state} for a
-    name, code, or alias match. Otherwise, with the place's coordinates:
-    the station in that city (adding nearest_to and miles), or
-    {"match": "none", "nearby": [...], "ask_user": "..."}: stations within
-    FAR_MILES and a question to put to the user before using one. Without
-    coordinates or anything in range, ask_user names the covered cities.
+    name, code, or alias match. Otherwise the place's coordinates (the
+    caller's, else from analytics.places) give: the station in that city
+    (adding nearest_to and miles), or {"match": "none", "nearby": [...],
+    "ask_user": "..."}: stations within FAR_MILES and a question to put to
+    the user before using one (with nothing in range, ask_user names the
+    countries covered; with no place found, it asks where the place is).
+    matched_place says which place the name was taken to mean.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -255,21 +425,43 @@ def call_lookup_station(conn, location_text: str, latitude=None, longitude=None)
         row = cur.fetchone()
     if row and row[0] is not None:
         return json.loads(row[0])
-    nearby = _nearby(conn, latitude, longitude) if latitude is not None and longitude is not None else []
-    same = [s for s in nearby if s["miles"] <= NEARBY_MILES and _same_place(location_text, s)]
+    place_name, matched = location_text, {}
+    if latitude is None or longitude is None:
+        place = _find_place(conn, location_text)
+        if place is None:
+            ask = f"I couldn't find a place called {location_text}. Which city or town is it in or near?"
+            return {"match": "none", "nearby": [], "ask_user": ask}
+        latitude, longitude = place["latitude"], place["longitude"]
+        place_name = _place_label(place)
+        matched = {"matched_place": place_name}
+    nearby = _nearby(conn, latitude, longitude)
+    same = [
+        s
+        for s in nearby
+        if s["miles"] <= NEARBY_MILES and _same_place(location_text, s)
+    ]
     if same:
         station = {k: same[0][k] for k in ("ghcn_id", "name", "city", "state")}
-        return {**station, "nearest_to": location_text, "miles": same[0]["miles"]}
+        return {
+            **station,
+            "nearest_to": location_text,
+            "miles": same[0]["miles"],
+            **matched,
+        }
     if not nearby:
-        ask = f"I don't have weather observation history near {location_text}. I have stations in {_covered_places(conn)}."
-        return {"match": "none", "nearby": [], "ask_user": ask}
+        ask = f"I don't have weather observation history near {place_name}. I have stations in {_covered_places(conn)}."
+        return {"match": "none", "nearby": [], "ask_user": ask, **matched}
     first = nearby[0]
-    ask = f"There's no station in {location_text}. The nearest is {_station_label(first)}, {first['miles']} miles away"
+    ask = f"There's no station in {place_name}. The nearest is {_station_label(first)}, {first['miles']} miles away"
     if first["miles"] > NEARBY_MILES:
         ask += ", so its weather may differ"
-    others = [f"{_station_label(s)}, {s['miles']} miles away" for s in nearby[1:] if s["miles"] <= NEARBY_MILES]
+    others = [
+        f"{_station_label(s)}, {s['miles']} miles away"
+        for s in nearby[1:]
+        if s["miles"] <= NEARBY_MILES
+    ]
     ask += f". Use it{', or ' + ' or '.join(others) if others else ''}?"
-    return {"match": "none", "nearby": nearby, "ask_user": ask}
+    return {"match": "none", "nearby": nearby, "ask_user": ask, **matched}
 
 
 def fill_station_info(conn, queries, station_info: dict) -> None:
@@ -297,7 +489,12 @@ def fill_station_info(conn, queries, station_info: dict) -> None:
         )
         rows = cur.fetchall()
     for ghcn_id, name, city, state in rows:
-        station_info[ghcn_id] = {"ghcn_id": ghcn_id, "name": name, "city": city, "state": state}
+        station_info[ghcn_id] = {
+            "ghcn_id": ghcn_id,
+            "name": name,
+            "city": city,
+            "state": state,
+        }
 
 
 def place_label(city: str, state: str | None) -> str:
@@ -335,26 +532,41 @@ def list_home_locations(conn) -> dict[str, str]:
             ORDER BY city, code
             """)
         rows = cur.fetchall()
-    return {
-        code: f"{place_label(city, state)} ({code})"
-        for code, city, state in rows
-    }
+    return {code: f"{place_label(city, state)} ({code})" for code, city, state in rows}
 
 
 def call_answer_query(conn, entry: dict):
     # A record or normal for one calendar day ("record high on July 4") is a
     # day_of_year series in SQL, reduced to that day here
     if entry.get("unit") == "day_of_year" and entry["aggregation"] != "series":
-        return _calendar_day_result(entry, call_answer_query(conn, {**entry, "aggregation": "series"}))
+        return _calendar_day_result(
+            entry, call_answer_query(conn, {**entry, "aggregation": "series"})
+        )
     # First/last date ("last spring freeze in 2025"): a dates series, reduced here
     if entry["aggregation"] in ("first_date", "last_date"):
-        return _date_result(entry, call_answer_query(
-            conn, {**entry, "aggregation": "series", "period_aggregation": entry["aggregation"]}))
+        return _date_result(
+            entry,
+            call_answer_query(
+                conn,
+                {
+                    **entry,
+                    "aggregation": "series",
+                    "period_aggregation": entry["aggregation"],
+                },
+            ),
+        )
     sql_unit, month_filter, year_start_month = _sql_bucketing(entry)
     # Max/min ("hottest day in 1980"): the top/bottom 1, reduced here
-    if entry["aggregation"] in ("max", "min") and sql_unit in ("day", "event", "month", "year"):
+    if entry["aggregation"] in ("max", "min") and sql_unit in (
+        "day",
+        "event",
+        "month",
+        "year",
+    ):
         ranking = "top" if entry["aggregation"] == "max" else "bottom"
-        return _max_min_result(call_answer_query(conn, {**entry, "aggregation": ranking, "limit": 1}))
+        return _max_min_result(
+            call_answer_query(conn, {**entry, "aggregation": ranking, "limit": 1})
+        )
     threshold = entry.get("threshold") or {}
     event_day_threshold = entry.get("event_day_threshold") or {}
     with conn.cursor() as cur:
@@ -413,12 +625,27 @@ def matching_days(conn, entry: dict, result: dict | None) -> list[dict] | None:
     """
     t = entry.get("threshold") or {}
     n = (result or {}).get("value")
-    if (entry["aggregation"] != "count" or entry.get("unit", "day") != "day" or t.get("operator") not in (">", ">=", "<", "<=")
-            or not isinstance(n, (int, float)) or not 1 <= n <= MATCHING_DAYS_MAX):
+    if (
+        entry["aggregation"] != "count"
+        or entry.get("unit", "day") != "day"
+        or t.get("operator") not in (">", ">=", "<", "<=")
+        or not isinstance(n, (int, float))
+        or not 1 <= n <= MATCHING_DAYS_MAX
+    ):
         return None
     ranked = {k: v for k, v in entry.items() if k != "threshold"} | {
-        "aggregation": "top" if t["operator"] in (">", ">=") else "bottom", "limit": int(n)}
+        "aggregation": "top" if t["operator"] in (">", ">=") else "bottom",
+        "limit": int(n),
+    }
     rows = (call_answer_query(conn, ranked) or {}).get("rows") or []
-    meets = {">": lambda v: v > t["value"], ">=": lambda v: v >= t["value"],
-             "<": lambda v: v < t["value"], "<=": lambda v: v <= t["value"]}[t["operator"]]
-    return [{"obs_date": r["obs_date"], "value": r["value"]} for r in rows if r.get("value") is not None and meets(r["value"])]
+    meets = {
+        ">": lambda v: v > t["value"],
+        ">=": lambda v: v >= t["value"],
+        "<": lambda v: v < t["value"],
+        "<=": lambda v: v <= t["value"],
+    }[t["operator"]]
+    return [
+        {"obs_date": r["obs_date"], "value": r["value"]}
+        for r in rows
+        if r.get("value") is not None and meets(r["value"])
+    ]

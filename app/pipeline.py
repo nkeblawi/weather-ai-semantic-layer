@@ -92,8 +92,8 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "location_text": {"type": "string"},
-                "latitude": {"type": "number", "description": "the place's latitude, your best estimate"},
-                "longitude": {"type": "number", "description": "the place's longitude, your best estimate"},
+                "latitude": {"type": "number", "description": "optional: for a place too small to be known by name"},
+                "longitude": {"type": "number", "description": "optional: for a place too small to be known by name"},
             },
             "required": ["location_text"],
         },
