@@ -26,14 +26,12 @@ if _APP_DIR not in sys.path:
 import pipeline  # noqa: E402
 import chat_store  # noqa: E402
 import guardrails  # noqa: E402
-from wxcore import answers, db, series, validation  # noqa: E402
+from wxcore import answers, db, defaults, series, validation  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 PLOT_COMMAND = "/plot"
-PLOT_USAGE_MSG = (
-    "Add a question after /plot, e.g. `/plot average high and low for each month at Dulles`."
-)
+PLOT_USAGE_MSG = "Add a question after /plot, e.g. `/plot average high and low for each month at Dulles`."
 
 
 def plot_mode_for(session: "QuerySession", question: str) -> tuple[str | None, str]:
@@ -44,7 +42,7 @@ def plot_mode_for(session: "QuerySession", question: str) -> tuple[str | None, s
     """
     text = question.strip()
     if text.lower() == PLOT_COMMAND or text.lower().startswith(PLOT_COMMAND + " "):
-        return validation.PLOT_EXPLICIT, text[len(PLOT_COMMAND):].strip()
+        return validation.PLOT_EXPLICIT, text[len(PLOT_COMMAND) :].strip()
     last = next((t for t in reversed(session.history) if not t.get("ui_only")), None)
     if last and last.get("plot_turn"):
         return validation.PLOT_INHERITED, text
@@ -70,18 +68,23 @@ class QuerySession:
     session_id: str
     temp_unit: str
     home_location: str | None
+
     # False for anonymous visitors (preferences kept for the session only)
     user_saved: bool = True
     turn_index: int = 0
+
     # Turns that resolved and ran answer_query -- what usage limits count.
     # Clarifications and errors don't.
     resolved_count: int = 0
+
     # Off-topic messages in a row (keyword-blocked or resolver off_topic);
     # reset by a resolved answer. guardrails.OFF_TOPIC_STREAK_LIMIT ends the
     # session -- see guardrails.session_limit().
     off_topic_streak: int = 0
+
     # time.monotonic() of each attempt, for the rate limit
     recent_message_times: list[float] = field(default_factory=list)
+
     # Turns shown in the chat. Entries with "ui_only" (blocked, off-topic,
     # invalid) are display-only and never replayed to the model.
     history: list[dict] = field(default_factory=list)
@@ -147,6 +150,39 @@ def update_preferences(
     session.home_location = home_location
 
 
+def _check_resolved(
+    session: QuerySession, resolved: dict, text: str, plot_mode
+) -> list[str]:
+    """The steps between the resolver's reply and the warehouse; returns validate_resolved's problems."""
+    try:
+        pipeline.fill_station_info(session.conn, resolved, session.station_info)
+    except Exception as exc:  # noqa: BLE001 -- unchecked ids are rejected below
+        logger.warning(
+            "station id check failed session=%s: %s", session.session_id, exc
+        )
+    defaults.apply_defaults(resolved.get("queries"))
+    guardrails.cap_rank_limits(resolved)
+    guardrails.coerce_dates(resolved, text)
+    guardrails.coerce_series(resolved, text)
+    return guardrails.validate_resolved(
+        resolved, session.station_info, plot_mode=plot_mode
+    )
+
+
+def _retryable(resolved: dict, problems: list[str], plot_mode) -> bool:
+    """
+    Whether to send the problems back to the model: only a resolved reply
+    that would otherwise get INVALID_MSG. Clarifications and /plot without
+    a series keep their own replies.
+    """
+    if resolved.get("status") != "resolved":
+        return False
+    return not (
+        plot_mode == validation.PLOT_EXPLICIT
+        and problems == ["/plot answered without a series"]
+    )
+
+
 def get_answer(
     session: QuerySession,
     question: str,
@@ -189,32 +225,66 @@ def get_answer(
         now=now,
     )
     session.recent_message_times = [
-        t for t in session.recent_message_times
+        t
+        for t in session.recent_message_times
         if t >= now - guardrails.RATE_LIMIT_WINDOW_SECS
     ] + [now]
     if blocked:
         logger.info("blocked (%s) session=%s", blocked.reason, session.session_id)
         if blocked.off_topic:
             session.off_topic_streak += 1
-        session.history.append({"question": question, "answer": blocked.reply, "query": None, "ui_only": True})
+        session.history.append(
+            {
+                "question": question,
+                "answer": blocked.reply,
+                "query": None,
+                "ui_only": True,
+            }
+        )
         return blocked.reply
     plot_mode, text = plot_mode_for(session, question)
     if plot_mode == validation.PLOT_EXPLICIT and not text:
-        session.history.append({"question": question, "answer": PLOT_USAGE_MSG, "query": None, "ui_only": True})
+        session.history.append(
+            {
+                "question": question,
+                "answer": PLOT_USAGE_MSG,
+                "query": None,
+                "ui_only": True,
+            }
+        )
         return PLOT_USAGE_MSG
+
     # Explicit chart words without /plot: offer the Plot it button, no model call
     if plot_mode == validation.PLOT_OFF and guardrails.CHART_WORDS.search(text):
         session.history.append(
-            {"question": question, "answer": guardrails.NEEDS_PLOT_MSG, "query": None, "ui_only": True, "needs_plot": True}
+            {
+                "question": question,
+                "answer": guardrails.NEEDS_PLOT_MSG,
+                "query": None,
+                "ui_only": True,
+                "needs_plot": True,
+            }
         )
         return guardrails.NEEDS_PLOT_MSG
     if rate_limited and (limited := rate_limited()):
         logger.info("blocked (%s) session=%s", limited.reason, session.session_id)
-        session.history.append({"question": question, "answer": limited.reply, "query": None, "ui_only": True})
+        session.history.append(
+            {
+                "question": question,
+                "answer": limited.reply,
+                "query": None,
+                "ui_only": True,
+            }
+        )
         return limited.reply
     if over_daily_limit and over_daily_limit():
         session.history.append(
-            {"question": question, "answer": guardrails.DAILY_LIMIT_MSG, "query": None, "ui_only": True}
+            {
+                "question": question,
+                "answer": guardrails.DAILY_LIMIT_MSG,
+                "query": None,
+                "ui_only": True,
+            }
         )
         return guardrails.DAILY_LIMIT_MSG
 
@@ -224,11 +294,13 @@ def get_answer(
     charts: list[dict] = []
     needs_plot = False
     status = "error"
+
     # Display-only turns are never replayed to the model as context
     model_history = [t for t in session.history if not t.get("ui_only")]
 
     try:
-        resolved = pipeline.resolve_question(
+        conversation: list = []
+        resolve = lambda problems=None: pipeline.resolve_question(  # noqa: E731
             session.client,
             session.conn,
             text,
@@ -237,28 +309,38 @@ def get_answer(
             station_info=session.station_info,
             home_location=session.home_location,
             plot_mode=plot_mode,
+            conversation=conversation,
+            problems=problems,
         )
-
-        try:
-            pipeline.fill_station_info(session.conn, resolved, session.station_info)
-        except Exception as exc:  # noqa: BLE001 -- unchecked ids are rejected below
-            logger.warning("station id check failed session=%s: %s", session.session_id, exc)
-        guardrails.cap_rank_limits(resolved)
-        guardrails.coerce_dates(resolved, text)
-        guardrails.coerce_series(resolved, text)
-        problems = guardrails.validate_resolved(resolved, session.station_info, plot_mode=plot_mode)
+        resolved = resolve()
+        problems = _check_resolved(session, resolved, text, plot_mode)
+        if problems and _retryable(resolved, problems, plot_mode):
+            # one more try: the model sees what failed and fixes its reply
+            logger.info(
+                "retrying invalid resolver output session=%s: %s",
+                session.session_id,
+                problems,
+            )
+            resolved = resolve(problems)
+            problems = _check_resolved(session, resolved, text, plot_mode)
         if problems:
-            logger.warning("invalid resolver output session=%s: %s", session.session_id, problems)
-            if plot_mode == validation.PLOT_EXPLICIT and problems == ["/plot answered without a series"]:
+            logger.warning(
+                "invalid resolver output session=%s: %s", session.session_id, problems
+            )
+            if plot_mode == validation.PLOT_EXPLICIT and problems == [
+                "/plot answered without a series"
+            ]:
                 # a single value for a /plot request: say what can be charted
                 answer_text = guardrails.NOT_CHARTABLE_MSG
                 status = "needs_clarification"
-            elif resolved.get("status") == "needs_clarification" and plot_mode == validation.PLOT_EXPLICIT:
+            elif (
+                resolved.get("status") == "needs_clarification"
+                and plot_mode == validation.PLOT_EXPLICIT
+            ):
                 answer_text = guardrails.NOT_CHARTABLE_MSG
                 status = "needs_clarification"
             elif resolved.get("status") == "needs_clarification":
-                # A bad clarification (too long, prose that isn't a question)
-                # still means "ask the user"; just don't show the model's text.
+                # A bad clarification (too long, prose that isn't a question) still means "ask the user"; just don't show the model's text.
                 answer_text = guardrails.GENERIC_CLARIFICATION_MSG
                 status = "needs_clarification"
             else:
@@ -267,13 +349,17 @@ def get_answer(
         elif resolved.get("status") == "off_topic":
             answer_text = guardrails.OFF_TOPIC_MSG
             status = "off_topic"
-        elif resolved.get("reason") == "needs_plot" and plot_mode == validation.PLOT_EXPLICIT:
+        elif (
+            resolved.get("reason") == "needs_plot"
+            and plot_mode == validation.PLOT_EXPLICIT
+        ):
             # told it was a /plot turn but asked for /plot anyway
             answer_text = guardrails.NOT_CHARTABLE_MSG
             status = "needs_clarification"
-        elif resolved.get("reason") == "needs_plot" and plot_mode == validation.PLOT_OFF:
-            # a chart request without /plot (e.g. "for each month"): canned
-            # message plus the Plot it button
+        elif (
+            resolved.get("reason") == "needs_plot" and plot_mode == validation.PLOT_OFF
+        ):
+            # a chart request without /plot (e.g. "for each month"): canned message plus the Plot it button
             answer_text = guardrails.NEEDS_PLOT_MSG
             status = "needs_clarification"
             needs_plot = True
@@ -283,21 +369,36 @@ def get_answer(
             )
             status = resolved.get("status", "needs_clarification")
         elif resolved["queries"][0].get("aggregation") == "series":
-            # /plot: every query is a series (validate_resolved); a query with
-            # a baseline also fetches its normals
+            # /plot: every query is a series (validate_resolved); a query with a baseline also fetches its normals
             series_list = []
             for entry in resolved["queries"]:
                 result = db.call_answer_query(session.conn, entry)
                 base_entry = series.baseline_entry(entry)
-                base = db.call_answer_query(session.conn, base_entry) if base_entry else None
+                base = (
+                    db.call_answer_query(session.conn, base_entry)
+                    if base_entry
+                    else None
+                )
                 rec_entry = series.records_entry(entry)
-                records = db.call_answer_query(session.conn, rec_entry) if rec_entry else None
+                records = (
+                    db.call_answer_query(session.conn, rec_entry) if rec_entry else None
+                )
                 series_list.append(
-                    series.build_series(entry, result, base, session.station_info, session.temp_unit, records)
+                    series.build_series(
+                        entry,
+                        result,
+                        base,
+                        session.station_info,
+                        session.temp_unit,
+                        records,
+                    )
                 )
             charts = series.group_charts(series_list)
             answer_text = pipeline.generate_answer(
-                session.client, text, [series.phrasing_summary(x) for x in series_list], history=model_history
+                session.client,
+                text,
+                [series.phrasing_summary(x) for x in series_list],
+                history=model_history,
             )
             status = "resolved"
         else:
@@ -317,7 +418,11 @@ def get_answer(
             tables = [t for p in answer_payloads if (t := answers.ranking_table(p))]
             if plot_mode == validation.PLOT_EXPLICIT and tables:
                 # /plot of a ranking: bars, with the table still under them
-                charts = [answers.ranking_chart(p, t) for p in answer_payloads if (t := answers.ranking_table(p))]
+                charts = [
+                    answers.ranking_chart(p, t)
+                    for p in answer_payloads
+                    if (t := answers.ranking_table(p))
+                ]
             status = "resolved"
     except Exception as exc:  # noqa: BLE001 -- parity with the CLI's main()
         answer_text = f"[error] {exc}"
@@ -351,18 +456,19 @@ def get_answer(
         {
             "question": question,
             "answer": answer_text,
-            "query": resolved["queries"][0] if status == "resolved" and resolved.get("queries") else None,
+            "query": (
+                resolved["queries"][0]
+                if status == "resolved" and resolved.get("queries")
+                else None
+            ),
             "ui_only": status in ("off_topic", "invalid"),
-            # top/bottom results, shown under the answer; display only (not
-            # replayed to the model, not saved in chat_history)
+            # top/bottom results, shown under the answer; display only (not replayed to the model, not saved in chat_history)
             "tables": tables,
             "charts": charts,
             "needs_plot": needs_plot,
-            # keeps the next turn in plot mode: a chart, or a /plot turn that
-            # asked a clarifying question (its answer is still a plot request)
-            "plot_turn": plot_mode is not validation.PLOT_OFF and (
-                bool(charts) or status == "needs_clarification"
-            ),
+            # keeps the next turn in plot mode: a chart, or a /plot turn that asked a clarifying question (its answer is still a plot request)
+            "plot_turn": plot_mode is not validation.PLOT_OFF
+            and (bool(charts) or status == "needs_clarification"),
         }
     )
 

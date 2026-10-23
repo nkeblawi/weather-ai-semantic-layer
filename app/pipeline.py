@@ -115,6 +115,12 @@ def generate_answer(client, question: str, results: list[dict], history=None) ->
     ).strip()
 
 
+RETRY_PROMPT = (
+    "Your JSON failed these checks:\n{problems}\n\n"
+    "Fix only what they name and reply with the corrected JSON object (Step 6)."
+)
+
+
 def resolve_question(
     client,
     conn,
@@ -124,10 +130,17 @@ def resolve_question(
     station_info: dict | None = None,
     home_location: str | None = None,
     plot_mode: str | None = None,
+    conversation: list | None = None,
+    problems: list[str] | None = None,
 ) -> dict:
     """
     Runs the Claude tool-use loop until the model returns its final JSON,
     and returns that JSON.
+
+    conversation, if given, holds this turn's messages (the question, tool
+    calls, the model's reply) and is extended in place. To have the model
+    fix a reply that failed validation, call again with the same
+    conversation and the problems: they're sent as one more user message.
 
     station_info maps ghcn_id -> the lookup_station result for it. It is
     session-scoped: the caller passes the same dict every turn, and each
@@ -141,7 +154,13 @@ def resolve_question(
     if station_info is None:
         station_info = {}
     system_prompt = build_system_prompt(question, history, station_info, home_location, plot_mode)
-    messages: list[dict[str, Any]] = [{"role": "user", "content": question}]
+    messages: list[dict[str, Any]] = conversation if conversation is not None else []
+    if problems and messages:
+        messages.append({"role": "user", "content": RETRY_PROMPT.format(
+            problems="\n".join(f"- {p}" for p in problems)
+        )})
+    else:
+        messages.append({"role": "user", "content": question})
 
     while True:
         response = client.messages.create(
