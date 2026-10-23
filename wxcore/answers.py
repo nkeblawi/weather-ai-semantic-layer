@@ -229,6 +229,29 @@ def _fmt_span(start: str, end: str) -> str:
     return f"{_fmt_day(start)} – {_fmt_day(end)}"
 
 
+def _period_name(entry: dict, bucket: dict) -> str:
+    """'Jan 2000', '2000', 'winter 2009-10', '2009-10 snow season': one bucket, as the answer names it."""
+    year, unit = bucket["bucket_year"], entry.get("unit")
+    if unit == "snow_season":
+        return f"{season_label(entry, year)} snow season"
+    if unit == "season":
+        return season_label(entry, year, sentence=True)
+    if unit == "month" and bucket.get("bucket_month"):
+        return f"{calendar.month_abbr[bucket['bucket_month']]} {year}"
+    return str(year)
+
+
+def _periods_counted(entry: dict, result: dict) -> dict:
+    """How many periods a month/year/season answer covers, and the first and last of them."""
+    if result.get("n_buckets") is None:
+        return {}  # the SQL function predates these fields
+    out = {"periods_counted": result["n_buckets"]}
+    if result.get("first_bucket"):
+        out["first_period"] = _period_name(entry, result["first_bucket"])
+        out["last_period"] = _period_name(entry, result["last_bucket"])
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Functions
 # ---------------------------------------------------------------------------
@@ -337,6 +360,8 @@ def build_answer_payload(
         if "bucket_year" in payload and (label := season_label(entry, payload["bucket_year"], sentence=True)):
             del payload["bucket_year"]
             payload["season"] = label
+        if "excluded" in payload:
+            payload.update(_periods_counted(entry, result))
         if result.get("ties"):
             payload["ties"] = _converted_rows(entry, result["ties"], sentence=True)
         if odds or dates:

@@ -16,6 +16,9 @@ Rules:
 - Use each numeric value exactly as given. Do not recompute, round, or convert it.
 - `computed` says what was calculated (the statistic, which days or periods, any threshold, the dates). Phrase the
   answer to match it (e.g. snow seasons, not years), without restating it word for word. `excluded` is background; don't repeat it.
+- `periods_counted`, `first_period`, `last_period` say which months, years, or seasons the value covers. When the first or last
+  differs from the question's own range (an incomplete season was left out), name the range covered ("the 2000-01 through 2025-26
+  seasons"); otherwise don't mention them.
 - State the value in the result's `units` field (e.g. "0.5 inches", "36.9°F", "12 days"). 
   Do not substitute another unit or drop it. If `units` is empty, phrase the value without one.
 - A null value means no matching data was found. Say so plainly for that part of the question.

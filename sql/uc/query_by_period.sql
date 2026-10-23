@@ -14,7 +14,7 @@ CREATE OR REPLACE FUNCTION weather.analytics.query_by_period(
 )
 RETURNS STRING
 COMMENT '
-Answers a unit=month or unit = year query from the weather query resolver skill against weather.analytics.observations. Returns JSON {value, bucket_year, bucket_month, rows, rows_truncated} where the bucket_year/bucket_month identify the winning bucket and are populated only when p_aggregation is max or min. 
+Answers a unit=month or unit = year query from the weather query resolver skill against weather.analytics.observations. Returns JSON {value, bucket_year, bucket_month, rows, rows_truncated, n_buckets, first_bucket, last_bucket} where the bucket_year/bucket_month identify the winning bucket and are populated only when p_aggregation is max or min. 
 
 bucket_month is always null when p_unit is year (a year has no single month to report), and both are null for mean/median/sum/stddev/count, which aggregate across many buckets with no single one to report. 
 
@@ -30,6 +30,8 @@ p_aggregation top/bottom ranks buckets by bucket value (highest first / lowest f
 
 p_year_start_month (1-12, default 1) is the month a p_unit = year bucket starts in. 1 is the calendar year. 7 is the snow season, July 1 - June 30, labeled by the year it ends in (bucket_year 2010 = Jul 2009 - Jun 2010); 12 with p_month_filter [12, 1, 2] is meteorological winter. Ignored when p_unit is month.
 
+n_buckets is how many complete buckets (coverage rule, below) the date range holds, for every aggregation; for count it is the denominator (value of them met the threshold). first_bucket / last_bucket are the earliest and latest of them as {bucket_year, bucket_month}, null when there are none.
+
 Coverage rule (every aggregation): a bucket counts only if at least 90% of its calendar days have a non-null value (n_days >= 0.9 * days in the month/year, counting only p_month_filter months for a year bucket). This drops the current partial month/year, a station''s first partial year, and months with long reporting gaps.
 '
 RETURN ((
@@ -41,7 +43,7 @@ RETURN ((
             CASE WHEN p_aggregation = 'max'    THEN MAX(bucket_value) END,
             CASE WHEN p_aggregation = 'min'    THEN MIN(bucket_value) END,
             CASE WHEN p_aggregation = 'stddev' THEN STDDEV(bucket_value) END,
-            CASE WHEN p_aggregation = 'count'  THEN CAST(COUNT(*) AS DOUBLE) END
+            CASE WHEN p_aggregation = 'count'  THEN CAST(COUNT_IF(meets) AS DOUBLE) END
         ),
         'bucket_year',
             CASE
@@ -65,7 +67,17 @@ RETURN ((
         'rows_truncated',
             CASE WHEN p_aggregation IN ('top', 'bottom') THEN
                 COUNT(*) FILTER (WHERE is_ranking AND rk <= rank_limit) > 15
-            END
+            END,
+        -- which buckets the answer covers: every complete one in the range
+        'n_buckets', CAST(COUNT(*) AS INT),
+        'first_bucket', MIN_BY(
+            named_struct('bucket_year', bucket_year, 'bucket_month', bucket_month),
+            bucket_year * 100 + COALESCE(bucket_month, 0)
+        ),
+        'last_bucket', MAX_BY(
+            named_struct('bucket_year', bucket_year, 'bucket_month', bucket_month),
+            bucket_year * 100 + COALESCE(bucket_month, 0)
+        )
     ))
     FROM (
         SELECT *,
@@ -78,6 +90,16 @@ RETURN ((
                 -- rounded so float noise (53.300000000000004 vs 53.3) doesn't split ties
                 ROUND(CASE WHEN NOT complete THEN NULL WHEN p_aggregation = 'bottom' THEN -bucket_value ELSE bucket_value END, 2) AS sort_key,
                 p_aggregation IN ('top', 'bottom') AS is_ranking,
+                -- count: whether the bucket meets the threshold (counted with COUNT_IF,
+                -- so n_buckets still sees every complete bucket)
+                COALESCE(
+                    (p_threshold_operator = '>'  AND bucket_value > p_threshold_value) OR
+                    (p_threshold_operator = '>=' AND bucket_value >= p_threshold_value) OR
+                    (p_threshold_operator = '<'  AND bucket_value < p_threshold_value) OR
+                    (p_threshold_operator = '<=' AND bucket_value <= p_threshold_value) OR
+                    (p_threshold_operator = '='  AND bucket_value = p_threshold_value),
+                    FALSE
+                ) AS meets,
                 GREATEST(LEAST(COALESCE(p_limit, 3), 15), 1) AS rank_limit
             FROM (
             SELECT *,
@@ -140,12 +162,5 @@ RETURN ((
             ) covered
         ) sortable
     ) ranked
-    WHERE complete AND (
-        p_aggregation != 'count' OR
-        (p_threshold_operator = '>'  AND bucket_value > p_threshold_value) OR
-        (p_threshold_operator = '>=' AND bucket_value >= p_threshold_value) OR
-        (p_threshold_operator = '<'  AND bucket_value < p_threshold_value) OR
-        (p_threshold_operator = '<=' AND bucket_value <= p_threshold_value) OR
-        (p_threshold_operator = '='  AND bucket_value = p_threshold_value)
-    )
+    WHERE complete
 ));

@@ -128,6 +128,10 @@ def _max_min_result(ranked: dict | None) -> dict:
     result = dict(rows[-1])
     if len(rows) > 1:
         result["ties"] = rows
+    # which periods the answer covers (query_by_period only)
+    for key in ("n_buckets", "first_bucket", "last_bucket"):
+        if key in ranked:
+            result[key] = ranked[key]
     return result
 
 
