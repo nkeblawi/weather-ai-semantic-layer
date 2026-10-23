@@ -36,9 +36,14 @@ OBS_MERGED_TABLE = f"{CATALOG}.{SCHEMA_CLEANED}.obs_merged"
 OBS_PIVOT_TABLE = f"{CATALOG}.{SCHEMA_CLEANED}.obs_pivot"
 QC_ALLOWLIST_TABLE = f"{CATALOG}.{SCHEMA_CLEANED}.qc_allowlist"
 
+# --- Place (gazetteer) tables: GeoNames cities, for finding the stations near a town ---
+GEONAMES_RAW_TABLE = f"{CATALOG}.{SCHEMA_RAW}.geonames_raw"
+PLACES_TABLE = f"{CATALOG}.{SCHEMA_CLEANED}.places"
+
 # --- Analytics tables ---
 OBS_ANALYTICS_TABLE = f"{CATALOG}.{SCHEMA_ANALYTICS}.observations"
 STATIONS_VIEW = f"{CATALOG}.{SCHEMA_ANALYTICS}.stations"
+PLACES_VIEW = f"{CATALOG}.{SCHEMA_ANALYTICS}.places"
 
 # --- Application (chat history) tables ---
 USERS_TABLE = f"{CATALOG}.{SCHEMA_APP}.users"

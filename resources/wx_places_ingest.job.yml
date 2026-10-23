@@ -1,0 +1,68 @@
+resources:
+  jobs:
+    wx_places_ingest:
+      name: wx_places_ingest
+      # no schedule: run by hand to load or refresh the GeoNames gazetteer
+      tasks:
+        - task_key: fetch_geonames
+          disabled: false
+          email_notifications: {}
+          environment_key: wx_env_v1
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/places/geonames_fetch.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: parse_geonames
+          depends_on:
+            - task_key: fetch_geonames
+          disabled: false
+          email_notifications: {}
+          environment_key: wx_env_v1
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/places/geonames_parse.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+        - task_key: create_places_view
+          depends_on:
+            - task_key: parse_geonames
+          disabled: false
+          email_notifications: {}
+          environment_key: wx_env_v1
+          run_if: ALL_SUCCESS
+          spark_python_task:
+            parameters:
+              - "--workspace-root"
+              - "${workspace.file_path}/src"
+              - "--catalog"
+              - "${var.catalog}"
+            python_file: ../src/wx/places/create_places_view.py
+          timeout_seconds: 0
+          webhook_notifications: {}
+      email_notifications:
+        no_alert_for_skipped_runs: false
+        on_failure:
+          - kebnab@gmail.com
+      environments:
+        - environment_key: wx_env_v1
+          spec:
+            dependencies:
+              - pybreaker==1.4.1
+            environment_version: "5"
+      max_concurrent_runs: 1
+      performance_target: PERFORMANCE_OPTIMIZED
+      queue:
+        enabled: true
+      timeout_seconds: 0
+      webhook_notifications: {}
