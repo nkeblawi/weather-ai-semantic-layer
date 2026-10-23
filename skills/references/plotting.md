@@ -38,8 +38,8 @@ totals (as in `count_group.md`), or `count` for a number of days (below).
 series takes no `trend`, but may take `baseline`/`display` ("daily highs in 2024 against normal").
 
 **Dates by year** ("last spring freeze each year", "first fall freeze since 1970 with a trend", "first 90-degree day by year"): a
-`year` (or `snow_season`) series with `period_aggregation: "first_date"` / `"last_date"` + `threshold` (+ `month_filter` for spring/fall,
-as in SKILL.md Step 4). Both freezes on one chart → one query each. **Growing season length** ("growing season by year") → those two
+`year` (or `snow_season`) series with `period_aggregation: "first_date"` / `"last_date"` + a `condition`, or a `threshold` for a stated
+number (+ `half_year` for spring/fall, as in SKILL.md Step 4). Both freezes on one chart → one query each. **Growing season length** ("growing season by year") → those two
 TMIN freeze queries (spring `last_date`, fall `first_date`), both with `display: "growing_season"`.
 
 **Comparing two stations directly** ("Dulles minus Reagan", "how much colder are Dulles nights than DC's", "the difference between
@@ -48,13 +48,15 @@ station's values minus the second's. **A climograph** ("climograph", "monthly te
 queries for TMAX and TMIN (`mean`) and PRCP (`sum`), all with `display: "climograph"`, drawn as one chart.
 
 **Distributions and odds.** The spread of per-period values ("distribution of annual snowfall", "histogram of summer average
-temperatures") is the usual series (`snow_season` / `year` / `season` / `month`) with `display: "histogram"`. Odds thresholds follow the
-counting idioms; "measurable snow" → SNOW `>= 0.1`, "measurable rain" → PRCP `>= 0.01`, "a white Christmas" → SNWD `>= 1` on 12-25.
+temperatures") is the usual series (`snow_season` / `year` / `season` / `month`) with `display: "histogram"`. Odds use the counting
+idioms' conditions (SKILL.md Step 4): "measurable snow" → `condition: "measurable_snow"`, "measurable rain" → `"measurable_rain"`, "a
+white Christmas" → `"snow_on_ground"` on 12-25.
 
 **Counting days per period** ("90-degree days per year", "freeze days each winter", "how many 70-degree nights each summer", "days
-with snow each month"): `period_aggregation: "count"` plus `threshold`, with any unit except `day` — including the climatologies ("average
-number of 90-degree days in each month"). Thresholds follow SKILL.md Step 4's counting idioms; also "90-degree days" → TMAX `>= 90`,
-"100-degree days" → TMAX `>= 100`, "70-degree nights" / "warm nights" with a number → TMIN `>=` that number, "freeze days" → TMIN `<= 32`.
+with snow each month"): `period_aggregation: "count"` plus a `condition` or `threshold`, with any unit except `day` — including the
+climatologies ("average number of 90-degree days in each month"). Named conditions follow SKILL.md Step 4's counting idioms ("freeze days"
+→ `condition: "freeze"`, "days with snow" → `"snow_day"`); a stated number is a `threshold`: "90-degree days" → TMAX `>= 90`, "100-degree
+days" → TMAX `>= 100`, "70-degree nights" / "warm nights" with a number → TMIN `>=` that number.
 A count series works with `baseline`, `display`, and `trend` like any other (e.g. "90-degree days per year with a trend line").
 
 A climatology covers the date range you give it: no period stated → the whole record (`all_time`); "the 1991-2020 normals" → that range
@@ -105,7 +107,7 @@ On top of SKILL.md Step 6's query fields:
   "aggregation": "series",
   "unit": "day | month | year | season | snow_season | month_of_year | season_of_year | day_of_year | week_of_year | value",
   "period_aggregation": "mean | sum | count | any | first_date | last_date (required, except omitted for unit day, day_of_year, value; any only on climatologies; first/last_date on year or snow_season)",
-  "threshold": {"operator": "> | >= | < | <= | =", "value": "number, only with period_aggregation count or any"},
+  "threshold": {"operator": "> | >= | < | <= | =", "value": "number, only with period_aggregation count, any, first_date, or last_date and no condition"},
   "season": "winter | spring | summer | fall, only with unit season",
   "trend": "true, only when a trend is asked for; omit otherwise",
   "baseline": {"start_year": "first year of the normals period", "end_year": "last year"},
@@ -221,7 +223,7 @@ On top of SKILL.md Step 6's query fields:
 **Q:** /plot the chance of measurable snow by week at Dulles
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00093738", "metric": "SNOW", "aggregation": "series", "unit": "week_of_year", "period_aggregation": "any", "threshold": {"operator": ">=", "value": 0.1}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
+  {"station_id": "USW00093738", "condition": "measurable_snow", "aggregation": "series", "unit": "week_of_year", "period_aggregation": "any", "start_date": "1800-01-01", "end_date": "2026-08-04"}
 ]}
 ```
 
@@ -259,8 +261,8 @@ On top of SKILL.md Step 6's query fields:
 **Q:** /plot the last spring and first fall freeze at Dulles each year with a trend line
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "series", "unit": "year", "period_aggregation": "last_date", "month_filter": [1, 2, 3, 4, 5, 6], "threshold": {"operator": "<=", "value": 32}, "start_date": "1800-01-01", "end_date": "2026-08-04", "trend": true},
-  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "series", "unit": "year", "period_aggregation": "first_date", "month_filter": [7, 8, 9, 10, 11, 12], "threshold": {"operator": "<=", "value": 32}, "start_date": "1800-01-01", "end_date": "2026-08-04", "trend": true}
+  {"station_id": "USW00093738", "condition": "freeze", "aggregation": "series", "unit": "year", "period_aggregation": "last_date", "half_year": "spring", "start_date": "1800-01-01", "end_date": "2026-08-04", "trend": true},
+  {"station_id": "USW00093738", "condition": "freeze", "aggregation": "series", "unit": "year", "period_aggregation": "first_date", "half_year": "fall", "start_date": "1800-01-01", "end_date": "2026-08-04", "trend": true}
 ]}
 ```
 
@@ -281,7 +283,7 @@ On top of SKILL.md Step 6's query fields:
 **Q:** /plot freeze days each winter at Reagan National since 1970 (a whole cold season → snow-season years, Jul-Jun)
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00013743", "metric": "TMIN", "aggregation": "series", "unit": "snow_season", "period_aggregation": "count", "threshold": {"operator": "<=", "value": 32}, "start_date": "1969-07-01", "end_date": "2026-08-04"}
+  {"station_id": "USW00013743", "condition": "freeze", "aggregation": "series", "unit": "snow_season", "period_aggregation": "count", "start_date": "1969-07-01", "end_date": "2026-08-04"}
 ]}
 ```
 
@@ -301,6 +303,6 @@ On top of SKILL.md Step 6's query fields:
 **Follow-up**, after the same chart — **Q:** what's the normal July high there? (a single value: a regular query, no `series`; "normal" → 1991-2020)
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "mean", "unit": "month", "period_aggregation": "mean", "month_filter": [7], "start_date": "1991-01-01", "end_date": "2020-12-31"}
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "mean", "unit": "month", "month_filter": [7], "normal": true}
 ]}
 ```

@@ -97,15 +97,23 @@ A request for many metrics across many cities is not answered as asked: ask the 
 
 By default, `aggregation` operates on raw daily rows — this is `unit: "day"`, the default, and the field can be omitted entirely.
 
-**Counting days** (`aggregation: "count"`, `unit: "day"`) requires a `threshold: {"operator": ..., "value": ...}` (operator is one of `>`, `>=`, `<`, `<=`, `=`). Default thresholds by idiom:
+**Counting days** (`aggregation: "count"`, `unit: "day"`) needs a named `condition` or a `threshold: {"operator": ..., "value": ...}`
+(operator is one of `>`, `>=`, `<`, `<=`, `=`). For these idioms set `condition` and omit `metric`, `threshold`, and `aggregation` (the app
+fills them in; it knows each condition's cutoff):
 
-| user says (examples) | metric | threshold |
-|---|---|---|
-| snow day(s), how many days did it snow | SNOW | `>= 0.5` |
-| rain day(s), how many days did it rain | PRCP | `>= 0.05` |
-| dry day(s), how many days with no rain | PRCP | `= 0` |
-| freezing day(s), how many days the low was at or below freezing | TMIN | `<= 32` |
-| days above/below N degrees (explicit number stated) | TAVG, or TMAX/TMIN if a high/low cue is present | operator and value taken directly from the question |
+| user says (examples) | condition |
+|---|---|
+| snow day(s), how many days did it snow | `snow_day` |
+| measurable snow | `measurable_snow` |
+| rain day(s), how many days did it rain | `rain_day` |
+| measurable rain | `measurable_rain` |
+| dry day(s), how many days with no rain | `dry_day` |
+| freezing day(s), a freeze, how many days the low was at or below freezing | `freeze` |
+| a hard freeze | `hard_freeze` |
+| snow on the ground (e.g. a white Christmas) | `snow_on_ground` |
+
+Days above/below N degrees (an explicit number) use `threshold` with the operator and value from the question, and metric TAVG, or
+TMAX/TMIN if a high/low cue is present.
 
 If the question asks "how many days" but doesn't match one of these idioms and doesn't state an explicit threshold itself, ask the user what condition defines "a day" rather than guessing a cutoff.
 
@@ -115,35 +123,36 @@ follow `references/count_group.md`. Every other question, including plain "how m
 
 **Single days within a month name, across years** ("the hottest January day on record", "has it ever hit 80 in January", "how many
 January days below 0 since 2000", "the 5 warmest February days"): `unit: "day"` (omit it) plus `month_filter` with that month, and
-`max` / `min` / `count` + `threshold` / `top` / `bottom` over the whole record unless years are named. "Ever hit or exceeded N" is a `count`
+`max` / `min` / `count` + `threshold` / `top` / `bottom`, with no dates unless years are named (the app uses the whole record). "Ever hit or exceeded N" is a `count`
 with `>= N` (0 means never). This is about days; an *average* January ("average January high", "warmest January on average") is
 `unit: "month"` (`references/count_group.md`). A month name is never a `calendar_day`.
 
 **The first or last date a threshold is met** ("the last spring freeze", "the first fall freeze", "the first 90-degree day", "the first
-measurable snow of the season", "the earliest last freeze on record"): `aggregation: "first_date"` or `"last_date"` + `threshold`, with
-`unit: "year"` — plus `month_filter: [1, 2, 3, 4, 5, 6]` for a spring date or `[7, 8, 9, 10, 11, 12]` for a fall date — or
-`unit: "snow_season"` for snow (Jul-Jun). Freeze = TMIN `<= 32` (hard freeze `<= 28`); measurable snow = SNOW `>= 0.1`. A named year
-→ that year; "on record" / "ever" / "usually" → `all_time` (the app reports the earliest, latest, and median dates). "The earliest first
-freeze" / "the latest last freeze" are still `first_date` / `last_date` — `earliest` / `latest` are only for events.
+measurable snow of the season", "the earliest last freeze on record"): `aggregation: "first_date"` or `"last_date"` + a `condition` (or a
+`threshold` for a stated number, e.g. the first 90-degree day: TMAX `>= 90`), with `unit: "year"` plus `half_year: "spring"` for a spring
+date or `"fall"` for a fall date — or `unit: "snow_season"` for snow (Jul-Jun), with no `half_year`. A freeze is `condition: "freeze"`
+(a hard freeze `"hard_freeze"`); measurable snow is `"measurable_snow"`. A named year → that year; "on record" / "ever" / "usually" →
+no dates (the app uses the whole record and reports the earliest, latest, and median dates). "The earliest first freeze" / "the latest
+last freeze" are still `first_date` / `last_date` — `earliest` / `latest` are only for events.
 
 **One calendar day across years** ("the record high for July 4", "the normal low on Christmas", "the most rain ever on New Year's Day"):
 `unit: "day_of_year"` plus `calendar_day: "MM-DD"`, with `max` for a record high / most, `min` for a record low, `mean` for a normal or
-average. Records use `all_time`; a normal uses 1991-2020 (or the years named), an average the whole record. Odds of a condition on that
-day ("the odds of a white Christmas", "how often does it rain on July 4") add `period_aggregation: "any"` + `threshold` with `mean`
-(white Christmas: SNWD `>= 1`; rain: PRCP `>= 0.01`), over the whole record.
+average. A record or an average: no dates (the whole record); a normal: `"normal": true` and no dates (or the years named). Odds of a
+condition on that day ("the odds of a white Christmas", "how often does it rain on July 4") add `period_aggregation: "any"` + a
+`condition` with `mean` (white Christmas: `snow_on_ground`; rain: `measurable_rain`), with no dates.
 
 **Rankings** (`top` / `bottom`) only when the question asks for more than one result: a number ("top 5", "the 3 coldest"), a plural ("the
 biggest snowstorms", "the hottest days on record"), or "rank". A singular extreme ("the biggest snowstorm", "the hottest day") is
-`max`/`min`. Add `limit`: the number asked for, 3 if none, at most 15. `top` = largest first, `bottom` = smallest first ("coldest" is
+`max`/`min`. Add `limit` only when a number is asked for (at most 15); otherwise omit it. `top` = largest first, `bottom` = smallest first ("coldest" is
 `bottom` of TMIN or TAVG; "least snowy" is `bottom` of SNOW). Ties share a rank, so more rows than `limit` can come back. Rankings work on
 any unit; events, months, years, and seasons are in `references/count_group.md`.
 
 **Charts.** A chart, plot, or graph, or a question wanting one value per day, month, season, or year ("average high and low for each
 month", "temperatures by year", "is it getting warmer") is a chart request. With a **Plot mode** section below, follow
 `references/plotting.md`; without one, return `needs_clarification` with `"reason": "needs_plot"` — never squash it into one value. A
-single value against normal ("the normal July high", "was July warmer than normal") is a regular query, with "normal" = the 1991-2020
-mean of that same month or season unless the user names a period — e.g. `unit: "month"`, `month_filter: [7]`, `aggregation: "mean"`,
-`period_aggregation: "mean"`, dates 1991-01-01 to 2020-12-31.
+single value against normal ("the normal July high", "was July warmer than normal") is a regular query for the normal of that same month
+or season: `"normal": true` and no dates, unless the user names a period — e.g. `unit: "month"`, `month_filter: [7]`, `aggregation:
+"mean"`, `"normal": true`.
 
 Temperature extremes carry both a metric and an aggregation cue at once — resolve them together, not independently:
 
@@ -152,17 +161,15 @@ Temperature extremes carry both a metric and an aggregation cue at once — reso
 - "how cold was it" (no explicit extreme wording) → metric `TAVG`, aggregation `mean` — ambiguous phrasing defaults to the average, not an
   extreme
 
-If aggregation isn't stated and there's no extreme wording to infer it from, default by metric:
-
-- TAVG, TMAX, TMIN, AWND → `mean`
-- PRCP, SNOW, HDD, CDD → `sum` (these are naturally cumulative — "how much snow fell" means total, not average)
-- SNWD → `mean`, but if genuinely ambiguous, ask rather than guess
+For a daily query, if aggregation isn't stated and there's no extreme wording to infer it from, omit `aggregation`: the app uses the
+metric's usual one ("how much snow fell" is a total, "how warm was it" an average). If a snow depth question is genuinely ambiguous, ask
+rather than guess.
 
 ## Step 5 — Resolve the date range
 
 Never compute `start_date` / `end_date` by hand. Classify the time expression into one of the shapes below and call the `resolve_date_range`
 tool with `current_date` and the shape's parameters (e.g. `{"current_date": "2026-08-04", "kind": "absolute_month", "year": 2022,
-"month": 12}`). Use the `{start_date, end_date}` it returns as-is.
+"month": 12}`). Use the `{start_date, end_date}` it returns as-is. For the whole record (the last three rows), omit both dates instead.
 
 | time expression | kind | extra params |
 |---|---|---|
@@ -175,9 +182,9 @@ tool with `current_date` and the shape's parameters (e.g. `{"current_date": "202
 | "last 30 days" | `relative_days` | `days` |
 | "in January" / "last March" — a month name with **no year**, asking for that one period | `recent_month` | `month` (1-12) — the most recent such month that has started; never a future month. (An *average/typical/normal* month with no year — "average January high" — is a whole-record climate average instead: see `references/count_group.md`.) |
 | "last Friday" / "this past Friday" / "on Friday" (a past weekday, single day) | `weekday` | `weekday` (lowercase name, e.g. `friday`) — resolves to the most recent such day *strictly before* `current_date` (asked on a Friday, it's a week ago). Never work out the weekday's date yourself. |
-| "ever", "on record", "all-time", "in history" | `all_time` | none — resolves to `1800-01-01` through `current_date` |
-| "the last / most recent <event>" with no time period stated (e.g. "the last storm over 6 inches") | `all_time` | none — search the whole record for the most recent one; do **not** ask the user how far back to look |
-| a ranking or extreme (`top`, `bottom`, `max`, `min`) with no time period stated (e.g. "the coldest days at Reagan National", "the biggest snowstorms", "the snowiest winter") | `all_time` | none — an unqualified superlative means "on record"; do **not** ask the user how far back to look. (Averages, totals, and counts with no period stated still need one: ask.) |
+| "ever", "on record", "all-time", "in history" | — | omit both dates: the app uses the whole record |
+| "the last / most recent <event>" with no time period stated (e.g. "the last storm over 6 inches") | — | omit both dates: the whole record is searched for the most recent one; do **not** ask the user how far back to look |
+| a ranking or extreme (`top`, `bottom`, `max`, `min`) with no time period stated (e.g. "the coldest days at Reagan National", "the biggest snowstorms", "the snowiest winter") | — | omit both dates: an unqualified superlative means "on record"; do **not** ask the user how far back to look. (Averages, totals, and counts with no period stated still need one: ask.) |
 
 Season names accepted by the script: `winter` (DJF), `spring` (MAM), `summer` (JJA), `fall` or `autumn` (SON).
 
@@ -200,21 +207,24 @@ Once every prior step has resolved (or Step 2/3/4/5 has stopped early to ask the
       "season": "winter | spring | summer | fall, only present when unit is season",
       "calendar_day": "MM-DD, only present when unit is day_of_year",
       "output_unit": "C or F — only when the user explicitly asks for temperature in that unit (TAVG/TMAX/TMIN); omit otherwise",
-      "start_date": "YYYY-MM-DD",
+      "start_date": "YYYY-MM-DD, omit both dates for the whole record or a normal",
       "end_date": "YYYY-MM-DD",
-      "threshold": {"operator": "> | >= | < | <= | =", "value": "number, only present when aggregation is count"},
-      "event_day_threshold": {"operator": "> | >= | < | <= | =", "value": "number, only present when unit is event"},
+      "condition": "snow_day | measurable_snow | rain_day | measurable_rain | dry_day | freeze | hard_freeze | snow_on_ground, instead of metric + threshold for a named condition (Step 4)",
+      "threshold": {"operator": "> | >= | < | <= | =", "value": "number, only for a count or first/last date with a stated number (no condition)"},
+      "event_day_threshold": {"operator": "> | >= | < | <= | =", "value": "number, only when unit is event and the question states its own cutoff"},
       "event_value": "total | duration, only present when unit is event",
-      "period_aggregation": "mean | sum, only present when unit is month or year",
+      "period_aggregation": "mean | sum, only when unit is month, year, season, or snow_season and the question needs other than the metric's usual one",
       "month_filter": "array of month numbers 1-12, optional, only when unit is month or day",
-      "limit": "integer 1-15, only present when aggregation is top or bottom (default 3)"
+      "half_year": "spring | fall, only with first_date / last_date and unit year",
+      "normal": "true, only for a normal; omit the dates",
+      "limit": "integer 1-15, only when aggregation is top or bottom and a number is asked for"
     }
   ]
 }
 ```
 
-Omit `season` and every field in the second half of that list (`threshold` through `limit`) unless the specific case that produces it applies — see
-Step 4 for `threshold`, and `references/count_group.md` for the `unit: "event"`/`"month"`/`"year"` fields.
+Omit `season` and every field in the second half of that list (`condition` through `limit`) unless the specific case that produces it applies — see
+Step 4 for `condition` and `threshold`, and `references/count_group.md` for the `unit: "event"`/`"month"`/`"year"` fields.
 
 `output_unit` is answer-unit conversion only, not a data choice: set it to `"C"` or `"F"` only when the user explicitly asks for that unit; otherwise
 omit it and the app applies the user's default. The downstream layer converts — never do the arithmetic yourself.
@@ -280,7 +290,7 @@ Examples involving events, storms, or month/year aggregates are in `references/c
 **Q:** What was the hottest day ever? (no place named; the **User home city** section says "KIAD", so call `lookup_station` on "KIAD" and use it — don't ask)
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "max", "start_date": "1800-01-01", "end_date": "2026-08-04"}
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "max"}
 ]}
 ```
 
@@ -297,70 +307,70 @@ Examples involving events, storms, or month/year aggregates are in `references/c
 **Q:** What was the hottest January day ever at Reagan National? (single days in a month name → `unit: "day"` + `month_filter`)
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "max", "month_filter": [1], "start_date": "1800-01-01", "end_date": "2026-08-04"}
+  {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "max", "month_filter": [1]}
 ]}
 ```
 
 **Q:** Has Reagan National ever hit 80 degrees in January? (a count of those days: 0 means never)
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "count", "month_filter": [1], "threshold": {"operator": ">=", "value": 80}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
+  {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "count", "month_filter": [1], "threshold": {"operator": ">=", "value": 80}}
 ]}
 ```
 
 **Q:** What are the odds of a white Christmas at Reagan National?
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00013743", "metric": "SNWD", "aggregation": "mean", "unit": "day_of_year", "calendar_day": "12-25", "period_aggregation": "any", "threshold": {"operator": ">=", "value": 1}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
+  {"station_id": "USW00013743", "condition": "snow_on_ground", "aggregation": "mean", "unit": "day_of_year", "calendar_day": "12-25", "period_aggregation": "any"}
 ]}
 ```
 
 **Q:** When was the last spring freeze at Dulles in 2025?
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "last_date", "unit": "year", "month_filter": [1, 2, 3, 4, 5, 6], "threshold": {"operator": "<=", "value": 32}, "start_date": "2025-01-01", "end_date": "2025-12-31"}
+  {"station_id": "USW00093738", "condition": "freeze", "aggregation": "last_date", "unit": "year", "half_year": "spring", "start_date": "2025-01-01", "end_date": "2025-12-31"}
 ]}
 ```
 
 **Q:** When does Reagan National usually get its first measurable snow?
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00013743", "metric": "SNOW", "aggregation": "first_date", "unit": "snow_season", "threshold": {"operator": ">=", "value": 0.1}, "start_date": "1800-01-01", "end_date": "2026-08-04"}
+  {"station_id": "USW00013743", "condition": "measurable_snow", "aggregation": "first_date", "unit": "snow_season"}
 ]}
 ```
 
 **Q:** What's the record high for July 4 at Reagan National?
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "max", "unit": "day_of_year", "calendar_day": "07-04", "start_date": "1800-01-01", "end_date": "2026-08-04"}
+  {"station_id": "USW00013743", "metric": "TMAX", "aggregation": "max", "unit": "day_of_year", "calendar_day": "07-04"}
 ]}
 ```
 
 **Q:** What were the 5 hottest days ever recorded at Dulles?
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "top", "limit": 5, "start_date": "1800-01-01", "end_date": "2026-08-04"}
+  {"station_id": "USW00093738", "metric": "TMAX", "aggregation": "top", "limit": 5}
 ]}
 ```
 
-**Q:** What were the coldest mornings at Dulles this past winter? (plural, no number → `limit` 3)
+**Q:** What were the coldest mornings at Dulles this past winter? (plural, no number → no `limit`)
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "bottom", "limit": 3, "start_date": "2025-12-01", "end_date": "2026-02-28"}
+  {"station_id": "USW00093738", "metric": "TMIN", "aggregation": "bottom", "start_date": "2025-12-01", "end_date": "2026-02-28"}
 ]}
 ```
 
 **Q:** What were the 5 hottest summers at Reagan National?
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "USW00013743", "metric": "TAVG", "aggregation": "top", "limit": 5, "unit": "season", "season": "summer", "start_date": "1800-01-01", "end_date": "2026-08-04", "period_aggregation": "mean"}
+  {"station_id": "USW00013743", "metric": "TAVG", "aggregation": "top", "limit": 5, "unit": "season", "season": "summer"}
 ]}
 ```
 
 **Q:** How many snow days did we have in the winter of 2025-26?
 ```json
 {"current_date": "2026-08-04", "status": "resolved", "queries": [
-  {"station_id": "<resolved via lookup_station>", "metric": "SNOW", "aggregation": "count", "start_date": "2025-12-01", "end_date": "2026-02-28", "threshold": {"operator": ">=", "value": 0.5}}
+  {"station_id": "<resolved via lookup_station>", "condition": "snow_day", "start_date": "2025-12-01", "end_date": "2026-02-28"}
 ]}
 ```
 
