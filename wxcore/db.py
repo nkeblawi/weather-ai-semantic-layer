@@ -17,7 +17,9 @@ native-parameters feature.
 """
 
 import json
+import math
 import os
+import re
 from datetime import date
 
 from databricks import sql as databricks_sql
@@ -39,6 +41,23 @@ from wxcore.dates import (
 
 MATCHING_DAYS_MAX = 5  # a day count this small also names the days
 
+# A place lookup_station's names don't match, from its coordinates: a station
+# whose city is that place (e.g. "New York" -> New York, NY) and within
+# NEARBY_MILES is used; any other station up to NEARBY_MILES is offered to
+# the user; up to FAR_MILES it's offered with a warning; beyond, none.
+NEARBY_MILES = 50
+FAR_MILES = 150
+MAX_NEARBY = 3
+EARTH_RADIUS_MILES = 3958.8
+# station-name abbreviations, spelled out for the user ("WASHINGTON DULLES INTL AP")
+NAME_WORDS = {"INTL": "International", "NATL": "National", "AP": "Airport", "A": "Airport"}
+# Where the stations are, in a no-station reply: countries ("the US and
+# Canada"), or continents once there are more than MAX_COUNTRIES_NAMED.
+# Countries not listed here use the stations table's country_name.
+MAX_COUNTRIES_NAMED = 5
+COUNTRY_NAMES = {"US": "the US", "GB": "the UK"}
+CONTINENTS = {"US": "North America", "CA": "North America", "MX": "North America", "PR": "North America"}
+
 
 # ---------------------------------------------------------------------------
 # Helper Functions
@@ -52,6 +71,62 @@ def _service_principal_credentials():
         client_secret=os.environ["DATABRICKS_SECRET"],
     )
     return oauth_service_principal(config)
+
+
+def _miles(lat1, lon1, lat2, lon2) -> float:
+    """Great-circle distance in miles."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * EARTH_RADIUS_MILES * math.asin(math.sqrt(a))
+
+
+def _station_label(station: dict) -> str:
+    """'Washington Dulles International Airport (IAD)': a station as a user knows it."""
+    words = [NAME_WORDS.get(w, w.capitalize()) for w in station["name"].split()]
+    name = re.sub(r"\bAirport Airport\b", "Airport", " ".join(words))
+    return f"{name} ({station['iata']})" if station.get("iata") else name
+
+
+def _nearby(conn, latitude: float, longitude: float) -> list[dict]:
+    """Active stations within FAR_MILES of a point, nearest first, with their distance."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT ghcn_id, name, city, state, iata, latitude, longitude FROM {catalog()}.analytics.stations"
+        )
+        rows = cur.fetchall()
+    stations = []
+    for ghcn_id, name, city, state, iata, lat, lon in rows:
+        if lat is None or lon is None:
+            continue
+        miles = round(_miles(latitude, longitude, lat, lon))
+        if miles <= FAR_MILES:
+            stations.append({"ghcn_id": ghcn_id, "name": name, "city": city, "state": state, "iata": iata,
+                             "miles": miles})
+    return sorted(stations, key=lambda s: s["miles"])[:MAX_NEARBY]
+
+
+def _same_place(place: str, station: dict) -> bool:
+    """'New York' or 'new york, ny' names the station's city 'New York, NY'."""
+    def city(text):
+        return re.sub(r"[^a-z ]", "", text.split(",")[0].lower()).strip()
+    return city(place) == city(station["city"])
+
+
+def _and_list(names: list[str]) -> str:
+    """'A', 'A and B', 'A, B, and C'."""
+    return " and ".join(names) if len(names) <= 2 else ", ".join(names[:-1]) + f", and {names[-1]}"
+
+
+def _covered_places(conn) -> str:
+    """'the US and Canada', or continents when there are many countries: where the active stations are."""
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT DISTINCT country_code, country_name FROM {catalog()}.analytics.stations")
+        rows = sorted(cur.fetchall(), key=lambda r: (r[0] != "US", r[0] or ""))
+    if len(rows) > MAX_COUNTRIES_NAMED:
+        continents = list(dict.fromkeys(CONTINENTS.get(code, "other regions") for code, _ in rows))
+        return _and_list(continents)
+    return _and_list([COUNTRY_NAMES.get(code) or (name or code).title() for code, name in rows])
 
 
 def _sql_bucketing(entry: dict) -> tuple[str, list | None, int | None]:
@@ -163,16 +238,38 @@ def get_databricks_connection():
     )
 
 
-def call_lookup_station(conn, location_text: str):
+def call_lookup_station(conn, location_text: str, latitude=None, longitude=None):
+    """
+    The active station a place names: {ghcn_id, name, city, state} for a
+    name, code, or alias match. Otherwise, with the place's coordinates:
+    the station in that city (adding nearest_to and miles), or
+    {"match": "none", "nearby": [...], "ask_user": "..."}: stations within
+    FAR_MILES and a question to put to the user before using one. Without
+    coordinates or anything in range, ask_user names the covered cities.
+    """
     with conn.cursor() as cur:
         cur.execute(
             f"SELECT {catalog()}.analytics.lookup_station(:location_text)",
             parameters={"location_text": location_text},
         )
         row = cur.fetchone()
-    if not row or row[0] is None:
-        return None
-    return json.loads(row[0])
+    if row and row[0] is not None:
+        return json.loads(row[0])
+    nearby = _nearby(conn, latitude, longitude) if latitude is not None and longitude is not None else []
+    same = [s for s in nearby if s["miles"] <= NEARBY_MILES and _same_place(location_text, s)]
+    if same:
+        station = {k: same[0][k] for k in ("ghcn_id", "name", "city", "state")}
+        return {**station, "nearest_to": location_text, "miles": same[0]["miles"]}
+    if not nearby:
+        ask = f"I don't have weather observation history near {location_text}. I have stations in {_covered_places(conn)}."
+        return {"match": "none", "nearby": [], "ask_user": ask}
+    first = nearby[0]
+    ask = f"There's no station in {location_text}. The nearest is {_station_label(first)}, {first['miles']} miles away"
+    if first["miles"] > NEARBY_MILES:
+        ask += ", so its weather may differ"
+    others = [f"{_station_label(s)}, {s['miles']} miles away" for s in nearby[1:] if s["miles"] <= NEARBY_MILES]
+    ask += f". Use it{', or ' + ' or '.join(others) if others else ''}?"
+    return {"match": "none", "nearby": nearby, "ask_user": ask}
 
 
 def fill_station_info(conn, queries, station_info: dict) -> None:

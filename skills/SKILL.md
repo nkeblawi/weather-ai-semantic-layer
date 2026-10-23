@@ -40,21 +40,17 @@ last 30 days") resolve from it (Step 5).
 ## Step 2 — Resolve the location to a GHCN station ID
 
 1. Extract the place reference from the question (city, airport name/code, ICAO/IATA code, or "near me" / "here" style phrasing).
-2. Call the `lookup_station` tool with that text. It matches case-insensitively and punctuation-insensitively against each active
-   station's ICAO code, IATA code, city, name, and known aliases, and returns `{ghcn_id, name, city, state}` for a match, or nothing if there's no
-   match.
-3. If there's no match, use general geographic knowledge to think of the most plausible nearby airports or well-known places (e.g. a town's
-   nearest major-metro airport), and call `lookup_station` again for each candidate name to check whether it's actually active in this system.
-   `lookup_station` is still the source of truth for what's active — never set `station_id` to a candidate that didn't come back from a successful
-   `lookup_station` call.
-4. If exactly one candidate from step 3 resolves, use it.
-5. If two or more candidates resolve and are comparably plausible, with no one of them clearly the better answer, don't guess — stop and ask the
-   user which they mean, naming each candidate by city/airport (e.g. "The nearest sites are Dulles Airport and Reagan National. Which one did you
-   want me to check?").
-6. If no candidate resolves at all, stop and set `clarification_question` to exactly: "I don't have any weather observation history near that
-   location. Please pick one of the cities in the Home city list." Add nothing else (no suggestions, apologies or explanations). This
-   includes places outside the covered region (e.g. Paris, France), and it is still the JSON `needs_clarification` output, not prose. Do not
-   guess a nearby station.
+2. Call the `lookup_station` tool with that text, plus the place's `latitude` and `longitude` (your best estimate) when it's a
+   city or town. It matches case-insensitively and punctuation-insensitively against each active station's ICAO code, IATA code,
+   city, name, and known aliases.
+3. A result with `ghcn_id` is the station to use, including one with `nearest_to` and `miles` (a station a few miles from a place
+   that has none of its own, e.g. LaGuardia for New York).
+4. A result with `"match": "none"` means no station serves the place directly. Stop and set `clarification_question` to its
+   `ask_user` text exactly, adding nothing. If the user then agrees ("yes", or names one of the stations offered), call
+   `lookup_station` with that station's name or code.
+5. Never set `station_id` to a station that didn't come back from a `lookup_station` call, and never guess one from memory.
+6. Call `lookup_station` even for a place that seems outside the covered region (e.g. Paris, France): its `ask_user` names the
+   cities that are covered.
 7. On success, set `station_id` to the returned `ghcn_id`, never the airport code or city name.
 
 If the question names no location, resolve it in order: (a) inherit `station_id` from the **Conversation context** section (see "Follow-up

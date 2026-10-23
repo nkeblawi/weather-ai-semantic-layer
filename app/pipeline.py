@@ -84,11 +84,17 @@ TOOLS = [
         "name": "lookup_station",
         "description": (
             "Resolves free text (city, airport name/alias, ICAO or IATA code) to an "
-            "active station. Returns {ghcn_id, name, city, state}, or nothing if there's no match."
+            "active station. Returns {ghcn_id, name, city, state} for a match, also with "
+            "nearest_to and miles when the place has no station but one is within a few "
+            "miles. Otherwise {match: none, nearby, ask_user}: ask the user ask_user."
         ),
         "input_schema": {
             "type": "object",
-            "properties": {"location_text": {"type": "string"}},
+            "properties": {
+                "location_text": {"type": "string"},
+                "latitude": {"type": "number", "description": "the place's latitude, your best estimate"},
+                "longitude": {"type": "number", "description": "the place's longitude, your best estimate"},
+            },
             "required": ["location_text"],
         },
     },
@@ -207,6 +213,17 @@ def _extract_json(text: str) -> str:
     return text
 
 
+def _station_question(resolved: dict, ask_user: str | None, found: bool) -> dict:
+    """
+    A turn whose place matched no station asks lookup_station's own
+    question (its nearby stations, or the covered cities from the stations
+    table), not the model's rewording of it.
+    """
+    if ask_user and not found and resolved.get("status") == "needs_clarification":
+        return {k: v for k, v in resolved.items() if k != "from_prose"} | {"clarification_question": ask_user}
+    return resolved
+
+
 def _example_json(resolved: dict) -> str:
     """A resolver output as the skill shows it: one line, or one query per line."""
     queries = resolved.get("queries")
@@ -296,6 +313,7 @@ def resolve_question(
     else:
         messages.append({"role": "user", "content": question})
 
+    ask_user, found = None, False  # lookup_station's no-match question; a station resolved this turn
     while True:
         response = client.messages.create(
             model=CLAUDE_MODEL,
@@ -315,7 +333,7 @@ def resolve_question(
                 print(f"[debug] raw final response text:\n{text!r}\n")
 
             try:
-                return json.loads(_extract_json(text))
+                return _station_question(json.loads(_extract_json(text)), ask_user, found)
             except json.JSONDecodeError:
                 # SKILL.md's Step 6 defines a needs_clarification JSON shape
                 # for exactly this case, but the model sometimes answers in
@@ -331,19 +349,22 @@ def resolve_question(
                     )
                 # from_prose: guardrails.validate_resolved only shows this
                 # text if it's short and reads as a question.
-                return {
+                return _station_question({
                     "status": "needs_clarification",
                     "clarification_question": text.strip(),
                     "from_prose": True,
-                }
+                }, ask_user, found)
 
         tool_results = []
         for block in response.content:
             if block.type != "tool_use":
                 continue
             result = execute_tool(conn, block.name, block.input)
-            if block.name == "lookup_station" and result:
+            if block.name == "lookup_station" and result and "ghcn_id" in result:
                 station_info[result["ghcn_id"]] = result
+                found = True
+            elif block.name == "lookup_station" and result:
+                ask_user = result.get("ask_user")
             tool_results.append(
                 {
                     "type": "tool_result",
@@ -356,7 +377,9 @@ def resolve_question(
 
 def execute_tool(conn, name: str, tool_input: dict):
     if name == "lookup_station":
-        return call_lookup_station(conn, tool_input["location_text"])
+        return call_lookup_station(
+            conn, tool_input["location_text"], tool_input.get("latitude"), tool_input.get("longitude")
+        )
     if name == "resolve_date_range":
         return resolve_date_range(tool_input)
     raise ValueError(f"unknown tool: {name}")
