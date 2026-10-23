@@ -19,9 +19,9 @@ resolver):
   metric's natural_aggregation
 - start_date / end_date, when both are left out: the normals period for a
   query marked "normal": true; else the whole record (ALL_TIME_START to
-  today) for a superlative or ranking, a bucketed or calendar-day query, or
-  one with a month_filter. A plain daily mean, sum, or count has no default
-  period. Not for series.
+  today) for a series, a superlative or ranking, a bucketed or calendar-day
+  query, or one with a month_filter. A plain daily mean, sum, or count has
+  no default period.
 
 A top/bottom limit isn't defaulted here: the SQL functions default it.
 """
@@ -45,13 +45,13 @@ WHOLE_RECORD_UNITS = BUCKET_UNITS | {"day_of_year"}
 
 
 def _fill_dates(q, unit, today: date) -> None:
-    if "start_date" in q or "end_date" in q or q.get("aggregation") == "series":
+    if "start_date" in q or "end_date" in q:
         return
     if q.get("normal") is True:
         q["start_date"] = f"{NORMAL_START_YEAR}-01-01"
         q["end_date"] = f"{NORMAL_END_YEAR}-12-31"
     elif (
-        q.get("aggregation") in SUPERLATIVE_AGGREGATIONS
+        q.get("aggregation") in SUPERLATIVE_AGGREGATIONS | {"series"}
         or unit in WHOLE_RECORD_UNITS
         or "month_filter" in q
     ):
