@@ -15,7 +15,7 @@ still checked by validate_queries.
 """
 
 from __future__ import annotations
-from datetime import date
+from datetime import date, timedelta
 from itertools import product
 from wxcore.dates import (
     NORMAL_END_YEAR,
@@ -123,6 +123,15 @@ def period_dates(period, today: date | None = None) -> dict:
         raise ToolArgumentError(
             "period must be an object: {kind, ...} or {start_date, end_date}"
         )
+    if period.get("kind") == "snow_season":
+        # a snow season by the year it ends in: 2010 -> Jul 1, 2009 - Jun 30, 2010
+        year = period.get("year")
+        if not isinstance(year, int):
+            raise ToolArgumentError("a snow_season period needs year, the year it ends in (2010 for 2009-10)")
+        return {
+            "start_date": date(year - 1, SNOW_SEASON_START_MONTH, 1).isoformat(),
+            "end_date": (date(year, SNOW_SEASON_START_MONTH, 1) - timedelta(days=1)).isoformat(),
+        }
     if "kind" in period:
         payload = {**period, "current_date": (today or date.today()).isoformat()}
         try:
