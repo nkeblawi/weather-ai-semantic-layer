@@ -517,7 +517,7 @@ def _cross_query_displays(queries: list[dict]) -> list[str]:
             "display 'difference' needs exactly two queries: same metric and unit, two stations"
         )
     grow = [q for q in queries if q.get("display") == "growing_season"]
-    if grow and sorted(q.get("period_aggregation") for q in grow) != [
+    if grow and sorted(str(q.get("period_aggregation")) for q in grow) != [
         "first_date",
         "last_date",
     ]:
