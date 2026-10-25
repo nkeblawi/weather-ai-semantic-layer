@@ -41,7 +41,7 @@ PLOT_COMMAND = chat_session.PLOT_COMMAND
 
 WELCOME_MSG = (
     "Welcome to the Weather Observations Chat! I answer questions about past weather observations "
-    "(temperatures, rain, snow, and wind) at major cities around the US. Just ask a question, "
+    "(temperatures, rain, snow, and wind) at major cities in the US and Canada. Just ask a question, "
     "or type `/help` for example questions you could ask."
 )
 
