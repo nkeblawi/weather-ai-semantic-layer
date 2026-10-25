@@ -66,8 +66,14 @@ EXAMPLES_MARKER = "<!-- worked examples: {} (skills/assets/examples.json) -->"
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
-# How many prior turns of this session to replay to the resolver.
-MAX_CONTEXT_TURNS = 6
+# The resolver and answer phrasing see the whole session's history: it lives
+# in the browser tab's session and ends with it, and guardrails'
+# SESSION_TURN_LIMIT already bounds its length. MCP clients keep their own.
+
+# How many recent turns needs_count_group checks for a follow-up to an
+# events/months/years question, so one early "snowiest winters" doesn't load
+# count_group.md for the rest of the session.
+COUNT_GROUP_LOOKBACK_TURNS = 10
 
 
 RETRY_PROMPT = (
@@ -255,7 +261,7 @@ def generate_answer(client, question: str, results: list[dict], history=None) ->
     if history:
         transcript = "\n".join(
             f'- User asked: "{h["question"]}"\n  You answered: {h["answer"]}'
-            for h in history[-MAX_CONTEXT_TURNS:]
+            for h in history
         )
         parts.append(f"Earlier in this conversation:\n{transcript}\n")
     parts.append(f"Original question: {question}\n")
@@ -395,7 +401,7 @@ def needs_count_group(question: str, history: list | None = None) -> bool:
     """
     if TRIGGER_PATTERN.search(question):
         return True
-    for turn in (history or [])[-MAX_CONTEXT_TURNS:]:
+    for turn in (history or [])[-COUNT_GROUP_LOOKBACK_TURNS:]:
         if TRIGGER_PATTERN.search(turn.get("question", "")):
             return True
         if (turn.get("query") or {}).get("unit", "day") != "day":
@@ -476,11 +482,11 @@ def build_system_prompt(
     if home_location:
         turn_text += f'\n\n---\n\n## User home city\n\n"{home_location}"'
 
-    # Replay recent turns as a transcript. SKILL.md's "Follow-up questions"
+    # Replay the session's turns as a transcript. SKILL.md's "Follow-up questions"
     # section tells the resolver how to use it: inherit from the most recent
     # Resolved query for an elliptical follow-up, or reconstruct an earlier
     # turn's query for a back-reference / unit conversion.
-    recent = (history or [])[-MAX_CONTEXT_TURNS:]
+    recent = history or []
     if recent:
         si = station_info or {}
         blocks = []

@@ -55,10 +55,10 @@ DAILY_QUESTION_LIMIT = int(os.environ.get("WX_DAILY_QUESTION_LIMIT", "100"))
 SESSION_TURN_LIMIT = int(os.environ.get("WX_SESSION_TURN_LIMIT", "30"))
 MAX_QUESTION_CHARS = int(os.environ.get("WX_MAX_QUESTION_CHARS", "500"))
 
-# SKILL.md asks for under 300; real unknown-city clarifications still run to
-# ~420, so the hard cap leaves headroom while bounding how much model text a
-# manipulated reply can show.
-MAX_CLARIFICATION_CHARS = 500
+# SKILL.md states this cap; follow-up clarifications that restate the
+# context run to ~800, so it leaves headroom while bounding how much model
+# text a manipulated reply can show. Keep SKILL.md's number in step.
+MAX_CLARIFICATION_CHARS = int(os.environ.get("WX_MAX_CLARIFICATION_CHARS", "1000"))
 OFF_TOPIC_STREAK_LIMIT = 3  # in a row -> session ends
 RATE_LIMIT_MESSAGES = 5
 RATE_LIMIT_WINDOW_SECS = 60

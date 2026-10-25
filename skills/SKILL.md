@@ -238,7 +238,7 @@ If any step above couldn't be resolved and the agent had to stop and ask the use
 }
 ```
 
-Keep `clarification_question` to one short question (under 300 characters).
+Keep `clarification_question` to one short question (under 1000 characters; a longer one isn't shown to the user).
 
 If the message isn't a request for historical weather data at all (see **Off-topic messages** below), emit this instead — no `queries`, no
 explanation, and don't call any tools first:
