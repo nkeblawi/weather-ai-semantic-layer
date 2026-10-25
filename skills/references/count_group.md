@@ -37,7 +37,7 @@ Requires:
   total event-days; prefer the simpler `unit: "day"` count of qualifying days for that case instead, since it's the same number without the event
   grouping.
 
-If asked about "events" for any metric other than PRCP/SNOW (e.g. "heat wave events"), ask the user to define what qualifies rather than guessing.
+If asked about "events" for any metric other than PRCP/SNOW (e.g. "heat wave events"), set `clarification_question` to ask what qualifies rather than guessing.
 
 ## `unit: "month"` / `unit: "year"`
 
@@ -109,7 +109,7 @@ across seasons: that's a plain `unit: "day"` query over that season's date range
 ## If it doesn't resolve cleanly
 
 If the question names an event/month/year grain but the specifics (threshold, `event_value`, period aggregation, month filter) can't be
-confidently resolved, ask the user rather than guessing.
+confidently resolved, set `clarification_question` to ask rather than guessing.
 
 ## Worked examples
 

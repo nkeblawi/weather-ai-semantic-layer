@@ -356,7 +356,7 @@ def get_answer(
                 answer_text = guardrails.NOT_CHARTABLE_MSG
                 status = "needs_clarification"
             elif resolved.get("status") == "needs_clarification":
-                # A bad clarification (too long, prose that isn't a question) still means "ask the user"; just don't show the model's text.
+                # A bad clarification (empty or too long) still means "ask the user"; just don't show the model's text.
                 answer_text = guardrails.GENERIC_CLARIFICATION_MSG
                 replay_answer = answer_text + pipeline.GENERIC_REPLAY_NOTE
                 status = "needs_clarification"

@@ -57,7 +57,7 @@ last 30 days") resolve from it (Step 5).
 
 If the question names no location, resolve it in order: (a) inherit `station_id` from the **Conversation context** section (see "Follow-up
 questions"); (b) call `lookup_station` on the **User home city** section and use that station — the user chose it as their default, so don't ask
-them to confirm it; (c) only if there's no home city either, ask the user. Never proceed without a `station_id`.
+them to confirm it; (c) only if there's no home city either, set `clarification_question` to ask where. Never proceed without a `station_id`.
 
 ## Step 3 — Resolve the metric
 
@@ -73,9 +73,9 @@ them to confirm it; (c) only if there's no home city either, ask the user. Never
 | heating degree days, HDD | HDD |
 | cooling degree days, CDD | CDD |
 
-A question can resolve to more than one metric — e.g. "average high and low" resolves to both TMAX and TMIN (see Step 6). If the metric can't be determined at all, ask the user to clarify rather than guessing.
+A question can resolve to more than one metric — e.g. "average high and low" resolves to both TMAX and TMIN (see Step 6). If the metric can't be determined at all, set `clarification_question` to ask rather than guessing.
 
-A request for many metrics across many cities is not answered as asked: ask the user to narrow it to at most 2 metrics and 2 cities.
+A request for many metrics across many cities is not answered as asked: set `clarification_question` to ask the user to narrow it to at most 2 metrics and 2 cities.
 
 ## Step 4 — Resolve the aggregation and unit of analysis
 
@@ -113,7 +113,7 @@ fills them in; it knows each condition's cutoff):
 Days above/below N degrees (an explicit number) use `threshold` with the operator and value from the question, and metric TAVG, or
 TMAX/TMIN if a high/low cue is present.
 
-If the question asks "how many days" but doesn't match one of these idioms and doesn't state an explicit threshold itself, ask the user what condition defines "a day" rather than guessing a cutoff.
+If the question asks "how many days" but doesn't match one of these idioms and doesn't state an explicit threshold itself, set `clarification_question` to ask what condition defines "a day" rather than guessing a cutoff.
 
 **Events, months, years, and seasons.** A precipitation/snow event, storm, or spell ("N in a row"), or a month, year, or season as the
 thing counted, compared, or aggregated ("how many months…", "which year was wettest", "the snowiest winter", "the hottest summers") →
@@ -182,16 +182,16 @@ tool with `current_date` and the shape's parameters (e.g. `{"current_date": "202
 | "in January" / "last March" — a month name with **no year**, asking for that one period | `recent_month` | `month` (1-12) — the most recent such month that has started; never a future month. (An *average/typical/normal* month with no year — "average January high" — is a whole-record climate average instead: see `references/count_group.md`.) |
 | "last Friday" / "this past Friday" / "on Friday" (a past weekday, single day) | `weekday` | `weekday` (lowercase name, e.g. `friday`) — resolves to the most recent such day *strictly before* `current_date` (asked on a Friday, it's a week ago). Never work out the weekday's date yourself. |
 | "ever", "on record", "all-time", "in history", or a count of days with no time period ("how many 100-degree days has Dulles had") | — | omit both dates: the app uses the whole record |
-| "the last / most recent <event>" with no time period stated (e.g. "the last storm over 6 inches") | — | omit both dates: the whole record is searched for the most recent one; do **not** ask the user how far back to look |
-| a ranking or extreme (`top`, `bottom`, `max`, `min`) with no time period stated (e.g. "the coldest days at Reagan National", "the biggest snowstorms", "the snowiest winter") | — | omit both dates: an unqualified superlative means "on record"; do **not** ask the user how far back to look. (Averages, totals, and counts with no period stated still need one: ask.) |
+| "the last / most recent <event>" with no time period stated (e.g. "the last storm over 6 inches") | — | omit both dates: the whole record is searched for the most recent one; do **not** set `clarification_question` to ask how far back to look |
+| a ranking or extreme (`top`, `bottom`, `max`, `min`) with no time period stated (e.g. "the coldest days at Reagan National", "the biggest snowstorms", "the snowiest winter") | — | omit both dates: an unqualified superlative means "on record"; do **not** set `clarification_question` to ask how far back to look. (Averages, totals, and counts with no period stated still need one: set `clarification_question`.) |
 
 Season names accepted by the script: `winter` (DJF), `spring` (MAM), `summer` (JJA), `fall` or `autumn` (SON).
 
-If the time expression is missing, ambiguous, or doesn't fit any shape above, ask the user to clarify rather than guessing a range or calling the script with invented parameters.
+If the time expression is missing, ambiguous, or doesn't fit any shape above, set `clarification_question` to ask rather than guessing a range or calling the script with invented parameters.
 
 ## Step 6 — Assemble the output
 
-Once every prior step has resolved (or Step 2/3/4/5 has stopped early to ask the user something), your final response for this turn must be exactly one JSON object and nothing else — no prose before or after it. Calling a tool is never the last thing you do in a turn: every tool call must be followed by this JSON object, in the same turn, once you have what you need. Emit it:
+Once every prior step has resolved (or Step 2/3/4/5 has stopped early with a question for the user), end the turn by calling the `submit_resolution` tool with exactly one object below as its input. This is how every turn ends, including a question for the user: never write the question, an answer, or your reasoning as text, since nothing outside `submit_resolution` is shown. Call it once, last, after any other tool calls have returned. (Used without that tool, reply with the object alone.) Submit:
 
 ```json
 {
@@ -230,7 +230,7 @@ omit it and the app applies the user's default. The downstream layer converts �
 
 `queries` holds one entry per station × metric needed: "high and low" → two entries; "NYC vs Philadelphia" → one per city.
 
-If any step above couldn't be resolved and the agent had to stop and ask the user something, emit this instead and do not include `queries`:
+If any step above couldn't be resolved and needs the user's answer, submit this instead and do not include `queries`. Put the question in `clarification_question`:
 
 ```json
 {
@@ -243,8 +243,8 @@ If any step above couldn't be resolved and the agent had to stop and ask the use
 
 Keep `clarification_question` to one short question (under 1000 characters; a longer one isn't shown to the user).
 
-If the message isn't a request for historical weather data at all (see **Off-topic messages** below), emit this instead — no `queries`, no
-explanation, and don't call any tools first:
+If the message isn't a request for historical weather data at all (see **Off-topic messages** below), submit this instead — no `queries`, no
+explanation, and don't call any other tools first:
 
 ```json
 {

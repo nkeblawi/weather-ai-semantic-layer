@@ -89,13 +89,21 @@ GENERIC_REPLAY_NOTE = (
 
 
 RETRY_PROMPT = (
-    "Your JSON failed these checks:\n{problems}\n\n"
-    "Fix only what they name and reply with the corrected JSON object (Step 6)."
+    "Your submission failed these checks:\n{problems}\n\n"
+    "Fix only what they name and call submit_resolution again (Step 6)."
 )
 
+# The resolver's final reply is this tool's input, never free text: with
+# tool_choice "any" every response is a tool call, so a turn can only end in
+# the Step 6 object (free-text replies used to slip through as clarifications)
+SUBMIT_TOOL = "submit_resolution"
 
-# Tool definitions for the Claude API. Only lookup_station & resolve_date_range.
-# The model needs both to complete the resolved JSON itself (Step 2 / Step 5).
+# Sent back for a tool call that shared a response with submit_resolution
+NOT_RUN_RESULT = "Not run: submit_resolution was in the same reply."
+
+
+# Tool definitions for the Claude API: lookup_station & resolve_date_range
+# (Step 2 / Step 5) to build the resolved JSON, and submit_resolution to hand it over.
 
 TOOLS = [
     {
@@ -172,6 +180,32 @@ TOOLS = [
             "required": ["current_date", "kind"],
         },
     },
+    {
+        "name": SUBMIT_TOOL,
+        "description": (
+            "Your final reply for every turn: the Step 6 object as this tool's input. "
+            "Call it exactly once, last, after any lookup_station / resolve_date_range "
+            "calls have returned. The user never sees text you write outside it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "current_date": {"type": "string"},
+                "status": {"type": "string", "enum": ["resolved", "needs_clarification", "off_topic"]},
+                "queries": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "resolved only: one query object per station x metric (Step 6)",
+                },
+                "clarification_question": {
+                    "type": "string",
+                    "description": "needs_clarification only: the one question to show the user",
+                },
+                "reason": {"type": "string", "description": "needs_plot only (Step 4); omit otherwise"},
+            },
+            "required": ["status"],
+        },
+    },
 ]
 
 
@@ -218,20 +252,23 @@ def _for_phrasing(payload: dict) -> dict:
 # --- Secondary in-app tools ---
 
 
-def _extract_json(text: str) -> str:
+def _retry_results(submitted: dict, problems: list[str]) -> list[dict]:
     """
-    Models sometimes add prose or markdown fencing around the JSON despite
-    Step 6 saying not to (seen from claude-haiku-4-5: a "**Step 6:**" header
-    followed by a fenced ```json block). Pull the JSON out defensively
-    rather than requiring byte-perfect output. Prefers a fenced block
-    wherever it appears in the text; falls back to the outermost {...}.
+    The tool results answering the failed submission's message: the
+    problems for submit_resolution, a not-run note for any other call in it
+    (every tool_use needs its tool_result).
     """
-    fence_match = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL)
-    if fence_match:
-        return fence_match.group(1)
-    if "{" in text and "}" in text:
-        return text[text.index("{") : text.rindex("}") + 1]
-    return text
+    retry = RETRY_PROMPT.format(problems="\n".join(f"- {p}" for p in problems))
+    return [
+        {
+            "type": "tool_result",
+            "tool_use_id": block.id,
+            "content": retry if block.name == SUBMIT_TOOL else NOT_RUN_RESULT,
+            "is_error": True,
+        }
+        for block in submitted["content"]
+        if block.type == "tool_use"
+    ]
 
 
 def _station_question(resolved: dict, ask_user: str | None, found: bool) -> dict:
@@ -241,7 +278,7 @@ def _station_question(resolved: dict, ask_user: str | None, found: bool) -> dict
     table), not the model's rewording of it.
     """
     if ask_user and not found and resolved.get("status") == "needs_clarification":
-        return {k: v for k, v in resolved.items() if k != "from_prose"} | {"clarification_question": ask_user}
+        return resolved | {"clarification_question": ask_user}
     return resolved
 
 
@@ -315,13 +352,14 @@ def resolve_question(
     problems: list[str] | None = None,
 ) -> dict:
     """
-    Runs the Claude tool-use loop until the model returns its final JSON,
-    and returns that JSON.
+    Runs the Claude tool-use loop until the model calls submit_resolution,
+    and returns that call's input (the Step 6 object).
 
     conversation, if given, holds this turn's messages (the question, tool
-    calls, the model's reply) and is extended in place. To have the model
-    fix a reply that failed validation, call again with the same
-    conversation and the problems: they're sent as one more user message.
+    calls, the model's submission) and is extended in place. To have the
+    model fix a submission that failed validation, call again with the same
+    conversation and the problems: they're sent back as the submission's
+    tool result.
 
     station_info maps ghcn_id -> the lookup_station result for it. It is
     session-scoped: the caller passes the same dict every turn, and each
@@ -337,9 +375,7 @@ def resolve_question(
     system_prompt = build_system_prompt(question, history, station_info, home_location, plot_mode)
     messages: list[dict[str, Any]] = conversation if conversation is not None else []
     if problems and messages:
-        messages.append({"role": "user", "content": RETRY_PROMPT.format(
-            problems="\n".join(f"- {p}" for p in problems)
-        )})
+        messages.append({"role": "user", "content": _retry_results(messages[-1], problems)})
     else:
         messages.append({"role": "user", "content": question})
 
@@ -350,45 +386,22 @@ def resolve_question(
             max_tokens=2048,
             system=system_prompt,
             tools=TOOLS,
+            tool_choice={"type": "any"},
             messages=messages,
         )
         messages.append({"role": "assistant", "content": response.content})
+        calls = [b for b in response.content if b.type == "tool_use"]
 
-        if response.stop_reason != "tool_use":
-            text = "".join(
-                block.text for block in response.content if block.type == "text"
-            )
+        if submit := next((b for b in calls if b.name == SUBMIT_TOOL), None):
             if testing:
-                print(f"[debug] stop_reason={response.stop_reason!r}")
-                print(f"[debug] raw final response text:\n{text!r}\n")
-
-            try:
-                return _station_question(json.loads(_extract_json(text)), ask_user, found)
-            except json.JSONDecodeError:
-                # SKILL.md's Step 6 defines a needs_clarification JSON shape
-                # for exactly this case, but the model sometimes answers in
-                # plain prose instead of following it (seen for vague
-                # questions like "how's the weather been?"). Treat unparseable
-                # final text as that prose *being* the clarification message,
-                # rather than crashing on a question the skill already knows
-                # how to represent.
-                if testing:
-                    print(
-                        "[debug] final text wasn't JSON; treating it as a "
-                        "clarification message"
-                    )
-                # from_prose: guardrails.validate_resolved only shows this
-                # text if it's short and reads as a question.
-                return _station_question({
-                    "status": "needs_clarification",
-                    "clarification_question": text.strip(),
-                    "from_prose": True,
-                }, ask_user, found)
+                print(f"[debug] submission:\n{json.dumps(submit.input, indent=2)}\n")
+            return _station_question(dict(submit.input), ask_user, found)
+        if not calls:
+            # tool_choice "any" rules this out unless the reply was cut off (max_tokens)
+            raise RuntimeError(f"resolver ended without {SUBMIT_TOOL} (stop_reason={response.stop_reason!r})")
 
         tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
+        for block in calls:
             result = execute_tool(conn, block.name, block.input)
             if block.name == "lookup_station" and result and "ghcn_id" in result:
                 station_info[result["ghcn_id"]] = result

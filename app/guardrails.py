@@ -420,8 +420,4 @@ def validate_resolved(
             return [
                 f"clarification is {len(text)} chars (max {MAX_CLARIFICATION_CHARS})"
             ]
-        # Prose the model wrote instead of JSON (see pipeline.resolve_question)
-        # is only shown if it reads as a question.
-        if resolved.get("from_prose") and not text.rstrip().endswith("?"):
-            return ["non-JSON reply that isn't a question"]
     return []
