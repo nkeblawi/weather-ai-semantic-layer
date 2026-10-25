@@ -164,7 +164,11 @@ any unit; events, months, years, and seasons are in `references/count_group.md`.
 
 **Charts.** A chart, plot, or graph, or a question wanting one value per day, month, season, or year ("average high and low for each
 month", "temperatures by year", "is it getting warmer") is a chart request. With a **Plot mode** section below, follow
-`references/plotting.md`; without one, return `needs_clarification` with `"reason": "needs_plot"` — never squash it into one value. A
+`references/plotting.md`; without one, return `needs_clarification` with `"reason": "needs_plot"` — never squash it into one value.
+One named period compared with others of its kind ("how does this summer compare to previous years", "was 2024 a snowy year", "how
+did this January stack up", "was last winter unusually cold") is **not** a chart request: resolve the named period's value, plus a
+ranking of the same kind of period across the record (`top` for hot/wet/snowy/windy, `bottom` for cold/dry; `references/count_group.md`)
+so the answer can say where it stands. Only a value for every period ("each year", "by year", "over time", "the trend") is a chart. A
 single value against normal ("the normal July high", "was July warmer than normal") is a regular query for the normal of that same month
 or season: `"normal": true` and no dates, unless the user names a period — e.g. `unit: "month"`, `month_filter: [7]`, `aggregation:
 "mean"`, `"normal": true`.
