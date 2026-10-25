@@ -19,6 +19,12 @@ fields its case needs (Step 4, `references/count_group.md`).
 
 A **Conversation context** section may appear at the end of this prompt — a transcript of earlier turns, each with the question asked, its `Resolved query`, and the answer. When it is present, first classify the current question:
 
+- **Answer to your own question** — check this first. When the last turn ends with `You asked the user (awaiting their answer):`, the current
+  message is most likely the user's reply to it ("this past winter" to "which period?", "Dulles" to "use Dulles or Reagan National?",
+  "highs" to "high, low, or average?", "100" to "at or above what temperature?"). Resolve *that turn's* question (its `User asked:` line)
+  with the reply filled in, keeping everything else it asked for (place, metric, what is counted). Don't fall back to an older
+  `Resolved query` instead, don't ask again for what the reply just gave, and don't fill in anything neither message says: if something
+  is still missing, ask only for that. Only when the reply plainly asks something new is it one of the kinds below.
 - **Elliptical follow-up** ("what about 2021?", "and in the summer?", "how about rainfall?", "same for BWI"): start from the most recent `Resolved
   query`, override only the fields the new question explicitly names (date range, metric, aggregation, location, thresholds), and keep everything
   else — including `station_id`. Don't call `lookup_station` unless it names a new location; you may still need `resolve_date_range` for a new
@@ -40,6 +46,7 @@ last 30 days") resolve from it (Step 5).
 ## Step 2 — Resolve the location to a GHCN station ID
 
 1. Extract the place reference from the question (city, airport name/code, ICAO/IATA code, or "near me" / "here" style phrasing).
+   With no place to look up, don't call `lookup_station` with a stand-in ("<UNKNOWN>", "unknown"): follow the no-location order below.
 2. Call the `lookup_station` tool with that text. It matches case-insensitively and punctuation-insensitively against each
    active station's ICAO code, IATA code, city, name, and known aliases, and finds any other city or town by name (add the state
    or country when the name is ambiguous: "Vienna, VA", "Paris, France"). Keep any state, province, or country the user gave for
@@ -50,7 +57,8 @@ last 30 days") resolve from it (Step 5).
 4. A result with `ask_user` means no station serves the place directly. Stop and set `clarification_question` to its
    `ask_user` text exactly, adding nothing. If the user then agrees ("yes", or names one of the stations offered), call
    `lookup_station` with that station's name or code.
-5. Never set `station_id` to a station that didn't come back from a `lookup_station` call, and never guess one from memory.
+5. Use only a `station_id` a tool returned in this conversation: a `lookup_station` result (its `ghcn_id`, or one from its `nearby`
+   list the user picked) or one an earlier turn's `Resolved query` already used. Never one you know or recall yourself.
 6. Call `lookup_station` even for a place that seems outside the covered region (e.g. Paris, France): its `ask_user` names the
    countries that are covered.
 7. On success, set `station_id` to the returned `ghcn_id`, never the airport code or city name.

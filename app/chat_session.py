@@ -475,6 +475,7 @@ def get_answer(
             "question": question,
             "answer": answer_text,
             "replay_answer": replay_answer,
+            "status": status,  # a needs_clarification turn is replayed as a question awaiting its answer
             "query": (
                 resolved["queries"][0]
                 if status == "resolved" and resolved.get("queries")

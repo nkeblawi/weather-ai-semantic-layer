@@ -51,6 +51,11 @@ AUTO_MILES = 10
 NEARBY_MILES = 50
 FAR_MILES = 150
 MAX_NEARBY = 3
+
+# Lookup text that names no place ("<UNKNOWN>", "unknown", "N/A"): a model
+# filling the argument in when the user hasn't said where
+PLACEHOLDER_PLACE = re.compile(r"\s*(<[^>]*>|unknown|n/?a|none|null|tbd|\?+)?\s*", re.IGNORECASE)
+NO_PLACE_ERROR = "No place given: ask the user where, then look up the place they name."
 EARTH_RADIUS_MILES = 3958.8
 
 # station-name abbreviations, spelled out for the user ("WASHINGTON DULLES INTL AP")
@@ -417,8 +422,12 @@ def call_lookup_station(conn, location_text: str, latitude=None, longitude=None)
     "ask_user": "..."}: stations within FAR_MILES and a question to put to
     the user before using one (with nothing in range, ask_user names the
     countries covered; with no place found, it asks where the place is).
-    matched_place says which place the name was taken to mean.
+    matched_place says which place the name was taken to mean. Text that
+    names no place gets {"error": NO_PLACE_ERROR}, so the caller asks where
+    instead of relaying "couldn't find a place called <UNKNOWN>".
     """
+    if PLACEHOLDER_PLACE.fullmatch(location_text or ""):
+        return {"error": NO_PLACE_ERROR}
     with conn.cursor() as cur:
         cur.execute(
             f"SELECT {catalog()}.analytics.lookup_station(:location_text)",

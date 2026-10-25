@@ -546,13 +546,23 @@ def build_system_prompt(
                         + " -- one site, whatever name the user uses)"
                     )
             if answer := replayed_answer(turn):
-                lines.append(f"Answer given: {answer}")
+                # a clarifying question isn't an answer: the latest one is
+                # waiting for the reply this turn may be (SKILL.md "Answer to
+                # your own question")
+                if turn.get("status") != "needs_clarification":
+                    label = "Answer given"
+                elif i == len(recent):
+                    label = "You asked the user (awaiting their answer)"
+                else:
+                    label = "You asked the user"
+                lines.append(f"{label}: {answer}")
             blocks.append("\n".join(lines))
         turn_text += (
             "\n\n---\n\n## Conversation context\n\n"
-            "Earlier turns in this session, oldest first; the last is the "
-            'most recent resolved query. Apply the "Follow-up questions" '
-            "rules above.\n\n" + "\n\n".join(blocks)
+            "Earlier turns in this session, oldest first; a turn with a "
+            "`Resolved query` was answered, one without was a question to the "
+            'user. Apply the "Follow-up questions" rules above.\n\n'
+            + "\n\n".join(blocks)
         )
 
     return [
