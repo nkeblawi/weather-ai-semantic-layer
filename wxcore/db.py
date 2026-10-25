@@ -409,8 +409,8 @@ def get_databricks_connection():
 def call_lookup_station(conn, location_text: str, latitude=None, longitude=None):
     """
     The active station a place names: {ghcn_id, name, city, state} for a
-    name, code, or alias match. Otherwise the place's coordinates (the
-    caller's, else from analytics.places) give: the station in that city
+    name, code, or alias match. Otherwise the place's coordinates (from
+    analytics.places, else the caller's) give: the station in that city
     (adding nearest_to and miles), or {"match": "none", "nearby": [...],
     "ask_user": "..."}: stations within FAR_MILES and a question to put to
     the user before using one (with nothing in range, ask_user names the
@@ -425,15 +425,19 @@ def call_lookup_station(conn, location_text: str, latitude=None, longitude=None)
         row = cur.fetchone()
     if row and row[0] is not None:
         return json.loads(row[0])
+    # A place the table knows uses its coordinates, not the caller's: the
+    # model's own coordinates can be wrong (a flipped longitude sent
+    # "Alexandria, VA" across the world). Its coordinates are only for a
+    # place too small for the table.
     place_name, matched = location_text, {}
-    if latitude is None or longitude is None:
-        place = _find_place(conn, location_text)
-        if place is None:
-            ask = f"I couldn't find a place called {location_text}. Which city or town is it in or near?"
-            return {"match": "none", "nearby": [], "ask_user": ask}
+    place = _find_place(conn, location_text)
+    if place is not None:
         latitude, longitude = place["latitude"], place["longitude"]
         place_name = _place_label(place)
         matched = {"matched_place": place_name}
+    elif latitude is None or longitude is None:
+        ask = f"I couldn't find a place called {location_text}. Which city or town is it in or near?"
+        return {"match": "none", "nearby": [], "ask_user": ask}
     nearby = _nearby(conn, latitude, longitude)
     same = [
         s

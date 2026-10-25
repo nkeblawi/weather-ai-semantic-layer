@@ -281,6 +281,13 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
             )
         if "threshold" not in q:
             problems.append(f"aggregation {aggregation!r} requires a threshold")
+    # a count of days or periods counts the ones meeting a threshold; an
+    # event count counts runs of event_day_threshold days, so needs none
+    if aggregation == "count" and unit != "event" and "threshold" not in q:
+        problems.append(
+            "aggregation 'count' requires a threshold (or a condition): "
+            "which days or periods to count"
+        )
     if aggregation == "series":
         _validate_series(q, unit, today, problems)
     elif unit == "day_of_year":
