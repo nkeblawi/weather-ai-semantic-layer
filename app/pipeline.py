@@ -75,6 +75,18 @@ CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 # count_group.md for the rest of the session.
 COUNT_GROUP_LOOKBACK_TURNS = 10
 
+# What a failed turn is replayed as, in place of its "[error] ..." text
+ERROR_REPLAY = (
+    "(This turn failed with an internal error; the user got no answer. "
+    "Their next message may retry it.)"
+)
+
+# Added to the generic reply a rejected clarification was replaced with
+GENERIC_REPLAY_NOTE = (
+    " (A generic fallback: your own clarification wasn't shown. The user's "
+    "next message answers this, so combine it with their earlier question.)"
+)
+
 
 RETRY_PROMPT = (
     "Your JSON failed these checks:\n{problems}\n\n"
@@ -91,8 +103,9 @@ TOOLS = [
         "description": (
             "Resolves free text (city, airport name/alias, ICAO or IATA code) to an "
             "active station. Returns {ghcn_id, name, city, state} for a match, also with "
-            "nearest_to and miles when the place has no station but one is within a few "
-            "miles. Otherwise {match: none, nearby, ask_user}: ask the user ask_user."
+            "nearest_to and miles when the place has no station of its own but one serves it "
+            "(in a city of the same name, or the only one within 10 miles). Otherwise "
+            "{match: none, nearby, ask_user}: ask the user ask_user."
         ),
         "input_schema": {
             "type": "object",
@@ -110,7 +123,7 @@ TOOLS = [
             "Resolves a classified time expression to {start_date, end_date} in "
             "YYYY-MM-DD, per weather-query-resolver Step 5. kind is one of: "
             "absolute_year, absolute_year_range, absolute_month, absolute_day, "
-            "season, relative_days, weekday, recent_month, all_time. Only include the fields "
+            "season, relative_days, last_years, weekday, recent_month, all_time. Only include the fields "
             "that apply to the chosen kind."
         ),
         "input_schema": {
@@ -126,6 +139,7 @@ TOOLS = [
                         "absolute_day",
                         "season",
                         "relative_days",
+                        "last_years",
                         "weekday",
                         "recent_month",
                         "all_time",
@@ -141,6 +155,7 @@ TOOLS = [
                     "enum": ["winter", "spring", "summer", "fall", "autumn"],
                 },
                 "days": {"type": "integer"},
+                "years": {"type": "integer"},
                 "weekday": {
                     "type": "string",
                     "enum": [
@@ -254,13 +269,22 @@ def fill_station_info(conn, resolved: dict, station_info: dict) -> None:
     _fill_station_info(conn, resolved.get("queries"), station_info)
 
 
+def replayed_answer(turn: dict) -> str:
+    """
+    A turn's answer as the model sees it: its replay_answer when the
+    shown text would mislead (an error, a generic fallback), else the
+    answer the user saw.
+    """
+    return turn.get("replay_answer") or turn.get("answer") or ""
+
+
 def generate_answer(client, question: str, results: list[dict], history=None) -> str:
     # answer_phrasing.md is loaded fresh; not appended to the resolver's
     # system prompt like count_group.md)
     parts = []
     if history:
         transcript = "\n".join(
-            f'- User asked: "{h["question"]}"\n  You answered: {h["answer"]}'
+            f'- User asked: "{h["question"]}"\n  You answered: {replayed_answer(h)}'
             for h in history
         )
         parts.append(f"Earlier in this conversation:\n{transcript}\n")
@@ -505,8 +529,8 @@ def build_system_prompt(
                         + " / ".join(names)
                         + " -- one site, whatever name the user uses)"
                     )
-            if turn.get("answer"):
-                lines.append(f"Answer given: {turn['answer']}")
+            if answer := replayed_answer(turn):
+                lines.append(f"Answer given: {answer}")
             blocks.append("\n".join(lines))
         turn_text += (
             "\n\n---\n\n## Conversation context\n\n"

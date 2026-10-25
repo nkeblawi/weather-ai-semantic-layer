@@ -168,6 +168,14 @@ def resolve(payload):
         days = int(payload["days"])
         return current - timedelta(days=days), current
 
+    if kind == "last_years":
+        # "the last 5 years": the N most recent calendar years, this one
+        # included though it isn't over, through today
+        years = int(payload["years"])
+        if years < 1:
+            raise ValueError(f"years must be at least 1, got {years}")
+        return date(current.year - years + 1, 1, 1), current
+
     if kind == "recent_month":
         # Most recent instance of that month that has started: asked in
         # October, "January" is this year's January; "November" is last

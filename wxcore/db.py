@@ -44,8 +44,10 @@ MATCHING_DAYS_MAX = 5  # a day count this small also names the days
 
 # A place lookup_station's names don't match, from its coordinates: a station
 # whose city is that place (e.g. "New York" -> New York, NY) and within
-# NEARBY_MILES is used; any other station up to NEARBY_MILES is offered to
-# the user; up to FAR_MILES it's offered with a warning; beyond, none.
+# NEARBY_MILES is used, else the only station within AUTO_MILES if there's
+# just one; any other station up to NEARBY_MILES is offered to the user; up
+# to FAR_MILES it's offered with a warning; beyond, none.
+AUTO_MILES = 10
 NEARBY_MILES = 50
 FAR_MILES = 150
 MAX_NEARBY = 3
@@ -444,12 +446,15 @@ def call_lookup_station(conn, location_text: str, latitude=None, longitude=None)
         for s in nearby
         if s["miles"] <= NEARBY_MILES and _same_place(location_text, s)
     ]
-    if same:
-        station = {k: same[0][k] for k in ("ghcn_id", "name", "city", "state")}
+    # else the one station within AUTO_MILES, when there's only one: there's
+    # no real choice to ask about (Reagan National, 3 miles from Alexandria)
+    close = [s for s in nearby if s["miles"] <= AUTO_MILES]
+    if pick := same[:1] or (close if len(close) == 1 else []):
+        station = {k: pick[0][k] for k in ("ghcn_id", "name", "city", "state")}
         return {
             **station,
             "nearest_to": location_text,
-            "miles": same[0]["miles"],
+            "miles": pick[0]["miles"],
             **matched,
         }
     if not nearby:

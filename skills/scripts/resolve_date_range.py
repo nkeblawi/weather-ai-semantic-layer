@@ -18,6 +18,7 @@ Input JSON shapes (current_date is always required, YYYY-MM-DD):
   {"current_date": "2026-08-04", "kind": "season", "season": "winter"}
   {"current_date": "2026-08-04", "kind": "season", "season": "winter", "year": 2026}
   {"current_date": "2026-08-04", "kind": "relative_days", "days": 30}
+  {"current_date": "2026-08-04", "kind": "last_years", "years": 5}
   {"current_date": "2026-08-04", "kind": "weekday", "weekday": "friday"}
   {"current_date": "2026-08-04", "kind": "recent_month", "month": 1}
   {"current_date": "2026-08-04", "kind": "all_time"}
@@ -26,6 +27,11 @@ For "season" with no "year", resolves to the most recently completed
 instance of that season as of current_date. With "year", "year" is the
 calendar year containing the season's last month (so winter year=2026 means
 Dec 2025 - Feb 2026).
+
+For "last_years" ("the last 5 years"), resolves to Jan 1 of the earliest of
+the N most recent calendar years through current_date: the current year
+counts as one of them though it isn't over (asked in August 2026, 5 years is
+2022-01-01 to 2026-08-04).
 
 For "weekday" ("last Friday", "this past Friday", "on Friday"), resolves to
 the single most recent such day strictly before current_date -- so asked on
@@ -120,6 +126,14 @@ def resolve(payload):
     if kind == "relative_days":
         days = int(payload["days"])
         return current - timedelta(days=days), current
+
+    if kind == "last_years":
+        # "the last 5 years": the N most recent calendar years, this one
+        # included though it isn't over, through today
+        years = int(payload["years"])
+        if years < 1:
+            raise ValueError(f"years must be at least 1, got {years}")
+        return date(current.year - years + 1, 1, 1), current
 
     if kind == "recent_month":
         # Most recent instance of that month that has started: asked in

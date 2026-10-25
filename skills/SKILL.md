@@ -42,9 +42,11 @@ last 30 days") resolve from it (Step 5).
 1. Extract the place reference from the question (city, airport name/code, ICAO/IATA code, or "near me" / "here" style phrasing).
 2. Call the `lookup_station` tool with that text. It matches case-insensitively and punctuation-insensitively against each
    active station's ICAO code, IATA code, city, name, and known aliases, and finds any other city or town by name (add the state
-   or country when the name is ambiguous: "Vienna, VA", "Paris, France").
-3. A result with `ghcn_id` is the station to use, including one with `nearest_to` and `miles` (a station a few miles from a place
-   that has none of its own, e.g. LaGuardia for New York).
+   or country when the name is ambiguous: "Vienna, VA", "Paris, France"). Keep any state, province, or country the user gave for
+   the place, in this question or an earlier turn: once they've said "Alexandria, VA", a later "Alexandria" or "yes, Alexandria" is
+   still `lookup_station("Alexandria, VA")`, never plain "Alexandria" (which finds a bigger Alexandria elsewhere).
+3. A result with `ghcn_id` is the station to use, including one with `nearest_to` and `miles` (a station serving a place
+   that has none of its own, e.g. LaGuardia for New York, or Reagan National, the only station within 10 miles of Alexandria, VA).
 4. A result with `ask_user` means no station serves the place directly. Stop and set `clarification_question` to its
    `ask_user` text exactly, adding nothing. If the user then agrees ("yes", or names one of the stations offered), call
    `lookup_station` with that station's name or code.
@@ -171,6 +173,7 @@ tool with `current_date` and the shape's parameters (e.g. `{"current_date": "202
 |---|---|---|
 | "in 2021" | `absolute_year` | `year` |
 | "between 2000 and 2020" | `absolute_year_range` | `start_year`, `end_year` |
+| "the last 5 years" / "the past 10 years" / "the last few years" / "in recent years" — a count of years back from now | `last_years` | `years` (N) — the N most recent calendar years through today, this year included. "a few" means N = 5, and "several" or "recent" means N = 10: don't ask how many, and don't work out the years yourself. With a season or month ("the last few summers"), keep it in the query as usual. |
 | "December 2022" | `absolute_month` | `year`, `month` |
 | "January 25, 2026" (single day) | `absolute_day` | `year`, `month`, `day` |
 | "this past winter" / "last summer" (no year given) | `season` | `season` only — resolves to the most recently completed instance as of `current_date` |

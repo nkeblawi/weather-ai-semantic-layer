@@ -305,6 +305,7 @@ def get_answer(
 
     resolved: dict = {}
     answer_text: str | None = None
+    replay_answer: str | None = None  # what the model is shown instead of answer_text, if anything
     tables: list[dict] = []
     charts: list[dict] = []
     needs_plot = False
@@ -357,6 +358,7 @@ def get_answer(
             elif resolved.get("status") == "needs_clarification":
                 # A bad clarification (too long, prose that isn't a question) still means "ask the user"; just don't show the model's text.
                 answer_text = guardrails.GENERIC_CLARIFICATION_MSG
+                replay_answer = answer_text + pipeline.GENERIC_REPLAY_NOTE
                 status = "needs_clarification"
             else:
                 answer_text = guardrails.INVALID_MSG
@@ -441,6 +443,7 @@ def get_answer(
             status = "resolved"
     except Exception as exc:  # noqa: BLE001 -- parity with the CLI's main()
         answer_text = f"[error] {exc}"
+        replay_answer = pipeline.ERROR_REPLAY
         status = "error"
 
     turn_station_id = None
@@ -471,6 +474,7 @@ def get_answer(
         {
             "question": question,
             "answer": answer_text,
+            "replay_answer": replay_answer,
             "query": (
                 resolved["queries"][0]
                 if status == "resolved" and resolved.get("queries")
