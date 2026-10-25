@@ -1,2 +1,3 @@
 # The MCP server's own pins (wxcore's deps stay unpinned in pyproject.toml)
 mcp==2.3.0
+vl-convert-python==1.9.0 
