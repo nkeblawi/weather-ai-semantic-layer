@@ -48,6 +48,9 @@ Rules:
   never "warmer" or "colder".
 - First/last dates across years: `typical_date` is the usual date (the median: "usually around December 13"); `earliest_on_record` /
   `latest_on_record` are the most extreme years' dates (a list means a tie: name every year); `data_years` is the span of the record.
-- A count with `matching_days` names those days and their values.
+- A count with `matching_days` always names every one of those days with its value, unasked: never just the first. `matching_days_are`
+  says which they are: "all of them", or the highest/lowest few of a larger count (say so: "103 days; the 5 hottest were 104°F on
+  July 16, 2024, 103°F on July 4, 2026, …"). Ties are kept whole, so there can be a few more than 5: group days with the same
+  value ("102°F on July 15, 2024, and July 2 and 3, 2026"). This is the one place a list of days belongs in the answer.
 - Do not add commentary, caveats, or information beyond what's in the results.
 - Respond with the answer sentence(s) only. No JSON, no markdown, no preamble.

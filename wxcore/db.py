@@ -40,7 +40,7 @@ from wxcore.dates import (
 # Constants
 # ---------------------------------------------------------------------------
 
-MATCHING_DAYS_MAX = 5  # a day count this small also names the days
+MATCHING_DAYS_MAX = 5  # a day count names its days: all of them up to this many, else at least this many of the most extreme (whole ties)
 
 # A place lookup_station's names don't match, from its coordinates: a station
 # whose city is that place (e.g. "New York" -> New York, NY) and within
@@ -626,11 +626,14 @@ def call_answer_query(conn, entry: dict):
 
 def matching_days(conn, entry: dict, result: dict | None) -> list[dict] | None:
     """
-    The days behind a small daily count ("has DCA ever hit 80 in January?"
-    -> 1, on Jan 26, 2024), so the answer can name them. A count only
-    returns the number; this ranks the days the threshold points at (top for
-    >/>=, bottom for </<=) and keeps those that meet it. None when the count
-    is 0, too large, or not a day count.
+    The days behind a daily count ("has DCA ever hit 80 in January?" -> 1,
+    on Jan 26, 2024), so the answer says when they happened without being
+    asked: every day up to MATCHING_DAYS_MAX, else at least that many of
+    the most extreme, ties kept whole (the hottest of 103 days at 95°F+). A
+    count only returns the
+    number; this ranks the days the threshold points at (top for >/>=,
+    bottom for </<=) and keeps those that meet it. None when the count is 0
+    or not a day count.
     """
     t = entry.get("threshold") or {}
     n = (result or {}).get("value")
@@ -639,12 +642,12 @@ def matching_days(conn, entry: dict, result: dict | None) -> list[dict] | None:
         or entry.get("unit", "day") != "day"
         or t.get("operator") not in (">", ">=", "<", "<=")
         or not isinstance(n, (int, float))
-        or not 1 <= n <= MATCHING_DAYS_MAX
+        or n < 1
     ):
         return None
     ranked = {k: v for k, v in entry.items() if k != "threshold"} | {
         "aggregation": "top" if t["operator"] in (">", ">=") else "bottom",
-        "limit": int(n),
+        "limit": int(min(n, MATCHING_DAYS_MAX)),
     }
     rows = (call_answer_query(conn, ranked) or {}).get("rows") or []
     meets = {
@@ -653,8 +656,16 @@ def matching_days(conn, entry: dict, result: dict | None) -> list[dict] | None:
         "<": lambda v: v < t["value"],
         "<=": lambda v: v <= t["value"],
     }[t["operator"]]
-    return [
-        {"obs_date": r["obs_date"], "value": r["value"]}
-        for r in rows
-        if r.get("value") is not None and meets(r["value"])
-    ]
+    # The limit counts ranks, and tied days share one, so the rows can hold
+    # more days than MATCHING_DAYS_MAX: keep at least that many, finishing
+    # the tie the cutoff falls in rather than naming only some of its days.
+    # answer_query's own row cap still bounds the list.
+    days, last_rank = [], None
+    for r in rows:
+        if r.get("value") is None or not meets(r["value"]):
+            continue
+        if len(days) >= MATCHING_DAYS_MAX and r.get("rank") != last_rank:
+            break
+        days.append({"obs_date": r["obs_date"], "value": r["value"]})
+        last_rank = r.get("rank")
+    return days

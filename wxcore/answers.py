@@ -369,6 +369,12 @@ def build_answer_payload(
         if result.get("matching_days"):
             # rounded/converted like a single reading of the metric, not a count
             payload["matching_days"] = _converted_rows({**entry, "aggregation": "max"}, result["matching_days"])
+            # fewer days than the count: they're its most extreme, not all of them
+            if len(result["matching_days"]) < (result.get("value") or 0):
+                below = (entry.get("threshold") or {}).get("operator") in ("<", "<=")
+                payload["matching_days_are"] = f"the {'lowest' if below else 'highest'} {len(result['matching_days'])} of them"
+            else:
+                payload["matching_days_are"] = "all of them"
         # top/bottom: value is null and the ranking is in rows (rank, then
         # date). Ties share a rank, so rows can outnumber the requested ranks.
         if entry["aggregation"] in RANKING_AGGREGATIONS:
