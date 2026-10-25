@@ -40,7 +40,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from wxcore.dates import resolve_date_range
+from wxcore.dates import ALL_TIME_START, resolve_date_range
 from wxcore.db import call_lookup_station
 from wxcore.db import fill_station_info as _fill_station_info
 
@@ -318,6 +318,26 @@ def replayed_answer(turn: dict) -> str:
     return turn.get("replay_answer") or turn.get("answer") or ""
 
 
+# A question about records whose results hold none: told plainly, or the
+# answer calls the hottest days of a summer "record highs"
+RECORD_WORDS = re.compile(r"\brecords?\b|record-(breaking|setting)|all-time", re.IGNORECASE)
+NOT_RECORDS_NOTE = (
+    "Note: none of these results is a record. They cover only the period "
+    "asked about, not the whole record, so don't call them records, say they "
+    "rank near one, or compare them with other years."
+)
+
+
+def _holds_a_record(payload: dict) -> bool:
+    """
+    An extreme over the whole record: the highest/lowest values (a calendar
+    date's record too), or first/last dates with their earliest/latest on
+    record. A value the answer may call a record.
+    """
+    extremes = ("max", "min", "top", "bottom", "first_date", "last_date")
+    return payload.get("aggregation") in extremes and payload.get("start_date") == ALL_TIME_START
+
+
 def generate_answer(client, question: str, results: list[dict], history=None) -> str:
     # answer_phrasing.md is loaded fresh; not appended to the resolver's
     # system prompt like count_group.md)
@@ -331,6 +351,10 @@ def generate_answer(client, question: str, results: list[dict], history=None) ->
     parts.append(f"Original question: {question}\n")
     phrasing_results = [_for_phrasing(r) for r in results]
     parts.append(f"Results:\n{json.dumps(phrasing_results, indent=2)}")
+    # regular answers only (a chart's summaries have no aggregation)
+    if (RECORD_WORDS.search(question) and results and all("aggregation" in r for r in results)
+            and not any(_holds_a_record(r) for r in results)):
+        parts.append(NOT_RECORDS_NOTE)
     response = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=512,
