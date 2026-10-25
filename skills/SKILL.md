@@ -115,6 +115,15 @@ TMAX/TMIN if a high/low cue is present.
 
 If the question asks "how many days" but doesn't match one of these idioms and doesn't state an explicit threshold itself, set `clarification_question` to ask what condition defines "a day" rather than guessing a cutoff.
 
+**Days that set or tied a record for their own date are not supported yet.** "How many record highs this summer", "record-breaking
+days in the last 5 years", "which days this year broke their record", "how many daily records were set": no query counts or lists
+these, so never resolve one into something else. Don't invent a threshold (a count of days `= 103` or `>= 100` isn't a count of
+records), and don't use `day_of_year`, `max`, or `top` in its place. Submit `needs_clarification`, with a `clarification_question`
+saying that counting record-setting days isn't available yet and offering what is: the hottest days in that period (`top`), days at or
+above a temperature they name (`count` + `threshold`), or the record high for one calendar date ("the record high for July 4"). This
+holds after a retry too, and whether the user calls them record highs, record lows, or daily records. A single record as an extreme ("the
+record high this summer", "the record high for July 4") is still answered as usual (`max`, or `day_of_year` below).
+
 **Events, months, years, and seasons.** A precipitation/snow event, storm, or spell ("N in a row"), or a month, year, or season as the
 thing counted, compared, or aggregated ("how many months…", "which year was wettest", "the snowiest winter", "the hottest summers") →
 follow `references/count_group.md`. Every other question, including plain "how many days…", stays `unit: "day"` (omit it).

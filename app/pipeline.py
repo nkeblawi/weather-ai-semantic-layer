@@ -90,7 +90,10 @@ GENERIC_REPLAY_NOTE = (
 
 RETRY_PROMPT = (
     "Your submission failed these checks:\n{problems}\n\n"
-    "Fix only what they name and call submit_resolution again (Step 6)."
+    "Fix only what they name and call submit_resolution again (Step 6). If no "
+    "allowed query means what the user asked, submit needs_clarification saying "
+    "so: never change the query's meaning (an invented threshold or cutoff) just "
+    "to pass the checks."
 )
 
 # The resolver's final reply is this tool's input, never free text: with
