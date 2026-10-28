@@ -12,7 +12,7 @@ public: no account or sign-in needed.
 
 Each session gets 20 questions, and the app as a whole answers up to 100 a
 day. Type `/help` in the chat for example questions, and start a question
-with `/plot` to get a chart (see [Charts](#charts-plot)).
+with `/plot` to get a chart (see [Charts](#charts)).
 
 ## Architecture
 
@@ -29,72 +29,134 @@ with `/plot` to get a chart (see [Charts](#charts-plot)).
 - **Charts**: a `/plot` question resolves the same way, but the SQL returns
   a series of points, and fixed Altair templates in `wxcore` draw it. Claude
   picks *what* to chart, never *how* it's drawn.
+- **MCP server**: the same query layer is also exposed as MCP tools, so any
+  MCP client's model can answer weather questions without the Streamlit app.
 - Everything runs on Databricks Free Edition and Streamlit Community Cloud,
   with no hyperscaler account.
 
-The project has four layers:
+**Project folder structure:**
 
-| Path | What it holds |
+| Path | Contains |
 |---|---|
-| `src/wx/` | 1. the data pipeline: Databricks jobs (bundle: `databricks.yml`, `resources/`) |
-| `sql/uc/` | 2. the Unity Catalog query functions |
-| `skills/` | 3. the Claude skill |
-| `wxcore/`, `app/` | 4. the shared core and the Streamlit app |
-| `sql/maintenance/` | one-off and cleanup SQL (QC flag cleanup, station codes) |
-| `scripts/` | operations: `deploy_sql.sh` (deploy the SQL functions), `backfill.sh` (re-run the observation pipeline from a date) |
+| `app/` | Streamlit App (with a CLI testing harness) |
 | `docs/` | project notes |
+| `resources/` | Databricks Jobs as YML files |
+| `scripts/` | Bash Operations: `deploy_sql.sh` (deploy the SQL functions), `backfill.sh` (re-run the observation pipeline from a date) |
+| `skills/` | AI skills with references and assets |
+| `sql/uc/` | Unity Catalog Functions |
+| `sql/maintenance/` | one-off and cleanup SQL (QC flag cleanup, station codes) |
+| `src/wx/` | Data Pipeline Scripts |
+| `wx_mcp/` | MCP Server |
+| `wxcore/` | Shared Core - used both by Streamlit and the MCP server |
 
-## 1. Data Pipeline
+## 1. Streamlit App
 
-Path: `src/wx/`
+Path: `app/`
 
-Ingests, cleans, and merges historical weather data on Databricks:
+Ties everything together: a real Claude API call runs the
+[skill](#5-claude-skills) to resolve a question into parameters (calling
+`lookup_station` and a local date-range resolver as tools along the way),
+the resolved parameters are used to call `answer_query` in Unity Catalog,
+and a second, smaller Claude call turns the numeric result into a
+natural-language answer in the same voice as the original question.
 
-- **Stations**: fetches station lists from GHCN and EMSHR datasets, filters them
-  down to WMO stations, and merges them into a single `station_merged` table with 
-  ICAO/IATA codes and country info attached (from EMSHR for US stations,
-  and `cleaned.station_codes` / NOAA's country list for the rest).
-  
-  Station activation (which stations the app can answer questions about) is a
-  manual, on-demand step (`activate_station.py`) run by the application admin.
-  A station whose GHCN ID changed can first have its old IDs' history loaded
-  under the current ID (the `wx_load_station_history` job; see
-  [docs/station_lineage.md](docs/station_lineage.md)).
+`app/` holds the Streamlit front end and everything Claude-specific:
+`pipeline.py` (the resolver's tool loop, system prompt, and answer
+phrasing), `guardrails.py` (usage limits and input checks), `chat_session.py`
+and `streamlit_app.py` (the chat UI), `chat_store.py` (chat history), and
+`test_harness.py` (a terminal CLI for local testing). Data access,
+validation, and charting come from [`wxcore`](#10-shared-core).
 
-- **Observations**: ingests daily observations from GHCN and ACIS, converts each 
-  source to a common schema, merges them, pivots to one row per station/day, and 
-  derives additional variables (e.g. heating/cooling degree days) into a final 
-  analytics table.
+To run it locally, `pip install -r requirements.txt` also installs `wxcore`
+(an editable install, defined in `pyproject.toml`), and `.env` must set
+`WX_CATALOG` (`weather` for prod, `weather_dev` for dev) along with the
+Databricks service principal settings. Nothing defaults to production: a
+missing `WX_CATALOG` stops with an error.
 
-  Values that failed a NOAA quality check (a GHCN QFLAG) are set to NULL
-  during conversion, except values verified as real and listed in the
-  `cleaned.qc_allowlist` table (e.g. SFO's 106°F record high, which NOAA
-  flags as an outlier). `sql/maintenance/qc_flag_cleanup.sql` applies the same rule
-  to rows that were loaded earlier.
+### Charts
 
-Runs as a set of Databricks Jobs, defined and deployed as a
+Start a question with `/plot` to get a chart. A few examples:
+
+- `/plot summer highs at Reagan National with a trend line`
+- `/plot a climate graph for Dulles in 2024`
+- `/plot accumulated snowfall at Dulles in 2024-25 vs 2009-10`
+- `/plot the chance of measurable snow by week at Dulles`
+
+All chart types, how normals and records are computed, and the limits on
+points and series are in [docs/charts.md](docs/charts.md).
+
+## 2. Documentation
+
+Path: `docs/`
+
+- [station_lineage.md](docs/station_lineage.md): where each station's data
+  comes from (source, record start, long gaps) and what was done to it
+  (QC decisions).
+- [governance.md](docs/governance.md): principals, catalogs, grants, jobs,
+  secrets, keeping prod and dev apart, and the retention policy for the
+  app's chat history.
+- [pipeline.md](docs/pipeline.md): what each part of the data pipeline does,
+  and how stations and places are resolved.
+- [query_layer.md](docs/query_layer.md): rankings, snow seasons, and the
+  coverage rule in the Unity Catalog functions.
+- [charts.md](docs/charts.md): `/plot` chart types, normals, records, and
+  limits.
+- [skill.md](docs/skill.md): the Claude skill's supporting files and prompt
+  caching.
+- [mcp_server.md](docs/mcp_server.md): the MCP server's tools and how to
+  run it.
+- [deploying.md](docs/deploying.md): environments, deploying changes, and
+  backfills.
+- `images/`: the architecture diagram above.
+
+## 3. Databricks Jobs
+
+Path: `resources/`
+
+The pipeline runs as a set of Databricks Jobs, defined and deployed as a
 [Databricks Asset Bundle](https://docs.databricks.com/dev-tools/bundles/index.html)
-(`databricks.yml`, `resources/*.yml`).
+(`databricks.yml` at the repo root, one `resources/*.job.yml` per job) to a
+`dev` and a `prod` target ([environments](docs/deploying.md#environments)).
+Scheduled times are US Eastern:
 
-### Stations
+| Job | Runs | Does |
+|---|---|---|
+| `wx_obs_ingest_acis` | daily, 6:00 am | ingests recent ACIS observations (US stations) |
+| `wx_obs_ingest_ghcn` | daily, 11:00 pm | ingests GHCN daily observations |
+| `wx_obs_transform` | daily, 11:45 pm | merges, pivots, and derives the analytics table |
+| `wx_app_retention` | daily, 3:00 am | rolls up and deletes old chat history ([governance](docs/governance.md)) |
+| `wx_station_ingest` | by hand | fetches, filters, and merges the GHCN/EMSHR station lists |
+| `wx_activate_station` | by hand | makes a station answerable in the app |
+| `wx_load_station_history` | by hand | loads a station's older GHCN IDs under its current one |
+| `wx_places_ingest` | by hand | loads the GeoNames places gazetteer |
+| `wx_app_schema` | by hand | creates the app's chat tables |
 
-43 stations, each the main airport weather station for a major city: 38 in
-the US and 5 in Canada. The active list is in `analytics.stations`. Records 
-start between 1933 (Phoenix) and 1994 (Denver). The Canadian records combine 
-each station's older GHCN IDs with its current one (see the lineage doc). 
-The app resolves each station from its city, airport name or code, and common 
-aliases ("Logan", "Sea-Tac", "Twin Cities") stored in `analytics.station_aliases`.
-Any other town resolves by name through `analytics.places`, every place in the
-world with 1,000+ people from [GeoNames](https://www.geonames.org) (CC BY 4.0),
-loaded by the `wx_places_ingest` job (run by hand). Its coordinates give the
-nearest stations, and the user is asked before one is used ("There's no station
-in Vienna, VA. The nearest is Washington Dulles International Airport (IAD), 10
-miles away. Use it…?").
+## 4. Operations Scripts
 
-[docs/station_lineage.md](docs/station_lineage.md) records each station's
-source, record start, long gaps, and QC decisions.
+Path: `scripts/`
 
-## 2. Unity Catalog Query Layer
+- `deploy_sql.sh --env dev|prod [function ...]`: deploys the
+  [Unity Catalog functions](#6-unity-catalog-functions).
+- `backfill.sh --date YYYY-MM-DD --env dev|prod`: re-runs the observation
+  pipeline from a date through yesterday.
+
+How to deploy each part (SQL, pipeline, app) and how a backfill runs are in
+[docs/deploying.md](docs/deploying.md).
+
+## 5. Claude Skills
+
+Path: `skills/`
+
+A [Claude Skill](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview)
+(`SKILL.md`) that defines, step by step, how a model turns a natural-language
+weather question into the structured parameters (station, metric,
+aggregation, date range) needed to call the
+[query layer](#6-unity-catalog-functions). Its `references/` are loaded only
+for the questions that need them, `assets/` holds the table schemas and
+worked examples, and `scripts/` the date math. Each file is described in
+[docs/skill.md](docs/skill.md).
+
+## 6. Unity Catalog Functions
 
 Path: `sql/uc/`
 
@@ -114,203 +176,76 @@ time against the analytics tables:
   whichever of the above applies
 
 The function definitions live here and are deployed from the repo with
-`scripts/deploy_sql.sh` (see [Deploying changes](#deploying-changes)).
+`scripts/deploy_sql.sh`. How rankings, snow seasons, and the 90% coverage
+rule work is in [docs/query_layer.md](docs/query_layer.md).
 
-### Rankings (`top` / `bottom`)
+## 7. Maintenance SQL
 
-`answer_query` and the three `query_by_*` functions accept two ranking
-aggregations, `top` (largest first) and `bottom` (smallest first), plus an
-optional `p_limit`:
+Path: `sql/maintenance/`
 
-- **Ranks** Ranking uses `DENSE_RANK`, so tied values share a rank
-  and the next distinct value takes the next rank (1, 2, 2, 3). `p_limit` is
-  the number of *ranks* returned, so "top 3" can return more than 3 rows when
-  there are ties.
-- **Limits** `p_limit` defaults to 3 and is clamped to 1-15. The returned
-  list is also capped at 15 rows; `rows_truncated: true` means ties pushed
-  more rows into those ranks than were returned.
-- **Tie detection** compares values rounded to 2 decimals, so floating-point
-  noise (53.300000000000004 vs 53.3) doesn't split a tie.
-- **Result shape** Ranking results come back in a `rows` array (ordered by
-  rank, then date) with `value` null; every other aggregation returns
-  `rows: null`, so existing callers are unaffected.
-  - day: `{rank, obs_date, value}`
-  - event: `{rank, event_start, event_end, value, duration, total}`
-  - month/year: `{rank, bucket_year, bucket_month, value, n_days}`
+One-off and cleanup SQL, run by hand:
 
-#### Snow seasons
+- `qc_flag_cleanup.sql`: sets already-loaded values that failed a NOAA
+  quality check to NULL, the same rule the pipeline applies during
+  conversion (see [Data Pipeline](#8-data-pipeline)).
+- `station_codes.sql`: the source of truth for airport codes EMSHR doesn't
+  have (e.g. Canadian stations), merged into `cleaned.station_codes`. Add a
+  row, rerun it, then rerun `wx_station_ingest` so the codes reach
+  `station_merged`.
 
-Snowfall grouped by winter ("the snowiest winters", "an average snow season")
-uses the July 1 - June 30 snow season (the NWS convention), not the calendar
-year, so one winter's snow isn't split across two years and October or May
-snow still counts toward its season. `query_by_period`/`answer_query` take
-`p_year_start_month` (default 1 = calendar year; the app passes 7 for snow
-seasons), and a season is labeled by the year it ends in (2010 = "2009-10").
+## 8. Data Pipeline
 
-#### Coverage rule (months, years, seasons)
+Path: `src/wx/`
 
-A month, year, or season counts only if at least **90%** of its days have
-data, in every answer and chart (averages, totals, counts, rankings, extremes).
-This keeps partial periods, like the season under way or a station's first
-year, from skewing results.
+Ingests, cleans, and merges historical weather data on Databricks, each
+script running as a task in one of the [Databricks Jobs](#3-databricks-jobs):
+station lists from GHCN and EMSHR (`stations/`), daily observations from
+GHCN and ACIS (`obs/`), the GeoNames places gazetteer (`places/`), and the
+app's chat tables (`app/`). Values that failed a NOAA quality check are set
+to NULL unless verified as real.
 
+The app covers 43 stations, each the main airport weather station for a
+major city (38 in the US, 5 in Canada), with records starting between 1933
+and 1994. Any other town resolves to its nearest station, and the user is
+asked before it's used. Each step, and how stations and places are resolved,
+are in [docs/pipeline.md](docs/pipeline.md).
 
-## 3. Claude Skills
+## 9. MCP Server
 
-Path: `skills/`
+Path: `wx_mcp/`
 
-A [Claude Skill](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview)
-(`SKILL.md`) that defines, step by step, how a model turns a natural-language
-weather question into the structured parameters (station, metric,
-aggregation, date range) needed to call the query layer above.
+An [MCP](https://modelcontextprotocol.io) server that exposes the same query
+layer to any MCP client, through task-shaped tools (`lookup_station`,
+`count_days`, `chart_over_time`, ...) built on `wxcore`. Run it from the
+repo root:
 
-Supporting files:
+```bash
+.venv/bin/python -m wx_mcp.server
+```
 
-- `references/count_group.md`: rules for events
-  (storms, rain spells), month/year aggregates, and climate averages such
-  as "average January high". The app adds it to the system prompt only when
-  the question needs it, to keep the base prompt small.
-- `references/plotting.md`: rules for `/plot`
-  questions: picking the grain, normals and anomalies, trend lines, daily
-  climate graphs, and running totals. Loaded only on chart turns.
-- `references/answer_phrasing.md`: the prompt for the second Claude call,
-  which turns query results into a 1-2 sentence answer.
-- `assets/obs_schema.md`, `assets/stations_schema.md`: column-level schemas
-  of the `observations` and `stations` tables, the semantic context behind
-  each metric and station field.
-- `assets/count_group_triggers.txt`: List of trigger words that gets loaded
-  into the question-answer pipeline.
-- `assets/examples.json`: the worked examples, in three sets (`skill`,
-  `count_group`, `plotting`). Each Markdown file has a marker line where the
-  app renders its set into the system prompt (`app/pipeline.py`), so the
-  examples are data that tests can check. Read the Markdown files directly
-  and the examples are missing.
-- `scripts/resolve_date_range.py`: deterministic date math (seasons,
-  "last Friday", month lengths, leap years), kept here so the skill works on
-  its own. The app runs an identical copy in `wxcore/dates.py` and exposes it
-  to Claude as a tool, so the model never does calendar arithmetic itself.
+The full tool list and connection details are in
+[docs/mcp_server.md](docs/mcp_server.md).
 
-## 4. Front-end Application
+## 10. Shared Core
 
-Paths: `wxcore/` (the shared core) and `app/` (the Streamlit app)
+Path: `wxcore/`
 
-Ties the above together: a real Claude API call runs the skill to resolve a
-question into parameters (calling `lookup_station` and a local date-range
-resolver as tools along the way), the resolved parameters are used to call
-`answer_query` in Unity Catalog, and a second, smaller Claude call turns the
-numeric result into a natural-language answer in the same voice as the
-original question.
+The core shared by the Streamlit app and the MCP server. It takes
+structured query parameters and returns data, values, or chart specs. It
+never calls Claude, never imports Streamlit, and keeps no session state:
+station, units, and dates are always explicit arguments.
 
-The code is split in two:
-
-- **`wxcore/`** is the core. It takes structured query parameters and
-  returns data, values, or chart specs. It never calls Claude, never imports
-  Streamlit, and keeps no session state: station, units, and dates are
-  always explicit arguments.
-  - `db.py`: the Databricks connection, `lookup_station`, and `answer_query`
-  - `dates.py`: seasons, date labels, and the date-range resolver
-  - `units.py`: metric units and labels, and °F/°C conversion
-  - `answers.py`: answer payloads and ranking tables
-  - `validation.py`: the allowed values and limits a query must fit, and the
-    checks that run before anything reaches the warehouse
-  - `series.py`, `charts.py`: chart data and the Altair templates
-- **`app/`** is the Streamlit front end and everything Claude-specific:
-  `pipeline.py` (the resolver's tool loop, system prompt, and answer
-  phrasing), `guardrails.py` (usage limits, input checks, canned replies,
-  and the checks on the resolver's reply), `chat_session.py` (the session
-  wrapper behind the chat UI in `streamlit_app.py`), `chat_store.py` (chat
-  history), and `test_harness.py` (a terminal CLI for local testing). They
-  import data access, validation, and charting from `wxcore` rather than
-  duplicating it.
-
-To run it locally, `pip install -r requirements.txt` also installs `wxcore`
-(an editable install, defined in `pyproject.toml`), and `.env` must set
-`WX_CATALOG` (`weather` for prod, `weather_dev` for dev) along with the
-Databricks service principal settings. Nothing defaults to production: a
-missing `WX_CATALOG` stops with an error.
-
-The skill text is sent as a cached system-prompt block, with the date, home
-city, and conversation after it, so the 2-3 resolver calls per question
-re-read the skill at a tenth of the input cost.
-
-### Charts
-
-Command: `/plot`
-
-Start a question with the `/plot` command. A chart question without it ("average high
-and low for each month at Dulles") gets a **Plot it** button that resends
-it as `/plot`, and a follow-up to a chart ("now do Reagan National") stays
-a chart unless it asks for a single value. `wxcore/series.py` turns the SQL
-result into chart data (unit conversion, normals, trend fits) and
-`wxcore/charts.py` holds the Altair templates.
-
-| Chart | Example |
-|---|---|
-| Time series, monthly / yearly / seasonal | `/plot summer highs at Reagan National with a trend line` |
-| Counts of days per period | `/plot the number of 90-degree days per year at Dulles` |
-| Climatology by month, season, or calendar day | `/plot average high and low for each month at Dulles` |
-| Against normal (overlay or departure) | `/plot monthly temperatures at Dulles in 2024 against normal` |
-| Daily values, a year or less | `/plot daily rainfall at Reagan National in 2023` |
-| Daily climate graph (normals and records) | `/plot a climate graph for Dulles in 2024` |
-| Running totals, several seasons overlaid | `/plot accumulated snowfall at Dulles in 2024-25 vs 2009-10` |
-| Histograms (daily or per-period values) | `/plot a histogram of July high temperatures at Dulles` |
-| Odds by month, week, season, or day | `/plot the chance of measurable snow by week at Dulles` |
-| Ranked bars | `/plot the 10 biggest snowstorms at Dulles` |
-| Station difference | `/plot how much colder Dulles lows are than Reagan National's, by year` |
-| Climograph | `/plot a climograph for Reagan National` |
-| Dates by year (freezes, first 90°F day), growing season | `/plot the last spring and first fall freeze at Dulles each year with a trend line` |
-
-- **Normals** are computed from the station's own observations, 1991-2020
-  by default (10-50 years allowed). Daily normals are smoothed over +/- 7
-  days. **Records** cover the whole station record.
-- **Limits**: daily points only over a year or less, monthly points up to
-  100 years (yearly beyond), and at most 4 series per question. Longer
-  requests are reduced, with a note under the chart.
-- Charts with 2+ series have a **clickable legend** to hide or show each
-  one; charts with many points offer a CSV download.
-
-Single values use the same data without a chart: "the record high for July
-4", "the normal low on Christmas" (normal = 1991-2020; "average" = the whole
-record), "the odds of a white Christmas", "the last spring freeze in 2025", "when the first
-measurable snow usually comes".
-
-## Documentation
-
-Project notes live in [`docs/`](docs/):
-
-- [station_lineage.md](docs/station_lineage.md): where each station's data
-  comes from and what was done to it.
-
-## Environments
-
-The Databricks Asset Bundle deploys to two targets, each pointing at a
-separate Unity Catalog catalog so pipeline changes can be tested without
-touching production data:
-
-- `dev` → `weather_dev`
-- `prod` → `weather`
-
-## Deploying changes
-
-- **SQL functions:** `scripts/deploy_sql.sh --env dev|prod [function ...]`
-  (add `--dry-run` to preview). Deploy to dev first, and deploy SQL before
-  the app code that depends on it. `CREATE OR REPLACE FUNCTION` drops the
-  function's own grants, but the app keeps access through `EXECUTE` on the
-  `analytics` schema (see [docs/governance.md](docs/governance.md)).
-- **Pipeline code (`src/wx/`):** `databricks bundle deploy -t dev|prod`
-  deploys everything. To update only a few files, upload each one with
-  `databricks workspace import ... --overwrite` to the bundle's `files/src/`
-  path, shared modules (`wx/utils/`) before the scripts that import them, and
-  not while a job that uses them is running.
-- **App:** Streamlit Community Cloud redeploys on every push to `main`, but
-  it doesn't reliably reload changed Python modules (`app/guardrails.py`,
-  `app/pipeline.py`, `app/chat_session.py`, and everything in `wxcore/`);
-  the running app keeps the old
-  versions. After pushing changes to any of them, **reboot the app** from
-  the Community Cloud dashboard. Skill files (`skills/`) are read on every
-  question, so they take effect without a reboot. Usage limits set in the
-  app's secrets (`WX_*_LIMIT`) are read at startup, so changing one also
-  needs a reboot.
+- `db.py`: the Databricks connection, `lookup_station`, and `answer_query`
+- `dates.py`: seasons, date labels, and the date-range resolver
+- `units.py`: metric units and labels, and °F/°C conversion
+- `answers.py`: answer payloads and ranking tables
+- `validation.py`: the allowed values and limits a query must fit, and the
+  checks that run before anything reaches the warehouse
+- `defaults.py`: fills in fields a query leaves out (the same rules the
+  skill teaches), so a caller can send only what the question states
+- `tools.py`: the task-shaped query tools behind the MCP server, each
+  turning one kind of question's arguments into a query
+- `series.py`, `charts.py`: chart data and the Altair templates
 
 ## Known limitations
 
