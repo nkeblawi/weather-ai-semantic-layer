@@ -12,6 +12,7 @@ import secrets
 import sys
 from collections import OrderedDict
 from contextlib import contextmanager
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -59,15 +60,39 @@ Past weather observations (temperature, rain, snow, wind) at stations in the US 
 - Values and thresholds are in °F and inches. Data runs 1-3 days behind today (non-US stations 2-3).
 - Chart tools return a PNG: show it to the user, and describe it only from the summaries. A CSV link
   is for the user to download; read it only when they ask for the data.
-""".format(metrics=", ".join(f"{code} {label.lower()}" for code, label in METRIC_LABELS.items()))
+""".format(
+    metrics=", ".join(
+        f"{code} {label.lower()}" for code, label in METRIC_LABELS.items()
+    )
+)
 
 mcp = MCPServer(name="weather", instructions=INSTRUCTIONS)
 logger = logging.getLogger(__name__)
 
+# chart config
 PNG_WIDTH = 1080  # the app stretches charts to the page; a PNG needs a width
 CSV_POINTS = 24  # charts with this many points or more get a CSV (the app's button needs more than 24)
+
 # what wxcore.db reads to reach the warehouse; checked at startup, by name only
-SETTINGS = ("WX_CATALOG", "DATABRICKS_SERVER", "DATABRICKS_HTTP", "DATABRICKS_CLIENT", "DATABRICKS_SECRET")
+SETTINGS = (
+    "WX_CATALOG",
+    "DATABRICKS_SERVER",
+    "DATABRICKS_HTTP",
+    "DATABRICKS_CLIENT",
+    "DATABRICKS_SECRET",
+)
+
+# hints added to wxcore validation messages that need another tool or a different request
+ERROR_HINTS = {
+    "wasn't returned by lookup_station": "Call lookup_station with the place name and use the ghcn_id it returns.",
+    "start_date is in the future": "This server has past observations only, no forecasts: use a period that has already started.",
+}
+DATA_LAG_DAYS = 3  # observations run 1-3 days behind today
+RECENT_HINT = (
+    "the last 1-3 days may not be in yet; say the result is through the latest data"
+)
+TIES_HINT = "ties pushed more entries into these ranks than the 15 rows shown; say the list is cut off by ties"
+CSV_HINT = "tell the user the chart's data is available as a CSV if they want it"
 CSV_KEEP = 50  # recent charts' CSVs held for fetching
 _csvs: OrderedDict[str, tuple[str, str]] = OrderedDict()  # chart id -> (file name, CSV)
 
@@ -254,7 +279,9 @@ def _warehouse():
 
 def _read_only(title: str) -> ToolAnnotations:
     """Every tool only reads the warehouse: clients can skip confirmation prompts."""
-    return ToolAnnotations(title=title, read_only_hint=True, idempotent_hint=True, open_world_hint=False)
+    return ToolAnnotations(
+        title=title, read_only_hint=True, idempotent_hint=True, open_world_hint=False
+    )
 
 
 def _threshold(args: dict, name: str) -> None:
@@ -285,8 +312,16 @@ def _checked(conn, queries: list[dict], plot_mode=None) -> dict:
     if plot_mode:
         coerce_series(queries)
     if problems := validate_queries(queries, stations, plot_mode=plot_mode):
-        raise ToolError("; ".join(dict.fromkeys(problems)))
+        text = "; ".join(dict.fromkeys(problems))
+        hints = [hint for match, hint in ERROR_HINTS.items() if match in text]
+        raise ToolError(" ".join([text + ".", *hints]) if hints else text)
     return stations
+
+
+def _recent(queries: list[dict]) -> bool:
+    """A period ending within DATA_LAG_DAYS of today (or later): its last days may not be in yet."""
+    cutoff = (date.today() - timedelta(days=DATA_LAG_DAYS)).isoformat()
+    return any(q.get("end_date", "") >= cutoff for q in queries)
 
 
 def _answer(tool, args: dict) -> dict:
@@ -298,7 +333,13 @@ def _answer(tool, args: dict) -> dict:
         # a day count also says when (as the app does): its days, or its most extreme
         if days := db.matching_days(conn, query, result):
             result = {**result, "matching_days": days}
-        return answers.build_answer_payload(query, result, stations)
+        payload = answers.build_answer_payload(query, result, stations)
+    steps = [RECENT_HINT] * _recent([query]) + [TIES_HINT] * bool(
+        payload.get("rows_truncated")
+    )
+    if steps:
+        payload["next_steps"] = "; ".join(steps)
+    return payload
 
 
 def _png(chart: dict) -> bytes:
@@ -370,15 +411,19 @@ def _chart(tool, args: dict) -> list:
             )
     drawn = series.group_charts(series_list)
     if not drawn:
-        raise ToolError("no data to chart for this station and period")
-    out = [Image(data=_png(c), format="png") for c in drawn]
-    out.append({"summaries": [series.phrasing_summary(s) for s in series_list]})
-    out += [
+        raise ToolError(
+            "no observations for this station and period: check the period is within the station's record, "
+            "or ask the user about a nearby station from lookup_station"
+        )
+    links = [
         _csv_link(prefix, n, c)
         for n, c in enumerate(drawn, 1)
         if sum(len(s["points"]) for s in c["series"]) >= CSV_POINTS
     ]
-    return out
+    result = {"summaries": [series.phrasing_summary(s) for s in series_list]}
+    if steps := [RECENT_HINT] * _recent(queries) + [CSV_HINT] * bool(links):
+        result["next_steps"] = "; ".join(steps)
+    return [*(Image(data=_png(c), format="png") for c in drawn), result, *links]
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +453,14 @@ def lookup_station(
     - latitude and longitude: only for a place too small to be found by name.
     """
     with _warehouse() as conn:
-        return db.call_lookup_station(conn, location, latitude, longitude)
+        found = db.call_lookup_station(conn, location, latitude, longitude)
+    if found.get("ghcn_id") and not found.get("ask_user"):
+        found["next_steps"] = "pass ghcn_id as station to a query or chart tool" + (
+            "; tell the user it's the station nearest their place"
+            if found.get("nearest_to")
+            else ""
+        )
+    return found
 
 
 @mcp.tool(annotations=_read_only("Summarize days"))
@@ -709,7 +761,9 @@ def chart_csv(chart_id: str, name: str) -> str:
 def main() -> None:
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
     if missing := [name for name in SETTINGS if not os.environ.get(name, "").strip()]:
-        sys.exit(f"weather MCP server not started: set {', '.join(missing)} in the environment or .env")
+        sys.exit(
+            f"weather MCP server not started: set {', '.join(missing)} in the environment or .env"
+        )
     print(f"weather MCP server: catalog {db.catalog()}")
     try:
         mcp.run("streamable-http")
