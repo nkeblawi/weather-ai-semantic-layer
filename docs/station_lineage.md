@@ -222,7 +222,7 @@ days neither ID reported.
 | Overlap check | 1941-06-16 to 1965-12-31, current ID kept: old ID warmer by 0.35°F TMAX, 0.17°F TMIN (8,935 days each); PRCP total 3.8% higher (8,957 days) |
 | Handoff | none missing: old ID through 1941-06-15, current ID from 1941-06-16 |
 | Result | TMAX on 56,959 days. Temperature continuous from 1872-01-01 (no gap over 6 days), precipitation from 1871, snow from 1884. **1851-1859 patchy** (TMAX on 416 days, in 1851, 1856, and 1858; PRCP from 1852-10); **no data 1860-1870** |
-| QC | 23 values blanked, all 1851-1858: 20 flag I (TMAX/TMIN inconsistencies, plus PRCP and SNOW on 1857-01-18), 3 flag X (temperatures of about -1000°F); none beyond a station extreme once blanked; no allowlist entries |
+| QC | 23 values blanked, all 1851-1858: 20 flag I (TMAX/TMIN inconsistencies, plus PRCP and SNOW on 1857-01-18), 3 flag X (temperatures of about -1000°F); no allowlist entries |
 | Extremes | 106°F (1918-08-06, 1930-07-20), -15°F (1899-02-11) |
 
 **Cautions:**
