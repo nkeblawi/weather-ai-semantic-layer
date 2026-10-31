@@ -204,8 +204,8 @@ GHCN and ACIS (`obs/`), the GeoNames places gazetteer (`places/`), and the
 app's chat tables (`app/`). Values that failed a NOAA quality check are set
 to NULL unless verified as real.
 
-The app covers 43 stations, each the main airport weather station for a
-major city (38 in the US, 5 in Canada), with records starting between 1851
+The app covers 44 stations, each the main airport weather station for a
+major city (39 in the US, 5 in Canada), with records starting between 1851
 (Washington, DC) and 1994. Any other town resolves to its nearest station,
 and the user is asked before it's used. Each step, and how stations and places are resolved,
 are in [docs/pipeline.md](docs/pipeline.md).
@@ -268,6 +268,9 @@ station, units, and dates are always explicit arguments.
   airport in 1994, and GHCN has no usable snowfall for 1995-2005 (missing,
   or rejected by NOAA's quality checks). Snowfall averages and totals for
   those years are incomplete.
+- **JFK precipitation and snow before 1959.** GHCN has only scattered
+  precipitation from mid-1950 through 1958 and no snow for 1951-1958, though
+  temperature is continuous. Totals and averages for those years are incomplete.
 - **Revised GHCN values aren't picked up.** When NOAA revises a value that
   is already loaded (or flags it later), the analytics tables keep the old
   value. `sql/maintenance/qc_flag_cleanup.sql` handles newly flagged values only.

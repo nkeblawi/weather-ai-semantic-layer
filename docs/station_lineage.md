@@ -3,7 +3,7 @@
 Where each active station's data comes from, what was done to it, and what to watch for. Update
 this file whenever a station is activated, spliced, relabeled, or has values allowlisted or blanked.
 
-Last reviewed: 2026-10-31 (43 active stations, prod catalog `weather`).
+Last reviewed: 2026-10-31 (44 active stations, prod catalog `weather`).
 
 ## How to read this
 
@@ -54,6 +54,7 @@ Last reviewed: 2026-10-31 (43 active stations, prod catalog `weather`).
 | Nashville | US | USW00013897 | KBNA | BNA | 72327 | 1948-01-01 | 2026-10-20 | single | 6 |
 | New Orleans | US | USW00012916 | KMSY | MSY | 72231 | 1948-01-01 | 2026-10-20 | single | 2 |
 | New York | US | USW00014732 | KLGA | LGA | 72503 | 1939-10-01 | 2026-09-09 | single | 6 |
+| New York JFK | US | USW00094789 | KJFK | JFK | 74486 | 1948-07-01 | 2026-10-31 | single | 34 |
 | Orlando | US | USW00012815 | KMCO | MCO | 72205 | 1952-05-01 | 2026-10-20 | single | 14 |
 | Philadelphia | US | USW00013739 | KPHL | PHL | 72408 | 1940-07-01 | 2026-10-20 | single | 1 |
 | Phoenix | US | USW00023183 | KPHX | PHX | 72278 | 1933-06-01 | 2026-10-20 | single | 24 |
@@ -102,6 +103,8 @@ downtown station holds earlier years and is not included. Candidates for a futur
 - **Denver:** Sep 1994 to Jan 1995 (153 days), Oct 2013 (31 days).
 - **Sterling:** Aug 1960 to Nov 1961 (487 days), Oct 1962 (31 days).
 - **Washington, DC:** patchy 1851-1859, nothing 1860-1870 (see [Spliced stations](#washington-dc-usw00013743)).
+- **New York JFK:** precipitation and snow only, mid-1950 to 1958: 15-44 days of precipitation a
+  year and no snow for 1951-1958; temperature is continuous. Values start 1948-07-17.
 
 **QC decisions:**
 - **San Francisco, 1961-06-14 TMAX 106°F:** kept via `cleaned.qc_allowlist` (NOAA flags it O,
@@ -120,6 +123,8 @@ downtown station holds earlier years and is not included. Candidates for a futur
   exist, so ACIS returns nothing; these two show GHCN only (2-3 days behind). See issues log.
 - **Sterling** is labeled by town, not by airport ("Sterling", for Dulles); the other original
   stations use the city.
+- **New York JFK** is labeled with the airport because no two stations share a city label, and
+  LaGuardia is "New York". Plain "New York" and "NYC" resolve to LaGuardia.
 
 ## Spliced stations
 

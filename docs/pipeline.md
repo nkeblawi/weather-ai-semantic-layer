@@ -43,7 +43,7 @@ Fetches and parses the GeoNames gazetteer into `analytics.places` (see
 
 ## Station coverage
 
-43 stations, each the main airport weather station for a major city: 38 in
+44 stations, each the main airport weather station for a major city: 39 in
 the US and 5 in Canada. The active list is in `analytics.stations`. Records
 start between 1933 (Phoenix) and 1994 (Denver). The Canadian records combine
 each station's older GHCN IDs with its current one (see the lineage doc).
