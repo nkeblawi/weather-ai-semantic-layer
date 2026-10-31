@@ -12,11 +12,12 @@ in obs_merged). A single shared watermark skipped rows: a GHCN merge that
 ran between the ACIS ingest and the next transform (e.g. a
 wx_activate_station backfill) moved it past the ACIS rows' ingested_at.
 Re-reading a source row that is already merged is harmless: the MERGE
-only inserts new keys or replaces ACIS with GHCN.
+only inserts new keys, replaces ACIS with GHCN, or fills an empty row.
 
 Deduplication, when the same (station_id, obs_date, variable) exists in
 both sources:
-  1. Find the last obs_date where GHCN has non-NULL data (the "GHCN cutoff").
+  1. Find the last obs_date where GHCN has non-NULL data, held back
+     CUTOFF_LOOKBACK_DAYS (the "GHCN cutoff").
   2. For obs_date AFTER the cutoff -> always use ACIS (even if NULL), since
      ACIS runs 1-2 days ahead of GHCN. GHCN NULLs are excluded past the
      cutoff so they don't shadow ACIS.
@@ -34,6 +35,7 @@ Target:  weather.cleaned.obs_merged
 import os
 import sys
 import argparse
+from datetime import timedelta
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--workspace-root", default=os.environ.get("WX_WORKSPACE_ROOT"))
@@ -51,7 +53,12 @@ bootstrap()
 from pyspark.sql import DataFrame  # type: ignore
 from pyspark.sql import functions as F  # type: ignore
 from pyspark.sql.window import Window  # type: ignore
-from wx.utils.config import OBS_ACIS_CONV_TABLE, OBS_GHCN_CONV_TABLE, OBS_MERGED_TABLE
+from wx.utils.config import (
+    CUTOFF_LOOKBACK_DAYS,
+    OBS_ACIS_CONV_TABLE,
+    OBS_GHCN_CONV_TABLE,
+    OBS_MERGED_TABLE,
+)
 from wx.utils.spark_utils import get_spark
 from wx.utils.common import set_cutoff
 
@@ -118,15 +125,17 @@ def merged_watermarks(spark) -> dict:
 
 def ghcn_cutoff_date(spark):
     """
-    Last obs_date GHCN has non-NULL data for, across all of obs_ghcn_conv.
-    Drives GHCN-vs-ACIS precedence in dedupe_with_priority.
+    Last obs_date GHCN has non-NULL data for, across all of obs_ghcn_conv,
+    minus CUTOFF_LOOKBACK_DAYS. Drives GHCN-vs-ACIS precedence in
+    dedupe_with_priority.
     """
-    return (
+    last_date = (
         spark.table(OBS_GHCN_CONV_TABLE)
         .filter(F.col("value").isNotNull())
         .agg(F.max("obs_date").alias("last_date"))
         .collect()[0]["last_date"]
     )
+    return last_date - timedelta(days=CUTOFF_LOOKBACK_DAYS) if last_date else None
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +150,7 @@ def dedupe_with_priority(ghcn_last_date, unioned_df: DataFrame) -> DataFrame:
     ACIS for any date after GHCN's most recent non-NULL date (since ACIS
     runs ahead of GHCN).
     """
-    print(f"GHCN last date with non-NULL data: {ghcn_last_date}")
+    print(f"GHCN cutoff ({CUTOFF_LOOKBACK_DAYS} days before its last non-NULL date): {ghcn_last_date}")
 
     prioritized_df = unioned_df.withColumn(
         "priority",
@@ -174,7 +183,7 @@ def dedupe_with_priority(ghcn_last_date, unioned_df: DataFrame) -> DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Step 4: MERGE UPSERT into target (GHCN replaces ACIS on match)
+# Step 4: MERGE UPSERT into target (GHCN replaces ACIS; late values fill empty rows)
 # ---------------------------------------------------------------------------
 
 
@@ -187,7 +196,14 @@ def merge_into_obs_merged(spark, merged_df: DataFrame) -> None:
         ON target.station_id = source.station_id
            AND target.obs_date = source.obs_date
            AND target.variable = source.variable
-        WHEN MATCHED AND source.source = 'GHCN' AND target.source = 'ACIS' THEN
+        WHEN MATCHED AND (
+            -- GHCN replaces ACIS, unless it has nothing to offer (a QC-flagged
+            -- NULL still counts, so a bad value doesn't survive through ACIS)
+            (source.source = 'GHCN' AND target.source = 'ACIS'
+                AND (source.value IS NOT NULL OR source.qflag IS NOT NULL))
+            -- a value that arrives late fills an empty row (not one QC blanked)
+            OR (target.value IS NULL AND target.qflag IS NULL AND source.value IS NOT NULL)
+        ) THEN
             UPDATE SET
                 target.value = source.value,
                 target.mflag = source.mflag,

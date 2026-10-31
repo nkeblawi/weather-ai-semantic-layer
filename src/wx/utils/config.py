@@ -1,6 +1,6 @@
 """
 Central configuration for the weather pipeline: catalog, schema, and table
-name constants. Every ingest/transform script should import from here rather
+name constants, plus pipeline settings. Every ingest/transform script should import from here rather
 than hardcoding these strings, so a rename only has to happen in one place.
 
 Names follow the productionization plan (see Productionize `Projects/Weather`
@@ -49,3 +49,6 @@ PLACES_VIEW = f"{CATALOG}.{SCHEMA_ANALYTICS}.places"
 USERS_TABLE = f"{CATALOG}.{SCHEMA_APP}.users"
 CHAT_HISTORY_TABLE = f"{CATALOG}.{SCHEMA_APP}.chat_history"
 USAGE_DAILY_TABLE = f"{CATALOG}.{SCHEMA_APP}.usage_daily"
+
+# --- Pipeline settings ---
+CUTOFF_LOOKBACK_DAYS = 7

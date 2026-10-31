@@ -18,7 +18,7 @@ own state. ghcn_last_date = MAX(obs_date) where source = 'GHCN' in
 obs_merged (same concept merge_obs.py already uses to decide ACIS-vs-GHCN
 priority), recomputed fresh from obs_merged every run -- no stored
 watermark, no side table. In wx_obs_transform the date comes from
-merge_obs via a job task value (same value, no second full scan); any
+merge_obs via a job task value (held back CUTOFF_LOOKBACK_DAYS, no second full scan); any
 other run computes it here. Reprocesses obs_date >= ghcn_last_date each
 run, which covers both:
   - brand-new dates (ACIS running ahead of GHCN), and
@@ -28,8 +28,8 @@ run, which covers both:
     watermark would silently miss it. Anchoring to ghcn_last_date instead
     means we keep re-pivoting exactly the window where that can still
     happen, until GHCN moves past it.
-Dates older than ghcn_last_date are settled (GHCN has already progressed
-past them) and are not reprocessed.
+Dates older than that are treated as settled and are not reprocessed; a
+value arriving later than that needs a backfill.
 
 --station-id bypasses the date watermark and re-pivots that one station's
 entire obs_merged history. A bulk historical backfill (a newly activated
