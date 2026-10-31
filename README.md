@@ -205,9 +205,9 @@ app's chat tables (`app/`). Values that failed a NOAA quality check are set
 to NULL unless verified as real.
 
 The app covers 43 stations, each the main airport weather station for a
-major city (38 in the US, 5 in Canada), with records starting between 1933
-and 1994. Any other town resolves to its nearest station, and the user is
-asked before it's used. Each step, and how stations and places are resolved,
+major city (38 in the US, 5 in Canada), with records starting between 1851
+(Washington, DC) and 1994. Any other town resolves to its nearest station,
+and the user is asked before it's used. Each step, and how stations and places are resolved,
 are in [docs/pipeline.md](docs/pipeline.md).
 
 ## 9. MCP Server

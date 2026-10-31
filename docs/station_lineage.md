@@ -3,7 +3,7 @@
 Where each active station's data comes from, what was done to it, and what to watch for. Update
 this file whenever a station is activated, spliced, relabeled, or has values allowlisted or blanked.
 
-Last reviewed: 2026-10-21 (43 active stations, prod catalog `weather`).
+Last reviewed: 2026-10-31 (43 active stations, prod catalog `weather`).
 
 ## How to read this
 
@@ -70,7 +70,7 @@ Last reviewed: 2026-10-21 (43 active stations, prod catalog `weather`).
 | Sterling | US | USW00093738 | KIAD | IAD | 72403 | 1960-04-01 | 2026-08-25 | single | 1 |
 | Tampa | US | USW00012842 | KTPA | TPA | 72211 | 1939-02-01 | 2026-10-20 | single | 0 |
 | Toronto | CA | CAN06158731 | CYYZ | YYZ | 71624 | 1937-11-01 | 2026-10-21 | spliced | 16 |
-| Washington, DC | US | USW00013743 | KDCA | DCA | 72405 | 1941-06-01 | 2026-09-09 | single | 0 |
+| Washington, DC | US | USW00013743 | KDCA | DCA | 72405 | 1851-03-21 | 2026-09-09 | spliced | 23 |
 
 Activated dates are UTC, from the `wx_activate_station` run history; the 30-station expansion runs
 are in `notes/stations/activate_runs_prod.tsv`. Washington, DC's station sits in Virginia (Reagan National);
@@ -101,6 +101,7 @@ downtown station holds earlier years and is not included. Candidates for a futur
 - **Anchorage:** Dec 1952 to Jan 1953 (62 days).
 - **Denver:** Sep 1994 to Jan 1995 (153 days), Oct 2013 (31 days).
 - **Sterling:** Aug 1960 to Nov 1961 (487 days), Oct 1962 (31 days).
+- **Washington, DC:** patchy 1851-1859, nothing 1860-1870 (see [Spliced stations](#washington-dc-usw00013743)).
 
 **QC decisions:**
 - **San Francisco, 1961-06-14 TMAX 106°F:** kept via `cleaned.qc_allowlist` (NOAA flags it O,
@@ -124,7 +125,7 @@ downtown station holds earlier years and is not included. Candidates for a futur
 
 A spliced station's record joins one or more older GHCN IDs to the current ID, for stations whose
 ID changed (renumbering, automation) or whose airport moved. Used for the Canadian stations
-(tranche 7 in `notes/stations/station_expansion_plan.md`).
+(tranche 7 in `notes/stations/station_expansion_plan.md`) and Washington, DC.
 
 **Method (one-time history load):** old IDs are downloaded once and written to `raw.obs_ghcn`
 **under the current ID**, then the current ID is activated as usual
@@ -210,6 +211,20 @@ days neither ID reported.
 | QC | 71 values blanked, none beyond a station extreme |
 | Extremes | 96°F, -55°F |
 
+### Washington, DC (USW00013743)
+
+| Field | Value |
+|---|---|
+| Current ID | USW00013743, WASHINGTON REAGAN NATL AP (DCA), WMO 72405; values from 1941-06-16 |
+| Old ID | USW00093725, WASHINGTON (DC, about 2 km from downtown); 1851-03-21 to 1965-12-31 |
+| Rows loaded | 117,823: PRCP 27,778; SNOW 20,785; SNWD 17,697; TMAX 25,791; TMIN 25,772 |
+| Loaded | 2026-10-31 UTC, prod, on an already active station (see Cautions); loader run 79695650889730, activation run 502158239002904 |
+| Overlap check | 1941-06-16 to 1965-12-31, current ID kept: old ID warmer by 0.35°F TMAX, 0.17°F TMIN (8,935 days each); PRCP total 3.8% higher (8,957 days) |
+| Handoff | none missing: old ID through 1941-06-15, current ID from 1941-06-16 |
+| Result | TMAX on 56,959 days. Temperature continuous from 1872-01-01 (no gap over 6 days), precipitation from 1871, snow from 1884. **1851-1859 patchy** (TMAX on 416 days, in 1851, 1856, and 1858; PRCP from 1852-10); **no data 1860-1870** |
+| QC | 23 values blanked, all 1851-1858: 20 flag I (TMAX/TMIN inconsistencies, plus PRCP and SNOW on 1857-01-18), 3 flag X (temperatures of about -1000°F); none beyond a station extreme once blanked; no allowlist entries |
+| Extremes | 106°F (1918-08-06, 1930-07-20), -15°F (1899-02-11) |
+
 **Cautions:**
 - Never activate or ingest an old ID on its own; its history already lives under the current ID.
 - Re-running the loader for a station is safe (same keys and values). A `--full` re-ingest of the
@@ -219,6 +234,10 @@ days neither ID reported.
   delete its rows from `obs_ghcn_conv`, `obs_merged`, `obs_pivot` and `observations`, then re-run the
   loader and the activation job.
 - QC allowlist entries for spliced years use the current ID.
+- Loading onto an already active station takes one more step. Delete the current ID's all-NULL rows
+  in the loaded date range from `obs_merged` after the load, then run the activation job, or those
+  days stay blank (issue #8). Washington, DC needed this for 75 rows, 1941-06-01 to 06-15. Do it
+  away from the nightly transform.
 
 ## Planned (not active)
 
