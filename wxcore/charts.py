@@ -592,5 +592,8 @@ def chart_spec(chart: dict) -> dict:
 def to_csv(chart: dict) -> str:
     """The chart's points as CSV, for the download button."""
     df = _frame(chart)
+    # day counts as 34, not 34.0; averages over the years keep their fractions
+    if chart["units"] == "days" and (df["value"].dropna() % 1 == 0).all():
+        df["value"] = df["value"].astype("Int64")
     cols = [c for c in ("series", "label", "value", "normal", "anomaly", "stddev") if c in df]
     return df[cols].rename(columns={"label": "when", "value": f"value ({chart['units']})"}).to_csv(index=False)
