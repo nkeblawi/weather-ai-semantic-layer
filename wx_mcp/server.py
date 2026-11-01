@@ -223,6 +223,24 @@ Metric2 = Annotated[
     ),
 ]
 
+DatesWhich = Annotated[
+    Literal[tuple(sorted(tools.CHART_DATES))],
+    Field(
+        description="Pick first or last date each year, both (last spring and first fall, two lines), "
+        "or growing_season (the days between them)"
+    ),
+]
+HistogramPer = Annotated[
+    Literal[tuple(sorted(tools.HISTOGRAM_UNITS))],
+    Field(
+        description="Pick to histogram each period's average or total; leave blank for daily values"
+    ),
+]
+RainOrSnow = Annotated[
+    Literal[tuple(sorted(EVENT_METRICS))],
+    Field(description="Pick PRCP for rain or SNOW for snowfall"),
+]
+
 Period = Annotated[
     dict | None,
     Field(
@@ -734,6 +752,182 @@ def chart_count_days(
     e.g. per year, metric TMAX, threshold_operator >=, threshold_value 90, trend true.
     """
     return _chart(tools.chart_count_days, locals())
+
+
+@mcp.tool(annotations=_read_only("Chart odds"))
+def chart_odds(
+    station: str,
+    by: ClimatologyBy,
+    condition: Condition | None = None,
+    metric: Metric | None = None,
+    threshold_operator: Operator | None = None,
+    threshold_value: float | None = None,
+    period: Period = None,
+):
+    """
+    A chart of the percent of years with at least one day meeting a condition or threshold: "plot
+    the chance of measurable snow by week", "chart the odds of a 90-degree day by month".
+    - One point per calendar month, season, week, or day of the year.
+    - Give a condition or a metric with threshold_operator and threshold_value, not both.
+    - One station only. No period: the whole record.
+    - Returns the chart as a PNG: show it to the user. Describe it from summaries, never guessing
+      at points. A CSV link, when present, is for the user to fetch; don't read it unless they ask
+      for the data.
+    e.g. by week, condition measurable_snow.
+    """
+    return _chart(tools.chart_odds, locals())
+
+
+@mcp.tool(annotations=_read_only("Chart dates by year"))
+def chart_dates_by_year(
+    station: str,
+    which: DatesWhich,
+    condition: Condition | None = None,
+    metric: Metric | None = None,
+    threshold_operator: Operator | None = None,
+    threshold_value: float | None = None,
+    half_year: HalfYear | None = None,
+    trend: bool = False,
+    period: Period = None,
+):
+    """
+    A chart of the first or last date something happened each year: "plot the last spring freeze
+    each year", "chart first snow dates", "graph the growing season length".
+    - which first or last draws one line; both draws the last spring and first fall dates;
+      growing_season draws the days between them (a freeze unless you give another condition).
+    - Give a condition or a metric with threshold_operator and threshold_value, not both.
+    - Freezes with first or last: half_year spring for the last freeze, fall for the first.
+      Snowfall is grouped by snow season (July-June): leave half_year blank.
+    - trend adds a trend line. One station only. No period: the whole record.
+    - Returns the chart as a PNG: show it to the user. Describe it from summaries, never guessing
+      at points. A CSV link, when present, is for the user to fetch; don't read it unless they ask
+      for the data.
+    e.g. which growing_season, trend true.
+    """
+    return _chart(tools.chart_dates_by_year, locals())
+
+
+@mcp.tool(annotations=_read_only("Chart histogram"))
+def chart_histogram(
+    station: str,
+    metric: Metric,
+    per: HistogramPer | None = None,
+    season: Season | None = None,
+    stat: PeriodStat | None = None,
+    months: list[int] | None = None,
+    period: Period = None,
+):
+    """
+    A histogram (distribution) of values: "plot the distribution of daily highs", "histogram of
+    summer average highs", "show the spread of yearly snowfall".
+    - per blank: daily values. per year, season (with season set), snow_season, or month: each
+      period's average or total (stat overrides the metric's usual one).
+    - season and stat need per. months keeps only those calendar months.
+    - One station only. No period: the whole record.
+    - Returns the chart as a PNG: show it to the user. Describe it from summaries, never guessing
+      at points. A CSV link, when present, is for the user to fetch; don't read it unless they ask
+      for the data.
+    e.g. metric TMAX, months [7].
+    """
+    return _chart(tools.chart_histogram, locals())
+
+
+@mcp.tool(annotations=_read_only("Chart climate graph"))
+def chart_climate_graph(station: str, baseline: Baseline = None, period: Period = None):
+    """
+    An NWS-style daily climate graph: daily highs and lows over the normal and record ranges:
+    "plot a climate graph for Dulles in 2024", "show this year against normal and records".
+    - A period of up to a year; no period: this year to date.
+    - One station only. Normals are 1991-2020 unless baseline is given.
+    - Returns the chart as a PNG: show it to the user. Describe it from summaries, never guessing
+      at points. A CSV link, when present, is for the user to fetch; don't read it unless they ask
+      for the data.
+    e.g. period {"kind": "absolute_year", "year": 2024}.
+    """
+    return _chart(tools.chart_climate_graph, locals())
+
+
+@mcp.tool(annotations=_read_only("Chart running total"))
+def chart_running_total(
+    station: str,
+    metric: RainOrSnow,
+    period: Period = None,
+    period_2: Period = None,
+    period_3: Period = None,
+    period_4: Period = None,
+    against_normal: bool = False,
+    baseline: Baseline = None,
+):
+    """
+    A chart of rain or snow accumulating day by day: "plot accumulated snowfall this winter",
+    "compare 2009-10 snowfall with 2024-25", "year-to-date rain against normal".
+    - period_2 to period_4 add periods of up to a year, one line each, lined up by day.
+    - No period: this year (or snow season for SNOW) to date.
+    - against_normal adds the normal accumulation (1991-2020, or baseline). One station only.
+    - Returns the chart as a PNG: show it to the user. Describe it from summaries, never guessing
+      at points. A CSV link, when present, is for the user to fetch; don't read it unless they ask
+      for the data.
+    e.g. metric SNOW, period {"kind": "snow_season", "year": 2010}, period_2 {"kind": "snow_season", "year": 2025}.
+    """
+    return _chart(
+        tools.chart_running_total,
+        {
+            "station": station,
+            "metric": metric,
+            "periods": [p for p in (period, period_2, period_3, period_4) if p],
+            "against_normal": against_normal,
+            "baseline": baseline,
+        },
+    )
+
+
+@mcp.tool(annotations=_read_only("Chart station difference"))
+def chart_station_difference(
+    station: str,
+    other_station: str,
+    metric: Metric,
+    grain: Grain | None = None,
+    season: Season | None = None,
+    stat: PeriodStat | None = None,
+    trend: bool = False,
+    period: Period = None,
+):
+    """
+    A chart of one station's values minus another's over time: "plot how much warmer Reagan is than
+    Dulles", "chart the snowfall difference between two cities".
+    - One line around zero: station minus other_station. To draw both stations as their own lines,
+      use chart_over_time with station_2.
+    - One point per grain; blank picks from the span. trend adds a trend line.
+    - No period: the whole record.
+    - Returns the chart as a PNG: show it to the user. Describe it from summaries, never guessing
+      at points. A CSV link, when present, is for the user to fetch; don't read it unless they ask
+      for the data.
+    e.g. metric TMAX, grain year, station Reagan's ghcn_id, other_station Dulles's ghcn_id.
+    """
+    return _chart(tools.chart_station_difference, locals())
+
+
+@mcp.tool(annotations=_read_only("Chart climograph"))
+def chart_climograph(
+    station: str,
+    precip: RainOrSnow | None = None,
+    normal: bool = False,
+    period: Period = None,
+):
+    """
+    A climograph: monthly average highs and lows as lines with monthly rain or snow totals as bars:
+    "plot a climograph for Dulles", "show the climate of Denver with snowfall".
+    - precip blank: PRCP. Over the whole record, the period, or with normal on the 1991-2020
+      normals (not both normal and a period). One station only.
+    - Returns the chart as a PNG: show it to the user. Describe it from summaries, never guessing
+      at points. A CSV link, when present, is for the user to fetch; don't read it unless they ask
+      for the data.
+    e.g. normal true.
+    """
+    return _chart(
+        tools.chart_climograph,
+        {"station": station, "precip": precip or "PRCP", "normal": normal, "period": period},
+    )
 
 
 # ---------------------------------------------------------------------------
