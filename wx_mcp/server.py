@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from mcp.server import MCPServer
-from wx_mcp import resources
+from wx_mcp import prompts, resources
 from wx_mcp.tools import charts, queries
 from wxcore import db
 from wxcore.units import METRIC_LABELS
@@ -57,6 +57,7 @@ mcp = MCPServer(name="weather", instructions=INSTRUCTIONS)
 queries.register(mcp)
 charts.register(mcp)
 resources.register(mcp)
+prompts.register(mcp)
 
 
 # ---------------------------------------------------------------------------
