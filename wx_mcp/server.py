@@ -59,7 +59,8 @@ Past weather observations (temperature, rain, snow, wind) at stations in the US 
 - Name what the results give: a count's matching_days with their dates and values, and an extreme's date.
 - Metrics: {metrics}.
 - Values and thresholds are in °F and inches. Data runs 1-3 days behind today (non-US stations 2-3).
-- Chart tools return a PNG: show it to the user, and describe it only from the summaries. A CSV link
+- Chart tools return a PNG: show it to the user, and describe it only from the summaries. Pass on any
+  notes the result gives (they qualify the chart). A CSV link
   is for the user to download; read it only when they ask for the data.
 """.format(
     metrics=", ".join(
@@ -88,6 +89,7 @@ ERROR_HINTS = {
     "wasn't returned by lookup_station": "Call lookup_station with the place name and use the ghcn_id it returns.",
     "start_date is in the future": "This server has past observations only, no forecasts: use a period that has already started.",
 }
+LEGEND_NOTE = "Click a legend item to hide or show it."  # wxcore's note; a PNG has nothing to click
 DATA_LAG_DAYS = 3  # observations run 1-3 days behind today
 RECENT_HINT = (
     "the last 1-3 days may not be in yet; say the result is through the latest data"
@@ -450,6 +452,10 @@ def _chart(tool, args: dict) -> list:
         if sum(len(s["points"]) for s in c["series"]) >= CSV_POINTS
     ]
     result = {"summaries": series.phrasing_summaries(series_list)}
+    # the captions the app shows under a chart, less the one for its clickable legend
+    notes = dict.fromkeys(note for c in drawn for note in c["notes"] if note != LEGEND_NOTE)
+    if notes:
+        result["notes"] = list(notes)
     if steps := [RECENT_HINT] * _recent(queries) + [CSV_HINT] * bool(links):
         result["next_steps"] = "; ".join(steps)
     return [*(Image(data=_png(c), format="png") for c in drawn), result, *links]
