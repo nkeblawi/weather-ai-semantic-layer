@@ -449,7 +449,7 @@ def _chart(tool, args: dict) -> list:
         for n, c in enumerate(drawn, 1)
         if sum(len(s["points"]) for s in c["series"]) >= CSV_POINTS
     ]
-    result = {"summaries": [series.phrasing_summary(s) for s in series_list]}
+    result = {"summaries": series.phrasing_summaries(series_list)}
     if steps := [RECENT_HINT] * _recent(queries) + [CSV_HINT] * bool(links):
         result["next_steps"] = "; ".join(steps)
     return [*(Image(data=_png(c), format="png") for c in drawn), result, *links]
@@ -908,7 +908,8 @@ def chart_station_difference(
     Dulles", "chart the snowfall difference between two cities".
     - One line around zero: station minus other_station. To draw both stations as their own lines,
       use chart_over_time with station_2.
-    - One point per grain; blank picks from the span. trend adds a trend line.
+    - One point per grain; blank picks from the span. trend adds a trend line of the gap.
+    - Summaries give the gap over the years both stations have: positive means station is higher.
     - No period: the whole record.
     - Returns the chart as a PNG: show it to the user. Describe it from summaries, never guessing
       at points. A CSV link, when present, is for the user to fetch; don't read it unless they ask

@@ -397,7 +397,7 @@ def difference_chart(chart: dict) -> alt.Chart:
         x=x, y=alt.Y("value:Q", title=f"Difference ({chart['units']})"),
         tooltip=[alt.Tooltip("label:N", title="When"), alt.Tooltip("value:Q", title=f"Difference ({chart['units']})")])
     zero = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(strokeWidth=1).encode(y="y:Q")
-    return alt.layer(zero, line).properties(height=HEIGHT)
+    return alt.layer(zero, line, *_trend_layers(chart, "value")).properties(height=HEIGHT)
 
 
 def climograph_chart(chart: dict) -> alt.Chart:

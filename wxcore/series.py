@@ -10,7 +10,8 @@ as a point. This module does everything between that result and the chart:
   by month / season / year, anomalies, the trend fit, notes
 - group_charts: lines that share a chart kind and unit go on one chart
 - phrasing_summary: the few numbers the answer sentence may use (never the
-  raw points)
+  raw points); phrasing_summaries: the same for a whole chart, describing what
+  a difference or growing season pair actually draws
 
 Chart drawing itself lives in charts.py; nothing here imports Altair.
 """
@@ -317,7 +318,9 @@ def _difference(a: dict, b: dict) -> dict:
     for p in pts:
         for k in ("normal", "lower", "upper", "anomaly", "stddev", "record_high", "record_low"):
             p.pop(k, None)
-    return {**a, "kind": "difference", "points": pts, "trend": None, "baseline": None,
+    # a trend of the gap itself: each station's own trend doesn't apply to it
+    trend = _trend(pts, "value") if (a["trend"] or b["trend"]) else None
+    return {**a, "kind": "difference", "points": pts, "trend": trend, "baseline": None,
             "name": f"{a['place']} minus {b['place']}", "minus_place": b["place"]}
 
 
@@ -734,6 +737,10 @@ def phrasing_summary(series: dict) -> dict:
         out["period_label"] = series.get("period")
     if series.get("display") == "difference":
         out["chart"] = "one line: the first station's values minus the second's, around zero"
+    if series.get("minus_place"):
+        # the values are gaps between the stations, over the years both have
+        out["what"] = f"{series['metric_label']}: {series['name']}"
+        out["meaning"] = f"positive = {series['place']} higher than {series['minus_place']}"
     if series["kind"] == "dates":
         # dates: earliest/latest by time of year, not highest/lowest numbers
         for k in ("highest", "lowest", "mean"):
@@ -762,3 +769,20 @@ def phrasing_summary(series: dict) -> dict:
     if series["kind"] == "climate":
         out["records_set_or_tied"] = [f"{p['label']} ({p['record_set']})" for p in pts if p.get("record_set")]
     return out
+
+
+def phrasing_summaries(series_list: list[dict]) -> list[dict]:
+    """
+    A chart's summaries, matching what group_charts draws. A difference pair is
+    summarized as the one difference line (each station alone, over its own
+    span, can say the opposite); a growing season adds its length to the two
+    dates.
+    """
+    diff = [s for s in series_list if s.get("display") == "difference" and s["points"]]
+    if len(diff) == 2:
+        series_list = [s for s in series_list if s.get("display") != "difference"] + [_difference(*diff)]
+    summaries = [phrasing_summary(s) for s in series_list]
+    grow = [s for s in series_list if s.get("display") == "growing_season" and s["points"]]
+    if len(grow) == 2:
+        summaries.append(phrasing_summary(_growing_season(*grow)))
+    return summaries

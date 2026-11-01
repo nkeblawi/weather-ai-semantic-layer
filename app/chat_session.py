@@ -414,7 +414,7 @@ def get_answer(
             answer_text = pipeline.generate_answer(
                 session.client,
                 text,
-                [series.phrasing_summary(x) for x in series_list],
+                series.phrasing_summaries(series_list),
                 history=model_history,
             )
             status = "resolved"
