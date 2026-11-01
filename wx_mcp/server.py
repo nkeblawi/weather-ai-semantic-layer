@@ -27,6 +27,7 @@ from mcp_types import ResourceLink, ToolAnnotations
 from pydantic import Field
 
 from wxcore import answers, charts, db, series, tools
+from wxcore.dates import ALL_TIME_START
 from wxcore.defaults import apply_defaults
 from wxcore.units import METRIC_LABELS
 from wxcore.validation import (
@@ -337,9 +338,19 @@ def _checked(conn, queries: list[dict], plot_mode=None) -> dict:
 
 
 def _recent(queries: list[dict]) -> bool:
-    """A period ending within DATA_LAG_DAYS of today (or later): its last days may not be in yet."""
-    cutoff = (date.today() - timedelta(days=DATA_LAG_DAYS)).isoformat()
-    return any(q.get("end_date", "") >= cutoff for q in queries)
+    """
+    A period ending within DATA_LAG_DAYS of today (or later), whose last days may not be in yet.
+    Not the whole record, where a few days don't matter, nor a month filter that leaves those days out.
+    """
+    today = date.today()
+    start = today - timedelta(days=DATA_LAG_DAYS)
+    lag_months = {start.month, today.month}
+    return any(
+        q.get("end_date", "") >= start.isoformat()
+        and q.get("start_date") != ALL_TIME_START
+        and (not q.get("month_filter") or lag_months & set(q["month_filter"]))
+        for q in queries
+    )
 
 
 def _answer(tool, args: dict) -> dict:
