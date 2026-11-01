@@ -12,11 +12,29 @@ needs, so most invalid combinations can't be expressed.
   every other tool
 - `summarize_days`, `extreme_days`, `count_days`, `calendar_day`,
   `first_last_date`, `events`, `compare_periods`: single-answer questions
-- `chart_over_time`, `chart_climatology`: return a PNG of the app's chart,
-  plus a link to a CSV resource (`chart://...`) for charts with many points
+- `chart_over_time`, `chart_climatology`, `chart_count_days`, `chart_odds`,
+  `chart_dates_by_year`, `chart_histogram`, `chart_climate_graph`,
+  `chart_running_total`, `chart_station_difference`, `chart_climograph`:
+  return a PNG of the app's chart, plus a link to a CSV resource for charts
+  with 24 or more points
 
 The tools are built on `wxcore/tools.py` and `wxcore/defaults.py`, then run
 through the same validation and `answer_query` call as the app.
+
+## Resources
+
+A client or user reads these; a model only sees one if it's attached.
+
+- `wx://stations`: the stations covered, one per line as place (code)
+- `chart://{chart_id}/{name}`: a chart's data as CSV, linked from the chart
+  result and held in memory for the last 50 charts until the server restarts
+
+## Prompts
+
+A user starts these from the client's menu or slash commands; some clients
+don't support them.
+
+- `examples`: example questions and charts to try
 
 ## Running it
 
