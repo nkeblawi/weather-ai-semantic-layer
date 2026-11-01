@@ -1,14 +1,15 @@
 """
-The chart CSV resource: held in memory for the last charts, and read only on
-request so it costs no tokens until then.
+The resources: the stations covered, and each chart's CSV (held in memory for
+the last charts, and read only on request so it costs no tokens until then).
 """
 
 import secrets
 from collections import OrderedDict
 from mcp.server import MCPServer
-from mcp.server.mcpserver.exceptions import ResourceError
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp_types import ResourceLink
-from wxcore import charts
+from wx_mcp.helpers import _warehouse
+from wxcore import charts, db
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -50,5 +51,15 @@ def chart_csv(chart_id: str, name: str) -> str:
     return held[1]
 
 
+def stations() -> str:
+    """The stations this server covers, one per line as place (code). lookup_station takes the code."""
+    try:
+        with _warehouse() as conn:
+            return "\n".join(db.list_home_locations(conn).values())
+    except ToolError as exc:  # the SDK hides any other error type behind a generic message
+        raise ResourceError(str(exc)) from None
+
+
 def register(mcp: MCPServer) -> None:
     mcp.resource("chart://{chart_id}/{name}", mime_type="text/csv")(chart_csv)
+    mcp.resource("wx://stations", mime_type="text/plain")(stations)
