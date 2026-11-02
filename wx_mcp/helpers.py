@@ -31,6 +31,7 @@ DATA_LAG_DAYS = 3  # observations run 1-3 days behind today
 RECENT_HINT = (
     "the last 1-3 days may not be in yet; say the result is through the latest data"
 )
+TIES_HINT = "ties pushed more entries into these ranks than the 15 rows shown; say the list is cut off by ties"
 
 
 # ---------------------------------------------------------------------------

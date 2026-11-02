@@ -7,9 +7,9 @@ import vl_convert
 from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
 from wx_mcp import fields
-from wx_mcp.helpers import RECENT_HINT, ToolSet, _checked, _queries, _recent, _warehouse
+from wx_mcp.helpers import RECENT_HINT, TIES_HINT, ToolSet, _checked, _queries, _recent, _warehouse
 from wx_mcp.resources import _csv_link
-from wxcore import charts, db, series, tools
+from wxcore import answers, charts, db, series, tools
 from wxcore.validation import PLOT_EXPLICIT
 
 # ---------------------------------------------------------------------------
@@ -21,6 +21,10 @@ PNG_WIDTH = 1080  # the app stretches charts to the page; a PNG needs a width
 CSV_POINTS = 24  # charts with this many points or more get a CSV (the app's button needs more than 24)
 LEGEND_NOTE = "Click a legend item to hide or show it."  # wxcore's note; a PNG has nothing to click
 CSV_HINT = "tell the user the chart's data is available as a CSV if they want it"
+NO_DATA = (
+    "no observations for this station and period: check the period is within the station's record, "
+    "or ask the user about a nearby station from lookup_station"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -81,10 +85,7 @@ def _chart(tool, args: dict) -> list:
             )
     drawn = series.group_charts(series_list)
     if not drawn:
-        raise ToolError(
-            "no observations for this station and period: check the period is within the station's record, "
-            "or ask the user about a nearby station from lookup_station"
-        )
+        raise ToolError(NO_DATA)
     links = [
         _csv_link(prefix, n, c)
         for n, c in enumerate(drawn, 1)
@@ -100,6 +101,28 @@ def _chart(tool, args: dict) -> list:
     if steps := [RECENT_HINT] * _recent(queries) + [CSV_HINT] * bool(links):
         result["next_steps"] = "; ".join(steps)
     return [*(Image(data=_png(c), format="png") for c in drawn), result, *links]
+
+
+def _ranking_chart(tool, args: dict) -> list:
+    """tool(**args)'s ranked query, answered and drawn as bars like the app's /plot of a ranking."""
+    [query] = _queries(tool, args)
+    with _warehouse() as conn:
+        stations = _checked(conn, [query], PLOT_EXPLICIT)
+        payload = answers.build_answer_payload(
+            query, db.call_answer_query(conn, query), stations
+        )
+    table = answers.ranking_table(payload)
+    if not table["rows"]:
+        raise ToolError(NO_DATA)
+    chart = answers.ranking_chart(payload, table)
+    if chart["notes"]:
+        payload["notes"] = chart["notes"]
+    steps = [RECENT_HINT] * _recent([query]) + [TIES_HINT] * bool(
+        payload.get("rows_truncated")
+    )
+    if steps:
+        payload["next_steps"] = "; ".join(steps)
+    return [Image(data=_png(chart), format="png"), payload]
 
 
 # ---------------------------------------------------------------------------
@@ -385,4 +408,46 @@ def chart_climograph(
             "normal": normal,
             "period": period,
         },
+    )
+
+
+@tool("Chart a ranking")
+def chart_ranking(
+    station: str,
+    metric: fields.Metric,
+    ranking_of: fields.RankingOf,
+    order: fields.Order,
+    n: fields.N = None,
+    measure: fields.Measure | None = None,
+    season: fields.Season | None = None,
+    months: list[int] | None = None,
+    period: fields.Period = None,
+):
+    """
+    A ranking as a bar chart: "plot the 10 biggest snowstorms", "chart the 5 hottest days", "graph
+    the snowiest winters".
+    - ranking_of: day, storm (metric PRCP or SNOW), or whole periods: month, year, season (with
+      season set), or snow_season (SNOW only, July-June).
+    - order highest or lowest; for storms, largest or smallest.
+    - measure only for storms: duration ranks by length in days ("longest rainy spells").
+    - months only for days and periods ("hottest January days": months [1]). No period: the whole record.
+    - Returns the chart as a PNG: show it to the user. Describe it from the result's rows, never
+      guessing at bars.
+    e.g. metric SNOW, ranking_of storm, order highest, n 10.
+    """
+    args = {"station": station, "metric": metric, "ranked": True, "n": n, "period": period}
+    if ranking_of != "storm" and measure:
+        raise ToolError("measure is only for ranking_of storm: leave it blank")
+    if ranking_of in ("day", "storm") and season:
+        raise ToolError("season is only for ranking whole periods: use months for a day, or leave it blank")
+    if ranking_of == "storm":
+        if months:
+            raise ToolError("months isn't available for ranking_of storm: leave it blank")
+        select = "largest" if order == "highest" else "smallest"
+        return _ranking_chart(tools.events, {**args, "select": select, "measure": measure})
+    if ranking_of == "day":
+        return _ranking_chart(tools.extreme_days, {**args, "order": order, "months": months})
+    return _ranking_chart(
+        tools.compare_periods,
+        {**args, "period_type": ranking_of, "select": order, "season": season, "months": months},
     )

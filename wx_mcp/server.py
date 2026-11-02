@@ -34,8 +34,8 @@ Past weather observations (temperature, rain, snow, wind) at stations in the US 
 - Name what the results give: a count's matching_days with their dates and values, and an extreme's date.
 - Metrics: {metrics}.
 - Values and thresholds are in °F and inches. Data runs 1-3 days behind today (non-US stations 2-3).
-- Chart tools return a PNG: show it to the user, and describe it only from the summaries. Pass on any
-  notes the result gives (they qualify the chart). A CSV link
+- Chart tools return a PNG: show it to the user, and describe it only from the summaries or rows. Pass on
+  any notes the result gives (they qualify the chart). A CSV link
   is for the user to download; read it only when they ask for the data.
 """.format(
     metrics=", ".join(

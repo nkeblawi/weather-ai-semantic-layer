@@ -5,15 +5,8 @@ client's model to phrase.
 
 
 from wx_mcp import fields
-from wx_mcp.helpers import RECENT_HINT, ToolSet, _checked, _queries, _recent, _warehouse
+from wx_mcp.helpers import RECENT_HINT, TIES_HINT, ToolSet, _checked, _queries, _recent, _warehouse
 from wxcore import answers, db, tools
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-TIES_HINT = "ties pushed more entries into these ranks than the 15 rows shown; say the list is cut off by ties"
-
 
 # ---------------------------------------------------------------------------
 # Helper Functions

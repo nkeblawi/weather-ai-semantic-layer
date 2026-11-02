@@ -14,7 +14,8 @@ needs, so most invalid combinations can't be expressed.
   `first_last_date`, `events`, `compare_periods`: single-answer questions
 - `chart_over_time`, `chart_climatology`, `chart_count_days`, `chart_odds`,
   `chart_dates_by_year`, `chart_histogram`, `chart_climate_graph`,
-  `chart_running_total`, `chart_station_difference`, `chart_climograph`:
+  `chart_running_total`, `chart_station_difference`, `chart_climograph`,
+  `chart_ranking`:
   return a PNG of the app's chart, plus a link to a CSV resource for charts
   with 24 or more points
 

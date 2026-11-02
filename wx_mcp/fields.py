@@ -86,6 +86,10 @@ PeriodStat = Annotated[
         description="Pick average or total per period, or leave blank for the metric's usual"
     ),
 ]
+RankingOf = Annotated[
+    Literal[("day", "storm", *sorted(tools.PERIOD_TYPES))],
+    Field(description="Pick what to rank; use snow_season for snowfall by winter"),
+]
 N = Annotated[
     int | None,
     Field(description="Enter any number between 1 and 15. Default is 3 if blank."),
