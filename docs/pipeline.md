@@ -45,16 +45,18 @@ Fetches and parses the GeoNames gazetteer into `analytics.places` (see
 
 44 stations, each the main airport weather station for a major city: 39 in
 the US and 5 in Canada. The active list is in `analytics.stations`. Records
-start between 1933 (Phoenix) and 1994 (Denver). The Canadian records combine
-each station's older GHCN IDs with its current one (see the lineage doc).
+start between 1851 (Washington, DC) and 1994 (Denver). The Canadian records and
+Washington, DC's combine each station's older GHCN IDs with its current one (see
+the lineage doc).
 The app resolves each station from its city, airport name or code, and common
 aliases ("Logan", "Sea-Tac", "Twin Cities") stored in `analytics.station_aliases`.
 Any other town resolves by name through `analytics.places`, every place in the
 world with 1,000+ people from [GeoNames](https://www.geonames.org) (CC BY 4.0),
 loaded by the `wx_places_ingest` job (run by hand). Its coordinates give the
-nearest stations, and the user is asked before one is used ("There's no station
-in Vienna, VA. The nearest is Washington Dulles International Airport (IAD), 10
-miles away. Use it…?").
+nearest stations, and the user is asked which to use ("There's no station in
+Vienna, VA. The nearest is Washington Dulles International Airport (IAD), 10
+miles away. Use it…?"), unless only one is close by or the station's city is
+that place.
 
 [station_lineage.md](station_lineage.md) records each station's source,
 record start, long gaps, and QC decisions.

@@ -9,6 +9,10 @@ a chart unless it asks for a single value. `wxcore/series.py` turns the SQL
 result into chart data (unit conversion, normals, trend fits) and
 `wxcore/charts.py` holds the Altair templates.
 
+The [MCP server](mcp_server.md) draws the same charts as PNGs through its
+`chart_*` tools, without the clickable legend or download button. With no grain
+given, it picks monthly points only up to 30 years.
+
 ## Chart types
 
 | Chart | Example |

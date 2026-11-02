@@ -31,7 +31,7 @@ Snowfall grouped by winter ("the snowiest winters", "an average snow season")
 uses the July 1 - June 30 snow season (the NWS convention), not the calendar
 year, so one winter's snow isn't split across two years and October or May
 snow still counts toward its season. `query_by_period`/`answer_query` take
-`p_year_start_month` (default 1 = calendar year; the app passes 7 for snow
+`p_year_start_month` (default 1 = calendar year; `wxcore` passes 7 for snow
 seasons), and a season is labeled by the year it ends in (2010 = "2009-10").
 
 ## Coverage rule (months, years, seasons)

@@ -42,7 +42,7 @@ same grants unless noted.
 | Grantee | Object | Privileges | Why |
 |---|---|---|---|
 | App service principal | catalog | `USE_CATALOG` | Enter the catalog; reads nothing by itself |
-| App service principal | schema `analytics` | `USE_SCHEMA`, `SELECT`, `EXECUTE` | Call `answer_query` and `lookup_station`, read `stations` directly, and read the tables the functions use |
+| App service principal | schema `analytics` | `USE_SCHEMA`, `SELECT`, `EXECUTE` | Call `answer_query` and `lookup_station`, read `stations` and `places` directly, and read the tables the functions use |
 | App service principal | schema `app` | `USE_SCHEMA` | Enter the schema; reads nothing by itself |
 | App service principal | table `app.users` | `SELECT`, `MODIFY` | Read and upsert users and their preferences |
 | App service principal | table `app.chat_history` | `SELECT`, `MODIFY` | Count and insert chat turns |
@@ -153,8 +153,11 @@ daily at 03:00 ET in prod (paused in dev). Each run, in order:
 The app only reads today's turns (the daily question cap), so the
 retention period doesn't change its behavior.
 
-**Where questions go.** Every question is sent to Anthropic's API (Claude)
-to be resolved and phrased. Nothing else leaves Databricks.
+**Where questions go.** Every question in the app is sent to Anthropic's API
+(Claude) to be resolved and phrased. Nothing else leaves Databricks.
+
+The MCP server never calls Claude and never sees the conversation, only its
+tool calls; results go to the user's MCP client and that client's model.
 
 **Sign-in.** There's no login yet (`app/chat_store.py`): named users come
 from `WX_APP_USER` locally, and public visitors get an anonymous username.

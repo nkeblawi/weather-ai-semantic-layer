@@ -103,8 +103,8 @@ Path: `docs/`
   limits.
 - [skill.md](docs/skill.md): the Claude skill's supporting files and prompt
   caching.
-- [mcp_server.md](docs/mcp_server.md): the MCP server's tools and how to
-  run it.
+- [mcp_server.md](docs/mcp_server.md): the MCP server's tools, resources,
+  and prompts, and how to run it.
 - [deploying.md](docs/deploying.md): environments, deploying changes, and
   backfills.
 - `images/`: the architecture diagram above.
@@ -172,8 +172,8 @@ time against the analytics tables:
   (means, sums, or counts of days past a threshold), climatologies by
   month, week, season, and calendar day (with each day's records), odds
   (the share of years a condition occurs), and histograms of daily values
-- `answer_query` — the single entry point the app calls; dispatches to
-  whichever of the above applies
+- `answer_query` — the single entry point the app and the MCP server call;
+  dispatches to whichever of the above applies
 
 The function definitions live here and are deployed from the repo with
 `scripts/deploy_sql.sh`. How rankings, snow seasons, and the 90% coverage
@@ -206,9 +206,10 @@ to NULL unless verified as real.
 
 The app covers 44 stations, each the main airport weather station for a
 major city (39 in the US, 5 in Canada), with records starting between 1851
-(Washington, DC) and 1994. Any other town resolves to its nearest station,
-and the user is asked before it's used. Each step, and how stations and places are resolved,
-are in [docs/pipeline.md](docs/pipeline.md).
+(Washington, DC) and 1994. Any other town resolves by name to its nearby
+stations, and the user is asked which to use unless there's only one close by.
+Each step, and how stations and places are resolved, are in
+[docs/pipeline.md](docs/pipeline.md).
 
 ## 9. MCP Server
 
@@ -216,10 +217,13 @@ Path: `wx_mcp/`
 
 An [MCP](https://modelcontextprotocol.io) server that exposes the same query
 layer to any MCP client, through task-shaped tools (`lookup_station`,
-`count_days`, `chart_over_time`, ...) built on `wxcore`. Run it from the
-repo root:
+`count_days`, `chart_over_time`, ...) built on `wxcore`. The client's own
+model reads the question and phrases the answer, so the server never calls
+Claude. Chart tools return the app's charts as PNGs. To run it from the repo
+root, with `requirements.txt` installed:
 
 ```bash
+pip install -r wx_mcp/requirements.txt
 .venv/bin/python -m wx_mcp.server
 ```
 
@@ -238,13 +242,13 @@ station, units, and dates are always explicit arguments.
 - `db.py`: the Databricks connection, `lookup_station`, and `answer_query`
 - `dates.py`: seasons, date labels, and the date-range resolver
 - `units.py`: metric units and labels, and °F/°C conversion
-- `answers.py`: answer payloads and ranking tables
+- `answers.py`: answer payloads, and ranking tables and charts
 - `validation.py`: the allowed values and limits a query must fit, and the
   checks that run before anything reaches the warehouse
 - `defaults.py`: fills in fields a query leaves out (the same rules the
   skill teaches), so a caller can send only what the question states
-- `tools.py`: the task-shaped query tools behind the MCP server, each
-  turning one kind of question's arguments into a query
+- `tools.py`: the task-shaped query and chart tools behind the MCP server,
+  each turning one kind of question's arguments into queries
 - `series.py`, `charts.py`: chart data and the Altair templates
 
 ## Known limitations
