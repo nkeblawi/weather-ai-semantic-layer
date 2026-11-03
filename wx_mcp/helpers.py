@@ -14,7 +14,8 @@ from mcp_types import ToolAnnotations
 from wxcore import db, tools
 from wxcore.dates import ALL_TIME_START
 from wxcore.defaults import apply_defaults
-from wxcore.validation import coerce_series, validate_queries
+from wxcore.units import natural_aggregation
+from wxcore.validation import TEMP_METRICS, coerce_series, validate_queries
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -118,6 +119,20 @@ def _checked(conn, queries: list[dict], plot_mode=None) -> dict:
     stations = {}
     db.fill_station_info(conn, queries, stations)
     apply_defaults(queries)
+    for q in queries:
+        # valid to wxcore, but adding up daily highs gives a number that means nothing
+        if natural_aggregation(q.get("metric")) == "mean" and "sum" in (
+            q.get("aggregation"),
+            q.get("period_aggregation"),
+        ):
+            degree_days = (
+                "; for accumulated heating or cooling, use HDD or CDD"
+                if q["metric"] in TEMP_METRICS
+                else ""
+            )
+            raise ToolError(
+                f"a total of {q['metric']} doesn't mean anything: use average, or leave the stat blank{degree_days}"
+            )
     if plot_mode:
         coerce_series(queries)
     if problems := validate_queries(queries, stations, plot_mode=plot_mode):
