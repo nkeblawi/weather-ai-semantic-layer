@@ -51,7 +51,7 @@ register = tool.register
 
 @tool("Look up station")
 def lookup_station(
-    location: str, latitude: float | None = None, longitude: float | None = None
+    location: fields.Location, latitude: float | None = None, longitude: float | None = None
 ) -> dict:
     """
     Find the station for a place. Call this first: every other tool takes its ghcn_id. Use only ids a

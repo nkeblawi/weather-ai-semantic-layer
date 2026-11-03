@@ -86,6 +86,9 @@ PeriodStat = Annotated[
         description="Pick average or total per period, or leave blank for the metric's usual"
     ),
 ]
+Location = Annotated[
+    str, Field(max_length=200)  # the longest place name (97) with its state and country
+]
 Country = Annotated[
     str | None,
     Field(description="Enter a country name or code, such as Canada or US"),
