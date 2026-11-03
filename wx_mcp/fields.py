@@ -86,6 +86,10 @@ PeriodStat = Annotated[
         description="Pick average or total per period, or leave blank for the metric's usual"
     ),
 ]
+Country = Annotated[
+    str | None,
+    Field(description="Enter a country name or code, such as Canada or US"),
+]
 RankingOf = Annotated[
     Literal[("day", "storm", *sorted(tools.PERIOD_TYPES))],
     Field(description="Pick what to rank; use snow_season for snowfall by winter"),

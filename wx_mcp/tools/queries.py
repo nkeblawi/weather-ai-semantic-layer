@@ -9,6 +9,14 @@ from wx_mcp.helpers import RECENT_HINT, TIES_HINT, ToolSet, _checked, _queries, 
 from wxcore import answers, db, tools
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+ASK_COUNTRY = "Which country do you want a list of stations for?"
+COUNTRY_ALIASES = {"USA": "US"}  # other names people use for a country_code
+
+
+# ---------------------------------------------------------------------------
 # Helper Functions
 # ---------------------------------------------------------------------------
 
@@ -69,6 +77,39 @@ def lookup_station(
             else ""
         )
     return found
+
+
+@tool("List stations")
+def list_stations(country: fields.Country = None) -> dict:
+    """
+    The stations covered in one country: "which stations do you cover?", "what cities in Canada do
+    you have?".
+    - No country from the user: leave it blank. The result's ask_user names the countries covered: ask
+      the user that question word for word, and wait for their answer before calling again.
+    - The same result comes back for a country with no stations.
+    - Each station is place (code). To query one, pass its code or place to lookup_station and use the
+      ghcn_id it returns; the code here isn't a ghcn_id.
+    e.g. country Canada.
+    """
+    with _warehouse() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"SELECT country_code, country_name, coalesce(icao, iata), city, state "
+            f"FROM {db.catalog()}.analytics.stations "
+            "WHERE coalesce(icao, iata) IS NOT NULL AND city IS NOT NULL "
+            "ORDER BY city"
+        )
+        rows = cur.fetchall()
+    wanted = (country or "").strip().upper()
+    wanted = COUNTRY_ALIASES.get(wanted, wanted)
+    stations = [
+        f"{db.place_label(city, state)} ({code})"
+        for country_code, country_name, code, city, state in rows
+        if wanted in (country_code, country_name)
+    ]
+    if not stations:
+        names = sorted({name.title() for _, name, *_ in rows})
+        return {"ask_user": f"I have stations in {' and '.join(names)}. {ASK_COUNTRY}", "countries": names}
+    return {"stations": stations, "count": len(stations)}
 
 
 @tool("Summarize days")

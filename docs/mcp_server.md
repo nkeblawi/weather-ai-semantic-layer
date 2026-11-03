@@ -10,6 +10,8 @@ needs, so most invalid combinations can't be expressed.
 
 - `lookup_station`: resolves a place to a station; its `ghcn_id` goes to
   every other tool
+- `list_stations`: the stations covered in one country; with no country, it
+  names the countries covered and asks which one
 - `summarize_days`, `extreme_days`, `count_days`, `calendar_day`,
   `first_last_date`, `events`, `compare_periods`: single-answer questions
 - `chart_over_time`, `chart_climatology`, `chart_count_days`, `chart_odds`,
