@@ -3,7 +3,7 @@ lookup_station and the query tools: a question's answer as plain facts for the
 client's model to phrase.
 """
 
-
+import re
 from wx_mcp import fields
 from wx_mcp.helpers import RECENT_HINT, TIES_HINT, ToolSet, _checked, _queries, _recent, _warehouse
 from wxcore import answers, db, tools
@@ -14,6 +14,8 @@ from wxcore import answers, db, tools
 
 ASK_COUNTRY = "Which country do you want a list of stations for?"
 COUNTRY_ALIASES = {"USA": "US"}  # other names people use for a country_code
+# a station as this server prints it, "Washington Dulles International Airport (IAD)": the code
+TRAILING_CODE = re.compile(r"\(([A-Za-z0-9]{3,4})\)\s*$")
 
 
 # ---------------------------------------------------------------------------
@@ -67,9 +69,17 @@ def lookup_station(
     - matched_place is the place the name was taken to mean; if it isn't the user's, look up again
       with a state or country.
     - latitude and longitude: only for a place too small to be found by name.
+    - If a station name isn't found, try its airport code ("IAD"); don't swap in a station yourself.
     """
     with _warehouse() as conn:
-        found = db.call_lookup_station(conn, location, latitude, longitude)
+        found = None
+        # a name this server printed ends in its code, which finds the station exactly
+        if code := TRAILING_CODE.search(location or ""):
+            found = db.call_lookup_station(conn, code.group(1))
+            if not found.get("ghcn_id") or found.get("nearest_to"):  # only an exact code match
+                found = None
+        if found is None:
+            found = db.call_lookup_station(conn, location, latitude, longitude)
     if found.get("ghcn_id") and not found.get("ask_user"):
         found["next_steps"] = "pass ghcn_id as station to a query or chart tool" + (
             "; tell the user it's the station nearest their place"
