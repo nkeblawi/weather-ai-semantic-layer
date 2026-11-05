@@ -5,7 +5,15 @@ client's model to phrase.
 
 import re
 from wx_mcp import fields
-from wx_mcp.helpers import RECENT_HINT, TIES_HINT, ToolSet, _checked, _queries, _recent, _warehouse
+from wx_mcp.helpers import (
+    RECENT_HINT,
+    TIES_HINT,
+    ToolSet,
+    _checked,
+    _queries,
+    _recent,
+    _warehouse,
+)
 from wxcore import answers, db, tools
 
 # ---------------------------------------------------------------------------
@@ -40,6 +48,7 @@ def _answer(tool, args: dict) -> dict:
         payload["next_steps"] = "; ".join(steps)
     return payload
 
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
@@ -51,7 +60,9 @@ register = tool.register
 
 @tool("Look up station")
 def lookup_station(
-    location: fields.Location, latitude: float | None = None, longitude: float | None = None
+    location: fields.Location,
+    latitude: float | None = None,
+    longitude: float | None = None,
 ) -> dict:
     """
     Find the station for a place. Call this first: every other tool takes its ghcn_id. Use only ids a
@@ -69,7 +80,7 @@ def lookup_station(
       ("<UNKNOWN>" gets an error back).
     - matched_place is the place the name was taken to mean; if it isn't the user's, look up again
       with a state or country.
-    - latitude and longitude: only for a place too small to be found by name.
+    - latitude and longitude: only for a place too small to be found by name, or a landmark
     - If a station name isn't found, try its airport code ("IAD"); don't swap in a station yourself.
     """
     with _warehouse() as conn:
@@ -77,7 +88,9 @@ def lookup_station(
         # a name this server printed ends in its code, which finds the station exactly
         if code := TRAILING_CODE.search(location or ""):
             found = db.call_lookup_station(conn, code.group(1))
-            if not found.get("ghcn_id") or found.get("nearest_to"):  # only an exact code match
+            if not found.get("ghcn_id") or found.get(
+                "nearest_to"
+            ):  # only an exact code match
                 found = None
         if found is None:
             found = db.call_lookup_station(conn, location, latitude, longitude)
@@ -119,7 +132,10 @@ def list_stations(country: fields.Country = None) -> dict:
     ]
     if not stations:
         names = sorted({name.title() for _, name, *_ in rows})
-        return {"ask_user": f"I have stations in {' and '.join(names)}. {ASK_COUNTRY}", "countries": names}
+        return {
+            "ask_user": f"I have stations in {' and '.join(names)}. {ASK_COUNTRY}",
+            "countries": names,
+        }
     return {"stations": stations, "count": len(stations)}
 
 

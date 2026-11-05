@@ -473,8 +473,15 @@ def call_lookup_station(conn, location_text: str, latitude=None, longitude=None)
     # A place the table knows uses its coordinates, not the caller's: the
     # model's own coordinates can be wrong (a flipped longitude sent
     # "Alexandria, VA" across the world). Its coordinates are only for a
-    # place too small for the table.
+    # place too small for the table, or one the table's match isn't (below).
+    given = latitude is not None and longitude is not None
     if len(choices := _place_choices(conn, location_text)) > 1:
+        if given:  # coordinates near one of them say which is meant, else they mean another
+            near = min(choices, key=lambda p: _miles(latitude, longitude, p["latitude"], p["longitude"]))
+            if _miles(latitude, longitude, near["latitude"], near["longitude"]) <= FAR_MILES:
+                return _station_near(conn, location_text, near)
+            if theirs := _near_given(conn, location_text, latitude, longitude):
+                return theirs
         found = [_station_near(conn, location_text, place) for place in choices]
         # a station each would get (picked, else the nearest offered), or None
         leads = {f.get("ghcn_id") or next((s["ghcn_id"] for s in f["nearby"]), None) for f in found}
@@ -484,10 +491,22 @@ def call_lookup_station(conn, location_text: str, latitude=None, longitude=None)
         ask = f"Which {choices[0]['place_name']} do you mean: {_and_list(names, 'or')}?"
         return {"match": "none", "nearby": [], "ask_user": ask, "places": names}
     place = _find_place(conn, location_text)
-    if place is None and (latitude is None or longitude is None):
+    if place is None and not given:
         ask = f"I couldn't find a place called {location_text}. Which city or town is it in or near?"
         return {"match": "none", "nearby": [], "ask_user": ask}
+    # coordinates far from the table's match mean another place by that name
+    # ("Central Park" at New York's, not Central Park, WA): they win when
+    # stations are near them; a wrong pair (a flipped longitude) has none
+    if place and given and _miles(latitude, longitude, place["latitude"], place["longitude"]) > FAR_MILES:
+        if theirs := _near_given(conn, location_text, latitude, longitude):
+            return theirs
     return _station_near(conn, location_text, place, latitude, longitude)
+
+
+def _near_given(conn, location_text: str, latitude: float, longitude: float) -> dict | None:
+    """_station_near at the caller's coordinates, or None when no station is near them."""
+    theirs = _station_near(conn, location_text, None, latitude, longitude)
+    return theirs if theirs.get("ghcn_id") or theirs.get("nearby") else None
 
 
 def _station_near(conn, location_text: str, place: dict | None, latitude=None, longitude=None) -> dict:
