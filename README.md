@@ -265,6 +265,8 @@ station, units, and dates are always explicit arguments.
   (around 8 pm ET), so GHCN data runs about 2 days behind. The 6 pm ET ACIS
   ingest catches the stations that have reported by then; the rest arrive
   with GHCN.
+- **Old GHCN revisions.** If NOAA changes an old GHCN value, it isn't updated
+  in the app's database unless that station is re-ingested in full.
 - **Non-US stations.** Their data comes from GHCN only (ACIS covers US
   stations), and NOAA receives it later, so non-US observations typically
   run 2-3 days behind. Values are shown in US units (°F, inches).
