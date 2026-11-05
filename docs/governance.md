@@ -92,6 +92,7 @@ All jobs are defined in `resources/*.yml` and deployed with
 | `wx_obs_ingest_ghcn` | Pulls new GHCN daily observations | `raw` | Daily 23:00 ET | Yes |
 | `wx_obs_ingest_acis` | Pulls recent ACIS observations | `raw` | Daily 18:00 ET | Yes |
 | `wx_obs_transform` | Converts and QCs GHCN and ACIS, merges, pivots, and adds derived variables | `cleaned`, `analytics.observations` | Daily 23:45 ET | Yes |
+| `wx_ghcn_validation_sync` | Pushes NOAA's revisions of loaded GHCN values (corrections, later QC flags) from `obs_ghcn_conv` to the downstream tables | `cleaned.obs_merged`, `cleaned.obs_pivot`, `analytics.observations` | Monthly, 1st at 02:00 ET | Yes |
 | `wx_station_ingest` | Fetches, filters, and merges the EMSHR and GHCN station lists | `raw`, `cleaned` | On demand | Yes (and on success) |
 | `wx_activate_station` | Activates a station, recreates the `stations` view, and backfills its observations | `raw`, `cleaned`, `analytics` | On demand (job parameters) | No |
 | `wx_load_station_history` | Loads observations from a station's older IDs (has `dry_run`) | `raw.obs_ghcn` | On demand (job parameters) | No |

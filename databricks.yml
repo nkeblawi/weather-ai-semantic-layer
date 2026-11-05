@@ -34,6 +34,9 @@ targets:
         wx_app_retention:
           schedule:
             pause_status: PAUSED
+        wx_ghcn_validation_sync:
+          schedule:
+            pause_status: PAUSED
   # Production target
   prod:
     mode: production
