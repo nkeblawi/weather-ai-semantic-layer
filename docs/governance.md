@@ -90,7 +90,7 @@ All jobs are defined in `resources/*.yml` and deployed with
 | Job | Does | Writes | Prod trigger | Failure email |
 |---|---|---|---|---|
 | `wx_obs_ingest_ghcn` | Pulls new GHCN daily observations | `raw` | Daily 23:00 ET | Yes |
-| `wx_obs_ingest_acis` | Pulls recent ACIS observations | `raw` | Daily 06:00 ET | Yes |
+| `wx_obs_ingest_acis` | Pulls recent ACIS observations | `raw` | Daily 18:00 ET | Yes |
 | `wx_obs_transform` | Converts and QCs GHCN and ACIS, merges, pivots, and adds derived variables | `cleaned`, `analytics.observations` | Daily 23:45 ET | Yes |
 | `wx_station_ingest` | Fetches, filters, and merges the EMSHR and GHCN station lists | `raw`, `cleaned` | On demand | Yes (and on success) |
 | `wx_activate_station` | Activates a station, recreates the `stations` view, and backfills its observations | `raw`, `cleaned`, `analytics` | On demand (job parameters) | No |
