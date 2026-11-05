@@ -56,7 +56,8 @@ last 30 days") resolve from it (Step 5).
    that has none of its own, e.g. LaGuardia for New York, or Reagan National, the only station within 10 miles of Alexandria, VA).
 4. A result with `ask_user` means no station serves the place directly. Stop and set `clarification_question` to its
    `ask_user` text exactly, adding nothing. If the user then agrees ("yes", or names one of the stations offered), call
-   `lookup_station` with that station's name or code.
+   `lookup_station` with that station's name or code. If the result had `places` (a name several places share), call
+   `lookup_station` with the place the user picks ("Springfield, MA").
 5. Use only a `station_id` a tool returned in this conversation: a `lookup_station` result (its `ghcn_id`, or one from its `nearby`
    list the user picked) or one an earlier turn's `Resolved query` already used. Never one you know or recall yourself.
 6. Call `lookup_station` even for a place that seems outside the covered region (e.g. Paris, France): its `ask_user` names the

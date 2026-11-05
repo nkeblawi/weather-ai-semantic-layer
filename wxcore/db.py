@@ -110,6 +110,13 @@ PROVINCE_NAMES = {
 }
 # a qualifier with no comma before it is at most this many words ("Newfoundland and Labrador")
 MAX_QUALIFIER_WORDS = 3
+# A bare name several places share ("Springfield") asks which one when they
+# lead to different stations: the most populous exact matches, up to
+# MAX_PLACE_CHOICES, each with at least PLACE_CHOICE_SHARE of the top one's
+# population (leaves out Washington, England, and Portland, ME). A city with a
+# station is matched before this (Portland, Columbus).
+MAX_PLACE_CHOICES = 4
+PLACE_CHOICE_SHARE = 0.15
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +192,17 @@ def _place_label(place: dict) -> str:
     return f"{name}, {place['country_name']}" if place.get("country_name") else name
 
 
+PLACE_KEYS = (
+    "place_name",
+    "country_code",
+    "country_name",
+    "admin1_code",
+    "admin1_name",
+    "latitude",
+    "longitude",
+)
+
+
 def _query_place(conn, name: str, qualifiers: list[str]) -> dict | None:
     """
     The place analytics.places has for a name: an exact name before a
@@ -212,18 +230,32 @@ def _query_place(conn, name: str, qualifiers: list[str]) -> dict | None:
     with conn.cursor() as cur:
         cur.execute(sql, parameters=params)
         row = cur.fetchone()
-    if not row:
-        return None
-    keys = (
-        "place_name",
-        "country_code",
-        "country_name",
-        "admin1_code",
-        "admin1_name",
-        "latitude",
-        "longitude",
+    return dict(zip(PLACE_KEYS, row)) if row else None
+
+
+def _place_choices(conn, location_text: str) -> list[dict]:
+    """
+    The places a bare name could mean ("Springfield"): exact matches, most
+    populous first, kept while they have PLACE_CHOICE_SHARE of the top one's
+    population. Empty for a name with a qualifier, or when the table isn't
+    there yet.
+    """
+    if "," in location_text:
+        return []
+    name = re.sub(r"[%_]", "", _ascii_key(location_text))
+    sql = (
+        f"SELECT {', '.join(PLACE_KEYS)}, population FROM {catalog()}.analytics.places "
+        f"WHERE name_key = :name ORDER BY population DESC LIMIT {MAX_PLACE_CHOICES}"
     )
-    return dict(zip(keys, row))
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, parameters={"name": name})
+            rows = cur.fetchall()
+    except Exception:
+        logger.warning("place choices failed for %r", location_text, exc_info=True)
+        return []
+    top = (rows[0][-1] or 0) if rows else 0
+    return [dict(zip(PLACE_KEYS, r)) for r in rows if (r[-1] or 0) >= top * PLACE_CHOICE_SHARE]
 
 
 def _find_place(conn, location_text: str) -> dict | None:
@@ -263,12 +295,12 @@ def _same_place(place: str, station: dict) -> bool:
     return city(place) == city(station["city"])
 
 
-def _and_list(names: list[str]) -> str:
-    """'A', 'A and B', 'A, B, and C'."""
+def _and_list(names: list[str], word: str = "and") -> str:
+    """'A', 'A and B', 'A, B, and C' (or "or")."""
     return (
-        " and ".join(names)
+        f" {word} ".join(names)
         if len(names) <= 2
-        else ", ".join(names[:-1]) + f", and {names[-1]}"
+        else ", ".join(names[:-1]) + f", {word} {names[-1]}"
     )
 
 
@@ -422,6 +454,8 @@ def call_lookup_station(conn, location_text: str, latitude=None, longitude=None)
     "ask_user": "..."}: stations within FAR_MILES and a question to put to
     the user before using one (with nothing in range, ask_user names the
     countries covered; with no place found, it asks where the place is).
+    A bare name several places share, leading to different stations,
+    gets an ask_user naming them instead, with the list in places.
     matched_place says which place the name was taken to mean. Text that
     names no place gets {"error": NO_PLACE_ERROR}, so the caller asks where
     instead of relaying "couldn't find a place called <UNKNOWN>".
@@ -440,15 +474,32 @@ def call_lookup_station(conn, location_text: str, latitude=None, longitude=None)
     # model's own coordinates can be wrong (a flipped longitude sent
     # "Alexandria, VA" across the world). Its coordinates are only for a
     # place too small for the table.
-    place_name, matched = location_text, {}
+    if len(choices := _place_choices(conn, location_text)) > 1:
+        found = [_station_near(conn, location_text, place) for place in choices]
+        # a station each would get (picked, else the nearest offered), or None
+        leads = {f.get("ghcn_id") or next((s["ghcn_id"] for s in f["nearby"]), None) for f in found}
+        if len(leads) == 1:  # the same station whichever is meant (two towns by one airport)
+            return found[0]
+        names = [_place_label(place) for place in choices]
+        ask = f"Which {choices[0]['place_name']} do you mean: {_and_list(names, 'or')}?"
+        return {"match": "none", "nearby": [], "ask_user": ask, "places": names}
     place = _find_place(conn, location_text)
+    if place is None and (latitude is None or longitude is None):
+        ask = f"I couldn't find a place called {location_text}. Which city or town is it in or near?"
+        return {"match": "none", "nearby": [], "ask_user": ask}
+    return _station_near(conn, location_text, place, latitude, longitude)
+
+
+def _station_near(conn, location_text: str, place: dict | None, latitude=None, longitude=None) -> dict:
+    """
+    call_lookup_station's answer from a place's coordinates (place from
+    analytics.places, else the caller's latitude and longitude).
+    """
+    place_name, matched = location_text, {}
     if place is not None:
         latitude, longitude = place["latitude"], place["longitude"]
         place_name = _place_label(place)
         matched = {"matched_place": place_name}
-    elif latitude is None or longitude is None:
-        ask = f"I couldn't find a place called {location_text}. Which city or town is it in or near?"
-        return {"match": "none", "nearby": [], "ask_user": ask}
     nearby = _nearby(conn, latitude, longitude)
     same = [
         s

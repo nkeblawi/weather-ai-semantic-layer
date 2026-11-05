@@ -63,7 +63,8 @@ def lookup_station(
       station answered for their place.
     - A result with ask_user: ask the user that question word for word, and wait for their answer
       before using any station. If they pick one of the stations offered, use its ghcn_id from nearby
-      (no second lookup) and answer the question they first asked.
+      (no second lookup) and answer the question they first asked. With places (a name several
+      places share), look up the one they pick ("Springfield, MA").
     - Only look up a place the user named: with none, ask them where instead of passing a stand-in
       ("<UNKNOWN>" gets an error back).
     - matched_place is the place the name was taken to mean; if it isn't the user's, look up again
