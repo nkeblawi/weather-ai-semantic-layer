@@ -265,6 +265,10 @@ station, units, and dates are always explicit arguments.
   (around 8 pm ET), so GHCN data runs about 2 days behind. The 6 pm ET ACIS
   ingest catches the stations that have reported by then; the rest arrive
   with GHCN.
+- **Dates are UTC.** "Today", "yesterday" and "the last 7 days" are counted
+  from the UTC date, whatever the server's clock. In the US, UTC's date turns
+  over in the evening (7 pm ET, 8 pm in summer), so after that "today" is
+  already tomorrow's date.
 - **Old GHCN revisions.** If NOAA changes an old GHCN value, it isn't updated
   in the app's database unless that station is re-ingested in full.
 - **Non-US stations.** Their data comes from GHCN only (ACIS covers US

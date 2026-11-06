@@ -35,13 +35,12 @@ Requires (add to your .env, loaded via python-dotenv):
 import re
 import json
 import logging
-from datetime import date
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
-from wxcore.dates import ALL_TIME_START, resolve_date_range
+from wxcore.dates import ALL_TIME_START, resolve_date_range, current_date
 from wxcore.db import call_lookup_station
 from wxcore.db import fill_station_info as _fill_station_info
 
@@ -549,7 +548,7 @@ def build_system_prompt(
         text += "\n\n---\n\n" + skill_text(PLOTTING_PATH, "plotting")
 
     # Per-turn details: after the cache point
-    turn_text = f"## Today's date\n\n{date.today().isoformat()}"
+    turn_text = f"## Today's date\n\n{current_date().isoformat()}"
     if plot_mode:
         turn_text += "\n\n---\n\n## Plot mode\n\n" + (
             "This is a `/plot` turn: the user asked for a chart (plotting.md Step 1)."

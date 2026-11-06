@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from wxcore.dates import ALL_TIME_START, NORMAL_END_YEAR, NORMAL_START_YEAR
+from wxcore.dates import ALL_TIME_START, NORMAL_END_YEAR, NORMAL_START_YEAR, current_date
 from wxcore.units import natural_aggregation
 from wxcore.validation import CONDITIONS, DATE_AGGREGATIONS, HALF_YEARS
 
@@ -76,7 +76,7 @@ def _fill_dates(q, unit, today: date) -> None:
 
 def apply_defaults(queries, today: date | None = None) -> None:
     """Fills each query's missing defaultable fields, in place."""
-    today = today or date.today()
+    today = today or current_date()
     for q in queries or []:
         if not isinstance(q, dict):
             continue

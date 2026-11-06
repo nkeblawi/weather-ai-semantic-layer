@@ -7,7 +7,7 @@ and the MCP server run; a parity test keeps the two in step.
 """
 
 import calendar
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +28,10 @@ SEASON_START_MONTH = {"winter": 12}
 
 NORMAL_SMOOTHING_DAYS = 7  # a daily normal averages +/- this many days
 
+# current_date() is the UTC date, whatever the host's clock, so the app, the MCP server
+# and tests agree on it (in the US, UTC's date turns over in the evening)
+APP_TZ = timezone.utc
+
 
 # --- resolve_date_range (copied from skills/scripts/resolve_date_range.py) ---
 ALL_TIME_START = "1800-01-01"
@@ -47,6 +51,11 @@ WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", 
 # ---------------------------------------------------------------------------
 # Helper Functions
 # ---------------------------------------------------------------------------
+
+def current_date() -> date:
+    """Today's date in UTC (APP_TZ), not the host's local date."""
+    return datetime.now(APP_TZ).date()
+
 
 # --- resolve_date_range (copied from skills/scripts/resolve_date_range.py) ---
 

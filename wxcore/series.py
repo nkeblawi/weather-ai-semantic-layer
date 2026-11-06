@@ -23,7 +23,7 @@ from datetime import date, timedelta
 
 import numpy as np
 
-from wxcore.dates import ALL_TIME_START, FALL_MONTHS, SPRING_MONTHS, season_day, season_label, smooth_day_of_year
+from wxcore.dates import ALL_TIME_START, FALL_MONTHS, SPRING_MONTHS, season_day, season_label, smooth_day_of_year, current_date
 from wxcore.db import station_place
 from wxcore.units import METRIC_LABELS, METRIC_UNITS, TEMP_METRICS, TOTAL_METRICS, threshold_label
 from wxcore.validation import CLIMATOLOGY_UNITS, CONDITIONS
@@ -403,7 +403,7 @@ def records_entry(entry: dict) -> dict | None:
         return None
     return {
         "station_id": entry["station_id"], "metric": entry["metric"], "aggregation": "series",
-        "unit": "day_of_year", "start_date": ALL_TIME_START, "end_date": date.today().isoformat(),
+        "unit": "day_of_year", "start_date": ALL_TIME_START, "end_date": current_date().isoformat(),
     }
 
 

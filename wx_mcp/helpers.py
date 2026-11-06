@@ -5,14 +5,14 @@ tool's arguments into checked queries, and the data-lag hint.
 
 import logging
 from contextlib import contextmanager
-from datetime import date, timedelta
+from datetime import timedelta
 from databricks.sdk.errors import DatabricksError
 from databricks.sql import exc as sql_exc
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 from wxcore import db, tools
-from wxcore.dates import ALL_TIME_START
+from wxcore.dates import ALL_TIME_START, current_date
 from wxcore.defaults import apply_defaults
 from wxcore.units import natural_aggregation
 from wxcore.validation import TEMP_METRICS, coerce_series, validate_queries
@@ -147,7 +147,7 @@ def _recent(queries: list[dict]) -> bool:
     A period ending within DATA_LAG_DAYS of today (or later), whose last days may not be in yet.
     Not the whole record, where a few days don't matter, nor a month filter that leaves those days out.
     """
-    today = date.today()
+    today = current_date()
     start = today - timedelta(days=DATA_LAG_DAYS)
     lag_months = {start.month, today.month}
     return any(

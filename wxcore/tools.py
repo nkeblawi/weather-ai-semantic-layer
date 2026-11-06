@@ -22,6 +22,7 @@ from wxcore.dates import (
     NORMAL_START_YEAR,
     SNOW_SEASON_START_MONTH,
     resolve_date_range,
+    current_date,
 )
 from wxcore.units import natural_aggregation
 from wxcore.validation import (
@@ -133,7 +134,7 @@ def period_dates(period, today: date | None = None) -> dict:
             "end_date": (date(year, SNOW_SEASON_START_MONTH, 1) - timedelta(days=1)).isoformat(),
         }
     if "kind" in period:
-        payload = {**period, "current_date": (today or date.today()).isoformat()}
+        payload = {**period, "current_date": (today or current_date()).isoformat()}
         try:
             return resolve_date_range(payload)
         except (KeyError, TypeError, ValueError) as exc:
@@ -267,7 +268,7 @@ def _baseline(against_normal, baseline) -> dict:
 
 def _to_date(metric, today) -> dict:
     """This year to date; for snowfall, this snow season (from July 1) to date."""
-    today = today or date.today()
+    today = today or current_date()
     year = today.year
     if metric == "SNOW":
         month = SNOW_SEASON_START_MONTH

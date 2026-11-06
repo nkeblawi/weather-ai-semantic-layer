@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from wxcore.dates import ALL_TIME_START, FALL_MONTHS, SPRING_MONTHS
+from wxcore.dates import ALL_TIME_START, FALL_MONTHS, SPRING_MONTHS, current_date
 from wxcore.units import TEMP_METRICS, TOTAL_METRICS, natural_aggregation
 
 
@@ -633,7 +633,7 @@ def validate_queries(
     station_info holds the stations lookup_station returned; plot_mode is
     one of the plot modes above.
     """
-    today = today or date.today()
+    today = today or current_date()
     if not isinstance(queries, list) or not queries:
         return ["resolved output has no queries"]
     if len(queries) > MAX_QUERIES_PER_QUESTION:
