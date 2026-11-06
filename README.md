@@ -23,7 +23,10 @@ with `/plot` to get a chart (see [Charts](#charts)).
   into Delta Lake analytics tables.
 - **Semantic layer**: Claude never writes free-form SQL. The skill gives it
   the weather definitions and schema, so it turns a question into structured
-  parameters; the app then calls fixed Unity Catalog SQL functions with them.
+  parameters. The semantic layer is `wxcore` plus fixed Unity Catalog SQL
+  functions: `wxcore` fills in defaults, checks the parameters, and reduces
+  some results; the SQL functions compute the answers
+  ([what lives where](docs/query_layer.md#what-lives-where)).
 - **User interface**: Streamlit sends the question in, and a second Claude
   call turns the query result into a plain-English answer.
 - **Charts**: a `/plot` question resolves the same way, but the SQL returns
@@ -161,23 +164,11 @@ worked examples, and `scripts/` the date math. Each file is described in
 Path: `sql/uc/`
 
 SQL functions deployed in Unity Catalog that answer one resolved query at a
-time against the analytics tables:
-
-- `lookup_station` — resolves free text (city, airport code, alias) to a
-  station
-- `query_by_day` / `query_by_event` / `query_by_period` — answer a query at
-  the daily, event (e.g. a rain event), or monthly/yearly grain
-- `query_series` — returns every point of a chart instead of one value:
-  daily (a year or less), monthly, yearly, seasonal, and snow-season series
-  (means, sums, or counts of days past a threshold), climatologies by
-  month, week, season, and calendar day (with each day's records), odds
-  (the share of years a condition occurs), and histograms of daily values
-- `answer_query` — the single entry point the app and the MCP server call;
-  dispatches to whichever of the above applies
-
-The function definitions live here and are deployed from the repo with
-`scripts/deploy_sql.sh`. How rankings, snow seasons, and the 90% coverage
-rule work is in [docs/query_layer.md](docs/query_layer.md).
+time: `answer_query` (the single entry point), `lookup_station`, the three
+`query_by_*` functions, and `query_series` for charts. They're deployed from
+the repo with `scripts/deploy_sql.sh`. What each does, and how stations,
+normals, events, rankings, snow seasons, and the 90% coverage rule work, is
+in [docs/query_layer.md](docs/query_layer.md).
 
 ## 7. Maintenance SQL
 

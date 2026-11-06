@@ -33,9 +33,8 @@ given, it picks monthly points only up to 30 years.
 
 ## Normals, records, and limits
 
-- **Normals** are computed from the station's own observations, 1991-2020
-  by default (10-50 years allowed). Daily normals are smoothed over +/- 7
-  days. **Records** cover the whole station record.
+- **Normals and records**: see the
+  [query layer](query_layer.md#normals-averages-and-records).
 - **Limits**: daily points only over a year or less, monthly points up to
   100 years (yearly beyond), and at most 4 series per question. Longer
   requests are reduced, with a note under the chart.
