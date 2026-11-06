@@ -314,45 +314,45 @@ st.set_page_config(page_title="Weather Observations Chatbot", page_icon="🌤️
 #   avatars carry no role test id, so rows are matched by the content's
 #   aria-label; the avatar tile is the row's first child.
 # st.html (not st.markdown): a style-only block takes no layout space.
-st.html(f"""
+st.html("""
     <style>
     [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"]
-        > [data-testid="stLayoutWrapper"]:has(> .st-key-prefs_header) {{
+        > [data-testid="stLayoutWrapper"]:has(> .st-key-prefs_header) {
         position: sticky;
         top: 3.75rem;
         z-index: 99;
         padding-bottom: 0.5rem;
-    }}
-    [data-testid="stApp"] :has(.st-key-prefs_header) {{
+    }
+    [data-testid="stApp"] :has(.st-key-prefs_header) {
         background-color: inherit;
-    }}
-    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from user"]) {{
+    }
+    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from user"]) {
         flex-direction: row-reverse;
         width: fit-content;
         max-width: 85%;
         margin-left: auto;
-    }}
-    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from user"]) > div:first-child {{
+    }
+    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from user"]) > div:first-child {
         /* pale enough that the yellow emoji face still stands out */
         background-color: #FFF4B8;
         border-color: #FFF4B8;
-    }}
-    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from assistant"]) > div:first-child {{
+    }
+    [data-testid="stChatMessage"]:has(> [aria-label="Chat message from assistant"]) > div:first-child {
         background-color: #87CEEB;
         border-color: #87CEEB;
-    }}
+    }
     [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled),
-    [data-testid="stBaseButton-primary"]:not(:disabled) {{
+    [data-testid="stBaseButton-primary"]:not(:disabled) {
         background-color: #87CEEB;
         border-color: #87CEEB;
         color: #0E1117;
-    }}
+    }
     [data-testid="stBaseButton-primaryFormSubmit"]:not(:disabled):hover,
-    [data-testid="stBaseButton-primary"]:not(:disabled):hover {{
+    [data-testid="stBaseButton-primary"]:not(:disabled):hover {
         background-color: #5DB8DE;
         border-color: #5DB8DE;
         color: #0E1117;
-    }}
+    }
     </style>
     """)
 

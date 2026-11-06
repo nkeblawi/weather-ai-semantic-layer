@@ -19,7 +19,6 @@ bootstrap()
 from wx.utils.config import STATION_EMSHR_RAW_TABLE, STATION_EMSHR_FILTERED_TABLE
 from pyspark.sql import functions as F  # type: ignore
 from pyspark.sql.window import Window  # type: ignore
-from wx.utils.http_utils import get_session
 from wx.utils.spark_utils import get_spark
 
 
@@ -51,7 +50,6 @@ def most_recent_ghcn_rows(df):
 
 def main():
     spark = get_spark()
-    session = get_session()
 
     # Filter out null GCHN rows
     raw_df = spark.table(STATION_EMSHR_RAW_TABLE)
