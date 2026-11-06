@@ -34,6 +34,7 @@ Requires (add to your .env, loaded via python-dotenv):
 
 import re
 import json
+import logging
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # secrets instead). Loaded by path, so it's found from any working
 # directory; wxcore reads them when it's called.
 load_dotenv(PROJECT_ROOT / ".env")
+logger = logging.getLogger(__name__)
+
 SKILL_PATH = PROJECT_ROOT / "skills" / "SKILL.md"
 COUNT_GROUP_PATH = PROJECT_ROOT / "skills" / "references" / "count_group.md"
 ANSWER_PHRASING_PATH = PROJECT_ROOT / "skills" / "references" / "answer_phrasing.md"
@@ -100,6 +103,15 @@ RETRY_PROMPT = (
 # tool_choice "any" every response is a tool call, so a turn can only end in
 # the Step 6 object (free-text replies used to slip through as clarifications)
 SUBMIT_TOOL = "submit_resolution"
+
+# Claude calls per resolve: a 3-station question looked up one station at a time,
+# each retried by airport code, plus a date range and the submission. Past it,
+# the turn asks the user to rephrase instead of paying for more rounds.
+MAX_RESOLVER_ROUNDS = 8
+ROUNDS_CLARIFICATION = (
+    "I couldn't work that question out. Could you rephrase it, naming the "
+    "station or airport and the dates?"
+)
 
 # Sent back for a tool call that shared a response with submit_resolution
 NOT_RUN_RESULT = "Not run: submit_resolution was in the same reply."
@@ -407,7 +419,7 @@ def resolve_question(
         messages.append({"role": "user", "content": question})
 
     ask_user, found = None, False  # lookup_station's no-match question; a station resolved this turn
-    while True:
+    for _ in range(MAX_RESOLVER_ROUNDS):
         response = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=2048,
@@ -443,6 +455,10 @@ def resolve_question(
                 }
             )
         messages.append({"role": "user", "content": tool_results})
+
+    # chat_history records the turn (with its session id) as this clarification
+    logger.warning("resolver stopped after %d rounds without %s: %r", MAX_RESOLVER_ROUNDS, SUBMIT_TOOL, question)
+    return _station_question({"status": "needs_clarification", "clarification_question": ROUNDS_CLARIFICATION}, ask_user, found)
 
 
 def execute_tool(conn, name: str, tool_input: dict):
