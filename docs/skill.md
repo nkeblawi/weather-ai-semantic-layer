@@ -28,8 +28,10 @@ a natural-language weather question into the structured parameters
   and the examples are missing.
 - `scripts/resolve_date_range.py`: deterministic date math (seasons,
   "last Friday", month lengths, leap years), kept here so the skill works on
-  its own. The app runs an identical copy in `wxcore/dates.py` and exposes it
-  to Claude as a tool, so the model never does calendar arithmetic itself.
+  its own. `wxcore/dates.py` has the same date logic (plus chart and label
+  helpers), and a local parity test checks that both give the same answers
+  and errors. The app exposes it to Claude as a tool, so the model never does
+  calendar arithmetic itself.
 
 ## Prompt caching
 

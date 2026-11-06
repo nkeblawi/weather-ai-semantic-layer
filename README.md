@@ -121,7 +121,7 @@ Scheduled times are US Eastern:
 
 | Job | Runs | Does |
 |---|---|---|
-| `wx_obs_ingest_acis` | daily, 6:00 am | ingests recent ACIS observations (US stations) |
+| `wx_obs_ingest_acis` | daily, 6:00 pm | ingests recent ACIS observations (US stations) |
 | `wx_obs_ingest_ghcn` | daily, 11:00 pm | ingests GHCN daily observations |
 | `wx_obs_transform` | daily, 11:45 pm | merges, pivots, and derives the analytics table |
 | `wx_app_retention` | daily, 3:00 am | rolls up and deletes old chat history ([governance](docs/governance.md)) |
