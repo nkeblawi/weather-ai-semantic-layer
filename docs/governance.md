@@ -32,8 +32,7 @@ Both catalogs have the same schemas:
 
 ## 3. Grants
 
-These are the grants that were issued directly (`inherited_from = NONE`). Everything else in the export is inherited from them. Both catalogs have the
-same grants unless noted.
+These are the grants that were issued directly (`inherited_from = NONE`). Everything else in the export is inherited from them. Both catalogs have the same grants unless noted.
 
 | Grantee | Object | Privileges | Why |
 |---|---|---|---|
@@ -53,10 +52,10 @@ These least-privilege grants replaced catalog-level `USE_SCHEMA` + `SELECT` on 2
 
 ### Grants outside Unity Catalog
 
-These live in the workspace, not in Unity Catalog, so the export above
-doesn't include them:
+These live in the workspace, not in Unity Catalog, so the export above doesn't include them:
 
 - **SQL warehouse** (Serverless Starter Warehouse, the one in `DATABRICKS_HTTP`): the owner has `IS_OWNER`, the app service principal has `CAN_USE`, the `users` group has `CAN_USE` (Databricks default), and `admins` inherit `CAN_MANAGE`.
+
 - **Jobs:** see section 5.
 
 ## 4. Function redeploys and grants
@@ -122,8 +121,7 @@ The `app` schema is the only place the project stores data about people.
 | `app.chat_history` | Every turn: prompt, response, resolver JSON, model, status, error, station | 14 days |
 | `app.usage_daily` | Turns, distinct users, and distinct sessions per UTC day and status; no content or ids | Indefinitely |
 
-**How it runs.** The `wx_app_retention` job runs `src/wx/app/retention.py`
-daily at 03:00 ET in prod (paused in dev). Each run, in order:
+**How it runs.** The `wx_app_retention` job runs `src/wx/app/retention.py` daily at 03:00 ET in prod (paused in dev). Each run, in order:
 
 1. Adds every completed day still in `chat_history` to `usage_daily`, skipping days already there.
 

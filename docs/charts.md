@@ -2,16 +2,9 @@
 
 Command: `/plot`
 
-Start a question with the `/plot` command. A chart question without it ("average high
-and low for each month at Dulles") gets a **Plot it** button that resends
-it as `/plot`, and a follow-up to a chart ("now do Reagan National") stays
-a chart unless it asks for a single value. `wxcore/series.py` turns the SQL
-result into chart data (unit conversion, normals, trend fits) and
-`wxcore/charts.py` holds the Altair templates.
+Start a question with the `/plot` command. A chart question without it ("average high and low for each month at Dulles") gets a **Plot it** button that resends it as `/plot`, and a follow-up to a chart ("now do Reagan National") stays a chart unless it asks for a single value. `wxcore/series.py` turns the SQL result into chart data (unit conversion, normals, trend fits) and `wxcore/charts.py` holds the Altair templates.
 
-The [MCP server](mcp_server.md) draws the same charts as PNGs through its
-`chart_*` tools, without the clickable legend or download button. With no grain
-given, it picks monthly points only up to 30 years.
+The [MCP server](mcp_server.md) draws the same charts as PNGs through its `chart_*` tools, without the clickable legend or download button. With no grain given, it picks monthly points only up to 30 years.
 
 ## Chart types
 
@@ -41,7 +34,4 @@ given, it picks monthly points only up to 30 years.
 
 ## Single values
 
-Single values use the same data without a chart: "the record high for July
-4", "the normal low on Christmas" (normal = 1991-2020; "average" = the whole
-record), "the odds of a white Christmas", "the last spring freeze in 2025", "when the first
-measurable snow usually comes".
+Single values use the same data without a chart: "the record high for July 4", "the normal low on Christmas" (normal = 1991-2020; "average" = the whole record), "the odds of a white Christmas", "the last spring freeze in 2025", "when the first measurable snow usually comes".

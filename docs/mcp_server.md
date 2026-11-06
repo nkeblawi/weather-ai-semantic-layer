@@ -1,7 +1,6 @@
 # MCP Server
 
-`wx_mcp/` is an [MCP](https://modelcontextprotocol.io) server that exposes the same query layer as the Streamlit app to any MCP client, so the
-client's own model resolves the question instead of the app's skill. Its tools are task-shaped: each one takes only the fields its kind of question needs, so most invalid combinations can't be expressed.
+`wx_mcp/` is an [MCP](https://modelcontextprotocol.io) server that exposes the same query layer as the Streamlit app to any MCP client, so the client's own model resolves the question instead of the app's skill. Its tools are task-shaped: each one takes only the fields its kind of question needs, so most invalid combinations can't be expressed.
 
 ## Tools
 
@@ -9,13 +8,9 @@ client's own model resolves the question instead of the app's skill. Its tools a
 
 - `list_stations`: the stations covered in one country; with no country, it names the countries covered and asks which one
 
-- `summarize_days`, `extreme_days`, `count_days`, `calendar_day`,
-  `first_last_date`, `events`, `compare_periods`: single-answer questions
+- `summarize_days`, `extreme_days`, `count_days`, `calendar_day`, `first_last_date`, `events`, `compare_periods`: single-answer questions
 
-- `chart_over_time`, `chart_climatology`, `chart_count_days`, `chart_odds`,
-  `chart_dates_by_year`, `chart_histogram`, `chart_climate_graph`,
-  `chart_running_total`, `chart_station_difference`, `chart_climograph`,
-  `chart_ranking`: return a PNG of the app's chart and the numbers behind it, plus a link to a CSV resource for charts with 24 or more points
+- `chart_over_time`, `chart_climatology`, `chart_count_days`, `chart_odds`, `chart_dates_by_year`, `chart_histogram`, `chart_climate_graph`, `chart_running_total`, `chart_station_difference`, `chart_climograph`, `chart_ranking`: return a PNG of the app's chart and the numbers behind it, plus a link to a CSV resource for charts with 24 or more points
 
 The tools are built on `wxcore/tools.py` and `wxcore/defaults.py`, then run through the same validation and `answer_query` call as the app.
 

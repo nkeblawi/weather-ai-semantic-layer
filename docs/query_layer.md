@@ -25,16 +25,13 @@ The semantic layer is two parts. Both front ends (the app and the MCP server) go
 
 Deployed in Unity Catalog from `sql/uc/` with `scripts/deploy_sql.sh`; each answers one resolved query at a time against the analytics tables.
 
-- `answer_query`: the single entry point `wxcore` calls; dispatches to
-  whichever function below applies
+- `answer_query`: the single entry point `wxcore` calls; dispatches to whichever function below applies
 
-- `lookup_station`: resolves free text (city, airport code, alias) to a
-  station
+- `lookup_station`: resolves free text (city, airport code, alias) to a station
 
 - `query_by_day` / `query_by_event` / `query_by_period`: answer a query at the daily, event (e.g. a rain event), or monthly/yearly grain
 
-- `query_series`: returns every point of a chart instead of one value:
-  daily (a year or less), monthly, yearly, seasonal, and snow-season series (means, sums, or counts of days past a threshold), climatologies by month, week, season, and calendar day (with each day's records), odds (the share of years a condition occurs), and histograms of daily values
+- `query_series`: returns every point of a chart instead of one value: daily (a year or less), monthly, yearly, seasonal, and snow-season series (means, sums, or counts of days past a threshold), climatologies by month, week, season, and calendar day (with each day's records), odds (the share of years a condition occurs), and histograms of daily values
 
 ## Station lookup
 
@@ -56,11 +53,9 @@ Rain and snow only. An event is a run of consecutive days that each meet a per-d
 
 ## Rankings
 
-`answer_query` and the three `query_by_*` functions accept two ranking
-aggregations, `top` (largest first) and `bottom` (smallest first), plus an optional `p_limit`:
+`answer_query` and the three `query_by_*` functions accept two ranking aggregations, `top` (largest first) and `bottom` (smallest first), plus an optional `p_limit`:
 
-- **Ranks** Ranking uses `DENSE_RANK`, so tied values share a rank
-  and the next distinct value takes the next rank (1, 2, 2, 3). `p_limit` is the number of *ranks* returned, so "top 3" can return more than 3 rows when there are ties.
+- **Ranks** Ranking uses `DENSE_RANK`, so tied values share a rank and the next distinct value takes the next rank (1, 2, 2, 3). `p_limit` is the number of *ranks* returned, so "top 3" can return more than 3 rows when there are ties.
 
 - **Limits** `p_limit` defaults to 3 and is clamped to 1-15. The returned list is also capped at 15 rows; `rows_truncated: true` means ties pushed more rows into those ranks than were returned.
 
@@ -82,14 +77,11 @@ This keeps partial periods, like the season under way or a station's first year,
 
 ## Results
 
-Every function returns one JSON string; `answer_query` passes on the
-result of the function it called. A field that doesn't apply to the
-aggregation is null. Values are in °F and inches; `wxcore` converts them for the user's units.
+Every function returns one JSON string; `answer_query` passes on the result of the function it called. A field that doesn't apply to the aggregation is null. Values are in °F and inches; `wxcore` converts them for the user's units.
 
 **`lookup_station`:** `{ghcn_id, name, city, state}`, or null when nothing matches.
 
-**Single values** (`query_by_day`, `query_by_event`, `query_by_period`):
-`value` holds the answer, and `rows` and `rows_truncated` are set only for `top`/`bottom`.
+**Single values** (`query_by_day`, `query_by_event`, `query_by_period`): `value` holds the answer, and `rows` and `rows_truncated` are set only for `top`/`bottom`.
 
 | Function | Fields | Set for max/min (or latest/earliest) | Each ranked row |
 |---|---|---|---|
@@ -114,8 +106,7 @@ aggregation is null. Values are in °F and inches; `wxcore` converts them for th
 
 A `day` series over 366 days returns `{error: "span_too_long", unit}`, and an unknown unit `{error: "unsupported_unit", unit}`.
 
-**Reshaped by `wxcore`** (`db.call_answer_query`; see
-[What lives where](#what-lives-where)):
+**Reshaped by `wxcore`** (`db.call_answer_query`; see [What lives where](#what-lives-where)):
 
 - **max/min:** the rank-1 row of a top/bottom ranking. With a tie, it's the most recent one, and `ties` lists every rank-1 row. `n_buckets`, `first_bucket`, and `last_bucket` carry over for months and years.
 

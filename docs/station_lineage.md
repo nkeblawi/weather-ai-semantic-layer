@@ -77,28 +77,43 @@ Only stations with something to know. Anything not listed has a continuous recor
 
 **Records shorter than the city's history.** These use today's main airport; an older airport or downtown station holds earlier years and is not included. Candidates for a future history load (below), if the sites are judged comparable:
 - **Denver** (from 1994; DIA opened 1995). Earlier: Stapleton, USW00023062 (in station_merged).
+
 - **Kansas City** (from 1972, MCI). Earlier: downtown airport (KMKC), not in station_merged.
+
 - **Dallas** (from 1953, DFW site). Earlier: Love Field, not in station_merged.
+
 - **Houston** (from 1969, IAH). Earlier: Hobby, USW00012918 (in station_merged).
+
 - **Chicago** (from 1958, O'Hare). Earlier: Midway, USW00014819 (in station_merged).
+
 - **Sterling / Dulles** (from 1960, airport opened 1962).
 
 **Long gaps** (missing from the source, not from the pipeline):
 - **Charlotte:** 1942-01-01 to 1943-12-31 (730 days).
+
 - **Orlando:** 1971-01-01 to 1972-12-31 (731 days).
+
 - **Philadelphia:** 1945-07-01 to 1945-11-30 (153 days).
+
 - **Phoenix:** seven gaps 1935-1947 (about 1,860 days in all); continuous from Dec 1947.
+
 - **Honolulu:** June 1942 (30 days), Jul-Sep 1949 (92 days).
+
 - **Anchorage:** Dec 1952 to Jan 1953 (62 days).
+
 - **Denver:** Sep 1994 to Jan 1995 (153 days), Oct 2013 (31 days).
+
 - **Sterling:** Aug 1960 to Nov 1961 (487 days), Oct 1962 (31 days).
+
 - **Washington, DC:** patchy 1851-1859, nothing 1860-1870 (see [Spliced stations](#washington-dc-usw00013743)).
-- **New York JFK:** precipitation and snow only, mid-1950 to 1958: 15-44 days of precipitation a
-  year and no snow for 1951-1958; temperature is continuous. Values start 1948-07-17.
+
+- **New York JFK:** precipitation and snow only, mid-1950 to 1958: 15-44 days of precipitation a year and no snow for 1951-1958; temperature is continuous. Values start 1948-07-17.
 
 **QC decisions:**
 - **San Francisco, 1961-06-14 TMAX 106°F:** kept via `cleaned.qc_allowlist` (NOAA flags it O, outlier; it is SFO's official all-time record).
+
 - **Nashville, 1956-10-08 TMIN -40°F:** blanked (flag G; the day's high was 78°F). Record low is now -17°F (Jan 1985), matching the official record.
+
 - **Denver:** 698 values blanked, almost all SNOW/SNWD in 1995-2005 (flag Z, rejected by NOAA after manual review). GHCN also has no SNOW at all for 1998-2005, so **snowfall is usable from 2006 only**.
 
 **Unverified values:**
@@ -106,16 +121,16 @@ Only stations with something to know. Anything not listed has a continuous recor
 
 **Data sources and timing:**
 - **Los Angeles, San Francisco:** the 10:00 UTC ACIS ingest runs before West Coast daily summaries exist, so ACIS returns nothing; these two show GHCN only (2-3 days behind). See issues log.
+
 - **Sterling** is labeled by town, not by airport ("Sterling", for Dulles); the other original stations use the city.
+
 - **New York JFK** is labeled with the airport because no two stations share a city label, and LaGuardia is "New York". Plain "New York" and "NYC" resolve to LaGuardia.
 
 ## Spliced stations
 
 A spliced station's record joins one or more older GHCN IDs to the current ID, for stations whose ID changed (renumbering, automation) or whose airport moved. Used for the Canadian stations (tranche 7 in `notes/stations/station_expansion_plan.md`) and Washington, DC.
 
-**Method (one-time history load):** old IDs are downloaded once and written to `raw.obs_ghcn`
-**under the current ID**, then the current ID is activated as usual (`src/wx/stations/load_station_history.py`, run by the `wx_load_station_history` job with `station_id`, `history_ids`, and `dry_run`, which defaults to true). An old ID's value is loaded for every (date, variable) the current ID has no value for; where both have one, the current ID wins. GHCN ingest never lets a missing day overwrite an existing value (`keep_existing_values=True` in
-`merge_into_target`), so a later `--full` re-ingest can't erase the history. After the load, rows no longer show which ID they came from, so this file is the record of it.
+**Method (one-time history load):** old IDs are downloaded once and written to `raw.obs_ghcn` **under the current ID**, then the current ID is activated as usual (`src/wx/stations/load_station_history.py`, run by the `wx_load_station_history` job with `station_id`, `history_ids`, and `dry_run`, which defaults to true). An old ID's value is loaded for every (date, variable) the current ID has no value for; where both have one, the current ID wins. GHCN ingest never lets a missing day overwrite an existing value (`keep_existing_values=True` in `merge_into_target`), so a later `--full` re-ingest can't erase the history. After the load, rows no longer show which ID they came from, so this file is the record of it.
 
 **For each spliced station, record:** current and old IDs and the years each supplied; rows loaded per old ID and variable (loader output); load date and run IDs; overlap check (mean TMAX/TMIN difference on days both IDs report; a large difference suggests a site move); the handoff and any days neither ID reported.
 
@@ -205,9 +220,13 @@ A spliced station's record joins one or more older GHCN IDs to the current ID, f
 
 **Cautions:**
 - Never activate or ingest an old ID on its own; its history already lives under the current ID.
+
 - Re-running the loader for a station is safe (same keys and values). A `--full` re-ingest of the current ID is safe (missing days don't overwrite loaded values; days the current ID has replace the old ID's, which is intended).
+
 - Converted rows don't pick up later edits (issue #8 in `notes/issues/issues.txt`). To redo a station, delete its rows from `obs_ghcn_conv`, `obs_merged`, `obs_pivot` and `observations`, then re-run the loader and the activation job.
+
 - QC allowlist entries for spliced years use the current ID.
+
 - Loading onto an already active station takes one more step. Delete the current ID's all-NULL rows in the loaded date range from `obs_merged` after the load, then run the activation job, or those days stay blank (issue #8). Washington, DC needed this for 75 rows, 1941-06-01 to 06-15. Do it away from the nightly transform.
 
 ## Planned (not active)
