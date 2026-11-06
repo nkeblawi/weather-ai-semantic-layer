@@ -89,4 +89,4 @@ On top of SKILL.md Step 6's query fields:
 
 ## Worked examples
 
-<!-- worked examples: plotting (skills/assets/examples.json) -->
+See the `plotting` set in [assets/examples.json](../assets/examples.json).

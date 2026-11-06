@@ -217,7 +217,7 @@ If the message isn't a request for historical weather data at all (see **Off-top
 
 Examples involving events, storms, or month/year aggregates are in `references/count_group.md` instead of here.
 
-<!-- worked examples: skill (skills/assets/examples.json) -->
+See the `skill` set in [assets/examples.json](assets/examples.json).
 
 ## Off-topic messages
 

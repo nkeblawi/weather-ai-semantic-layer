@@ -78,4 +78,4 @@ If the question names an event/month/year grain but the specifics (threshold, `e
 
 ## Worked examples
 
-<!-- worked examples: count_group (skills/assets/examples.json) -->
+See the `count_group` set in [assets/examples.json](../assets/examples.json).

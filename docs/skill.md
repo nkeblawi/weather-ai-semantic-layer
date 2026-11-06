@@ -14,7 +14,7 @@ The skill in `skills/` (`SKILL.md`) defines, step by step, how a model turns a n
 
 - `assets/count_group_triggers.txt`: List of trigger words that gets loaded into the question-answer pipeline.
 
-- `assets/examples.json`: the worked examples, in three sets (`skill`, `count_group`, `plotting`). Each Markdown file has a marker line where the app renders its set into the system prompt (`app/pipeline.py`), so the examples are data that tests can check. Read the Markdown files directly and the examples are missing.
+- `assets/examples.json`: the worked examples, in three sets (`skill`, `count_group`, `plotting`). Each Markdown file links to its set at the point where the app renders that set into the system prompt (`app/pipeline.py`), so the examples are data that tests can check.
 
 - `scripts/resolve_date_range.py`: deterministic date math (seasons, "last Friday", month lengths, leap years), kept here so the skill works on its own. `wxcore/dates.py` has the same date logic (plus chart and label helpers), and a local parity test checks that both give the same answers and errors. The app exposes it to Claude as a tool, so the model never does calendar arithmetic itself.
 

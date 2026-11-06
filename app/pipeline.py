@@ -32,6 +32,7 @@ Requires (add to your .env, loaded via python-dotenv):
                         (see wxcore/db.py)
 """
 
+import os
 import re
 import json
 import logging
@@ -62,9 +63,10 @@ COUNT_GROUP_PATH = PROJECT_ROOT / "skills" / "references" / "count_group.md"
 ANSWER_PHRASING_PATH = PROJECT_ROOT / "skills" / "references" / "answer_phrasing.md"
 PLOTTING_PATH = PROJECT_ROOT / "skills" / "references" / "plotting.md"
 # Worked examples live as data, one set per file above; each file has a marker
-# line where its set is rendered (skill_text below)
+# line where its set is rendered (skill_text below). The marker is a visible
+# link, so a reader on GitHub, or the skill used on its own, can find the set.
 EXAMPLES_PATH = PROJECT_ROOT / "skills" / "assets" / "examples.json"
-EXAMPLES_MARKER = "<!-- worked examples: {} (skills/assets/examples.json) -->"
+EXAMPLES_MARKER = "See the `{key}` set in [assets/examples.json]({href})."
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
@@ -499,11 +501,16 @@ def render_example(example: dict) -> str:
     return f"{line}\n{explanation}```json\n{_example_json(example['resolved'])}\n```"
 
 
+def examples_marker(path: Path, examples_key: str) -> str:
+    """The marker line in a skill file, linking to its set by a path relative to that file."""
+    return EXAMPLES_MARKER.format(key=examples_key, href=os.path.relpath(EXAMPLES_PATH, path.parent))
+
+
 def skill_text(path: Path, examples_key: str) -> str:
     """A skill file with its set of worked examples rendered in at the marker."""
     examples = json.loads(EXAMPLES_PATH.read_text())[examples_key]
     return path.read_text().replace(
-        EXAMPLES_MARKER.format(examples_key), "\n\n".join(render_example(e) for e in examples)
+        examples_marker(path, examples_key), "\n\n".join(render_example(e) for e in examples)
     )
 
 
