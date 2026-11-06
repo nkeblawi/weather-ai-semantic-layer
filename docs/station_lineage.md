@@ -120,7 +120,7 @@ Only stations with something to know. Anything not listed has a continuous recor
 - **Salt Lake City, 2026-07-12 TMAX 109°F:** new all-time high (previous 107°F), not flagged by NOAA, from a preliminary source (`sflag = 1`). Check against NWS Salt Lake City records.
 
 **Data sources and timing:**
-- **Los Angeles, San Francisco:** the 10:00 UTC ACIS ingest runs before West Coast daily summaries exist, so ACIS returns nothing; these two show GHCN only (2-3 days behind). See issues log.
+- **Los Angeles, San Francisco:** these two show GHCN only (2-3 days behind).
 
 - **Sterling** is labeled by town, not by airport ("Sterling", for Dulles); the other original stations use the city.
 
