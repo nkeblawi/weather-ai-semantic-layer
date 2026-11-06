@@ -74,7 +74,7 @@
     },
     {
       "question": "What was the hottest day ever?",
-      "note": "no place named; the **User home city** section says \"KIAD\", so call `lookup_station` on \"KIAD\" and use it — don't ask",
+      "note": "no place named; the **User home city** section says \"KIAD\", so call `lookup_station` on \"KIAD\" and use it; don't ask",
       "resolved": {
         "current_date": "2026-08-04",
         "status": "resolved",
@@ -346,7 +346,7 @@
     },
     {
       "question": "How much snow did Dulles Airport get in its last major snowstorm above 6 inches?",
-      "explanation": "No time period stated, so search the whole record (SKILL.md Step 5). \"Last\" → `latest`; \"how much snow\" → `event_value: \"total\"`; \"above 6 inches\" →\n`threshold`. Everything needed is stated, so resolve it — don't ask.",
+      "explanation": "No time period stated, so search the whole record (SKILL.md Step 5). \"Last\" → `latest`; \"how much snow\" → `event_value: \"total\"`; \"above 6 inches\" →\n`threshold`. Everything needed is stated, so resolve it; don't ask.",
       "resolved": {
         "current_date": "2026-08-04",
         "status": "resolved",

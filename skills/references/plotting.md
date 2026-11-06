@@ -1,30 +1,22 @@
 # Plotting: series, climatologies, normals, anomalies, trends
 
-Use this file only on a plot turn (see **Plot mode**): `/plot`, or a follow-up to a plot. It adds one aggregation, `series`: one chart
-point per period instead of one value. Everything else in SKILL.md still applies (station, metric, date range, JSON shape);
-`count_group.md` defines the `season` and `snow_season` units.
+Use this file only on a plot turn (see **Plot mode**): `/plot`, or a follow-up to a plot. It adds one aggregation, `series`: one chart point per period instead of one value. Everything else in SKILL.md still applies (station, metric, date range, JSON shape); `count_group.md` defines the `season` and `snow_season` units.
 
-## Step 1 — Is this a chart?
+## Step 1: Is this a chart?
 
-- **`/plot` turn** (the user typed `/plot`): the answer must be a chart. Emit `series` queries — except a **ranking** ("/plot the 10
-  biggest snowstorms", "/plot the hottest summers"), which stays the usual SKILL.md `top`/`bottom` query; the app draws its rows as bars. If the request can't be charted — a single
-  value ("/plot the hottest day ever"), or nothing that varies over days, months, years, or seasons — return `needs_clarification` asking
-  what to chart (e.g. "A single day can't be charted. Would you like the number of 90°F days each year, or the average high for each
-  month?").
-- **Follow-up to a plot** (no `/plot`, but the previous turn was a chart): use `series` if the follow-up asks for another chart ("now do
-  Reagan", "same for the 1961-1990 normals", "add a trend line"). If it asks for a single value instead ("which month was warmest?",
-  "what was the normal July high?"), answer it as a regular SKILL.md query — no `series`.
+- **`/plot` turn** (the user typed `/plot`): the answer must be a chart. Emit `series` queries, except a **ranking** ("/plot the 10 biggest snowstorms", "/plot the hottest summers"), which stays the usual SKILL.md `top`/`bottom` query; the app draws its rows as bars. If the request can't be charted (a single value ("/plot the hottest day ever"), or nothing that varies over days, months, years, or seasons), return `needs_clarification` asking what to chart (e.g. "A single day can't be charted. Would you like the number of 90°F days each year, or the average high for each month?").
 
-## Step 2 — Choose the plot type and grain
+- **Follow-up to a plot** (no `/plot`, but the previous turn was a chart): use `series` if the follow-up asks for another chart ("now do Reagan", "same for the 1961-1990 normals", "add a trend line"). If it asks for a single value instead ("which month was warmest?", "what was the normal July high?"), answer it as a regular SKILL.md query, with no `series`.
 
-Every `series` query needs `unit` and, except for daily points, `period_aggregation`: `mean` for temperatures/wind, `sum` for PRCP/SNOW
-totals (as in `count_group.md`), or `count` for a number of days (below).
+## Step 2: Choose the plot type and grain
+
+Every `series` query needs `unit` and, except for daily points, `period_aggregation`: `mean` for temperatures/wind, `sum` for PRCP/SNOW totals (as in `count_group.md`), or `count` for a number of days (below).
 
 | The user wants | `unit` | Notes |
 |---|---|---|
 | Normals or records for **each day of the year** ("daily normal highs and lows", "the normal high for every day") | `day_of_year` | 366 points, smoothed; no `period_aggregation`; dates as for any climatology |
 | A **histogram / distribution of daily values** ("histogram of July highs", "distribution of daily rainfall") | `value` | counts of days per value; `month_filter` for named months; no `period_aggregation`; no period stated → the whole record |
-| **Odds** — how often a condition happens, by month / week / season / calendar day ("how often does it hit 100 by month", "chance of measurable snow by week") | `month_of_year`, `week_of_year`, `season_of_year`, or `day_of_year` | `period_aggregation: "any"` + `threshold`: the percent of years with at least one such day |
+| **Odds**: how often a condition happens, by month / week / season / calendar day ("how often does it hit 100 by month", "chance of measurable snow by week") | `month_of_year`, `week_of_year`, `season_of_year`, or `day_of_year` | `period_aggregation: "any"` + `threshold`: the percent of years with at least one such day |
 | Daily values over **a year or less** ("daily highs in 2024", "daily rainfall this summer", "snowfall day by day in winter 2009-10") | `day` | one point per day; no `period_aggregation` |
 | Values over time, range up to 30 years | `month` | one point per month |
 | Values over time, range over 30 years, or "annual"/"yearly" totals or averages | `year` | one point per year; no period stated → the whole record |
@@ -34,69 +26,49 @@ totals (as in `count_group.md`), or `count` for a number of days (below).
 | Climatology by month ("average high and low for each month", "monthly climatology") | `month_of_year` | 12 points |
 | Climatology by season ("average temperature of each season") | `season_of_year` | 4 points (winter, spring, summer, fall) |
 
-**Daily points only over at most 366 days** (a year, a few months, or one Jul-Jun snow season); longer → `unit: "month"`. A daily
-series takes no `trend`, but may take `baseline`/`display` ("daily highs in 2024 against normal").
+**Daily points only over at most 366 days** (a year, a few months, or one Jul-Jun snow season); longer → `unit: "month"`. A daily series takes no `trend`, but may take `baseline`/`display` ("daily highs in 2024 against normal").
 
-**Dates by year** ("last spring freeze each year", "first fall freeze since 1970 with a trend", "first 90-degree day by year"): a
-`year` (or `snow_season`) series with `period_aggregation: "first_date"` / `"last_date"` + a `condition`, or a `threshold` for a stated
-number (+ `half_year` for spring/fall, as in SKILL.md Step 4). Both freezes on one chart → one query each. **Growing season length** ("growing season by year") → those two
-TMIN freeze queries (spring `last_date`, fall `first_date`), both with `display: "growing_season"`.
+**Dates by year** ("last spring freeze each year", "first fall freeze since 1970 with a trend", "first 90-degree day by year"): a `year` (or `snow_season`) series with `period_aggregation: "first_date"` / `"last_date"` + a `condition`, or a `threshold` for a stated number (+ `half_year` for spring/fall, as in SKILL.md Step 4). Both freezes on one chart → one query each. **Growing season length** ("growing season by year") → those two TMIN freeze queries (spring `last_date`, fall `first_date`), both with `display: "growing_season"`.
 
-**Comparing two stations directly** ("Dulles minus Reagan", "how much colder are Dulles nights than DC's", "the difference between
-Dulles and Reagan lows"): two series queries, same metric and unit, one per station, both with `display: "difference"` — the first
-station's values minus the second's. **A climograph** ("climograph", "monthly temperature and precipitation together"): `month_of_year`
-queries for TMAX and TMIN (`mean`) and PRCP (`sum`), all with `display: "climograph"`, drawn as one chart.
+**Comparing two stations directly** ("Dulles minus Reagan", "how much colder are Dulles nights than DC's", "the difference between Dulles and Reagan lows"): two series queries, same metric and unit, one per station, both with `display: "difference"`: the first station's values minus the second's. **A climograph** ("climograph", "monthly temperature and precipitation together"): `month_of_year` queries for TMAX and TMIN (`mean`) and PRCP (`sum`), all with `display: "climograph"`, drawn as one chart.
 
-**Distributions and odds.** The spread of per-period values ("distribution of annual snowfall", "histogram of summer average
-temperatures") is the usual series (`snow_season` / `year` / `season` / `month`) with `display: "histogram"`. Odds use the counting
-idioms' conditions (SKILL.md Step 4): "measurable snow" → `condition: "measurable_snow"`, "measurable rain" → `"measurable_rain"`, "a
-white Christmas" → `"snow_on_ground"` on 12-25.
+**Distributions and odds.** The spread of per-period values ("distribution of annual snowfall", "histogram of summer average temperatures") is the usual series (`snow_season` / `year` / `season` / `month`) with `display: "histogram"`. Odds use the counting idioms' conditions (SKILL.md Step 4): "measurable snow" → `condition: "measurable_snow"`, "measurable rain" → `"measurable_rain"`, "a white Christmas" → `"snow_on_ground"` on 12-25.
 
-**Counting days per period** ("90-degree days per year", "freeze days each winter", "how many 70-degree nights each summer", "days
-with snow each month"): `period_aggregation: "count"` plus a `condition` or `threshold`, with any unit except `day` — including the
-climatologies ("average number of 90-degree days in each month"). Named conditions follow SKILL.md Step 4's counting idioms ("freeze days"
-→ `condition: "freeze"`, "days with snow" → `"snow_day"`); a stated number is a `threshold`: "90-degree days" → TMAX `>= 90`, "100-degree
-days" → TMAX `>= 100`, "70-degree nights" / "warm nights" with a number → TMIN `>=` that number.
-A count series works with `baseline`, `display`, and `trend` like any other (e.g. "90-degree days per year with a trend line").
+**Counting days per period** ("90-degree days per year", "freeze days each winter", "how many 70-degree nights each summer", "days with snow each month"): `period_aggregation: "count"` plus a `condition` or `threshold`, with any unit except `day`, including the climatologies ("average number of 90-degree days in each month"). Named conditions follow SKILL.md Step 4's counting idioms ("freeze days" → `condition: "freeze"`, "days with snow" → `"snow_day"`); a stated number is a `threshold`: "90-degree days" → TMAX `>= 90`, "100-degree days" → TMAX `>= 100`, "70-degree nights" / "warm nights" with a number → TMIN `>=` that number. A count series works with `baseline`, `display`, and `trend` like any other (e.g. "90-degree days per year with a trend line").
 
-A climatology covers the date range you give it: no period stated → the whole record (`all_time`); "the 1991-2020 normals" → that range
-(next step).
+A climatology covers the date range you give it: no period stated → the whole record (`all_time`); "the 1991-2020 normals" → that range (next step).
 
-## Step 3 — Normals (30-year climatologies)
+## Step 3: Normals (30-year climatologies)
 
 "Normal(s)", "normal range", "compared to normal", "anomalies", "departure from normal" refer to a **baseline period**:
 
 - No period stated → **1991-2020** (the current standard).
+
 - A standard 30-year period named ("1961-1990 normals", "1971-2000", "1981-2010", "1991-2020") → that period.
+
 - Any other span of **10 to 50 years** the user asks for ("normals for 2001-2020") → that span.
+
 - Under 10 or over 50 years → `needs_clarification` asking for a period of 10 to 50 years.
 
 How the baseline is expressed depends on what's plotted:
 
-- **The normals themselves** ("plot the 1991-2020 monthly normals", "the normal high for each month"): a climatology whose dates span
-  the baseline years (e.g. 1991-01-01 to 2020-12-31). No `baseline` field.
-- **A period plotted against the normals** ("plot 2025 against normal", "how did this summer compare to normal"): a time series (`month`,
-  `year`, `season`, or `snow_season`) over the period being compared, plus `baseline: {"start_year": ..., "end_year": ...}` and
-  `display`:
-  - `"overlay"` (default) — values next to the normal line and range.
-  - `"anomaly"` — value minus normal ("anomaly", "departure", "above/below normal" over time).
-  - `"climate"` — NWS-style daily climate graph: highs/lows over the normal and record ranges ("climate graph", "vs normal and
-    records", "how is this year going"). Only `unit: "day"`, TMAX and/or TMIN (one query each); needs `baseline`.
-  - `"cumulative"` — a running total of daily PRCP or SNOW ("year-to-date rain", "accumulated snowfall this season", "running total").
-    Only `unit: "day"`; `baseline` is optional and adds the normal accumulation. Several seasons on one chart ("this winter vs 2009-10
-    vs 2015-16") → one query per season (each Jul 1 - Jun 30 for snow), same station; the app lines them up by day of season.
+- **The normals themselves** ("plot the 1991-2020 monthly normals", "the normal high for each month"): a climatology whose dates span the baseline years (e.g. 1991-01-01 to 2020-12-31). No `baseline` field.
+
+- **A period plotted against the normals** ("plot 2025 against normal", "how did this summer compare to normal"): a time series (`month`, `year`, `season`, or `snow_season`) over the period being compared, plus `baseline: {"start_year": ..., "end_year": ...}` and `display`:
+  - `"overlay"` (default): values next to the normal line and range.
+  - `"anomaly"`: value minus normal ("anomaly", "departure", "above/below normal" over time).
+  - `"climate"`: NWS-style daily climate graph: highs/lows over the normal and record ranges ("climate graph", "vs normal and records", "how is this year going"). Only `unit: "day"`, TMAX and/or TMIN (one query each); needs `baseline`.
+  - `"cumulative"`: a running total of daily PRCP or SNOW ("year-to-date rain", "accumulated snowfall this season", "running total"). Only `unit: "day"`; `baseline` is optional and adds the normal accumulation. Several seasons on one chart ("this winter vs 2009-10 vs 2015-16") → one query per season (each Jul 1 - Jun 30 for snow), same station; the app lines them up by day of season.
 
 The app computes normals and anomalies itself from `baseline`; never add a second query for the normals.
 
-## Step 4 — Trend lines
+## Step 4: Trend lines
 
-Add `"trend": true` only when the question asks for a trend, trend line, warming, cooling, or "is it getting …". Never on a
-climatology (`month_of_year`, `season_of_year`). The app fits the line and reports the slope per decade.
+Add `"trend": true` only when the question asks for a trend, trend line, warming, cooling, or "is it getting …". Never on a climatology (`month_of_year`, `season_of_year`). The app fits the line and reports the slope per decade.
 
-## Step 5 — Several lines on one chart
+## Step 5: Several lines on one chart
 
-One query per line, as in SKILL.md: "high and low" → a TMAX and a TMIN query (same unit and dates); "Dulles vs Reagan" → one query per
-station. At most 4 queries. They're drawn on one chart when they share a unit of measure.
+One query per line, as in SKILL.md: "high and low" → a TMAX and a TMIN query (same unit and dates); "Dulles vs Reagan" → one query per station. At most 4 queries. They're drawn on one chart when they share a unit of measure.
 
 ## Schema additions
 
