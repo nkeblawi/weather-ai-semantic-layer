@@ -33,13 +33,11 @@ given, it picks monthly points only up to 30 years.
 
 ## Normals, records, and limits
 
-- **Normals and records**: see the
-  [query layer](query_layer.md#normals-averages-and-records).
-- **Limits**: daily points only over a year or less, monthly points up to
-  100 years (yearly beyond), and at most 4 series per question. Longer
-  requests are reduced, with a note under the chart.
-- Charts with 2+ series have a **clickable legend** to hide or show each
-  one; charts with many points offer a CSV download.
+- **Normals and records**: see the [query layer](query_layer.md#normals-averages-and-records).
+
+- **Limits**: daily points only over a year or less, monthly points up to 100 years (yearly beyond), and at most 4 series per question. Longer requests are reduced, with a note under the chart.
+
+- Charts with 2+ series have a **clickable legend** to hide or show each one; charts with many points offer a CSV download.
 
 ## Single values
 

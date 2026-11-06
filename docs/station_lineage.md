@@ -1,28 +1,24 @@
 # Station lineage
 
-Where each active station's data comes from, what was done to it, and what to watch for. Update
-this file whenever a station is activated, spliced, relabeled, or has values allowlisted or blanked.
+Where each active station's data comes from, what was done to it, and what to watch for. Update this file whenever a station is activated, spliced, relabeled, or has values allowlisted or blanked.
 
 Last reviewed: 2026-10-31 (44 active stations, prod catalog `weather`).
 
 ## How to read this
 
-- **station_id** is the GHCN-Daily ID. It is the key everywhere: `raw.obs_ghcn` through
-  `analytics.observations`, the query functions, and the app. `analytics.stations` lists the active
-  ones (`station_merged.selected = true` with a WMO ID).
-- **Sources:** GHCN-Daily for the full history (`all/<station_id>.dly` at NOAA), plus ACIS for the
-  last 1-2 days until GHCN catches up. GHCN replaces ACIS once it has the date.
-- **QC:** values with a GHCN quality flag (QFLAG) are set to NULL in `obs_ghcn_conv` and downstream,
-  except keys in `cleaned.qc_allowlist`. "QC blanked" below counts those values per station
-  (`obs_merged` rows with a QFLAG and a NULL value). Raw values stay in `raw.obs_ghcn`.
-- **Single source / spliced:** a *single source* station's rows all come from its own GHCN ID. A
-  *spliced* station also holds rows loaded from older IDs under its ID (see
-  [Spliced stations](#spliced-stations)).
-- **ICAO / IATA** come from EMSHR for US stations. EMSHR is US-only, so Canadian stations' codes
-  come from `cleaned.station_codes` (`sql/maintenance/station_codes.sql`).
+- **station_id** is the GHCN-Daily ID. It is the key everywhere: `raw.obs_ghcn` through `analytics.observations`, the query functions, and the app. `analytics.stations` lists the active ones (`station_merged.selected = true` with a WMO ID).
+
+- **Sources:** GHCN-Daily for the full history (`all/<station_id>.dly` at NOAA), plus ACIS for the last 1-2 days until GHCN catches up. GHCN replaces ACIS once it has the date.
+
+- **QC:** values with a GHCN quality flag (QFLAG) are set to NULL in `obs_ghcn_conv` and downstream, except keys in `cleaned.qc_allowlist`. "QC blanked" below counts those values per station (`obs_merged` rows with a QFLAG and a NULL value). Raw values stay in `raw.obs_ghcn`.
+
+- **Single source / spliced:** a *single source* station's rows all come from its own GHCN ID. A *spliced* station also holds rows loaded from older IDs under its ID (see [Spliced stations](#spliced-stations)).
+
+- **ICAO / IATA** come from EMSHR for US stations. EMSHR is US-only, so Canadian stations' codes come from `cleaned.station_codes` (`sql/maintenance/station_codes.sql`).
+
 - **Country** is `station_merged.country_code` (FIPS codes: US, CA = Canada).
-- **Record start** is the first date in `analytics.observations`. Long gaps are runs of 28+ missing
-  days.
+
+- **Record start** is the first date in `analytics.observations`. Long gaps are runs of 28+ missing days.
 
 ## Active stations
 
@@ -73,19 +69,13 @@ Last reviewed: 2026-10-31 (44 active stations, prod catalog `weather`).
 | Toronto | CA | CAN06158731 | CYYZ | YYZ | 71624 | 1937-11-01 | 2026-10-21 | spliced | 16 |
 | Washington, DC | US | USW00013743 | KDCA | DCA | 72405 | 1851-03-21 | 2026-09-09 | spliced | 23 |
 
-Activated dates are UTC, from the `wx_activate_station` run history; the 30-station expansion runs
-are in `notes/stations/activate_runs_prod.tsv`. Washington, DC's station sits in Virginia (Reagan National);
-Cincinnati's in Kentucky (CVG). Both cities are labeled with their own state ("Washington, DC",
-"Cincinnati, OH") so the app doesn't append the station's state (VA, KY); every other city is
-labeled bare and the app shows it with its state ("Portland, OR").
+Activated dates are UTC, from the `wx_activate_station` run history; the 30-station expansion runs are in `notes/stations/activate_runs_prod.tsv`. Washington, DC's station sits in Virginia (Reagan National); Cincinnati's in Kentucky (CVG). Both cities are labeled with their own state ("Washington, DC", "Cincinnati, OH") so the app doesn't append the station's state (VA, KY); every other city is labeled bare and the app shows it with its state ("Portland, OR").
 
 ## Station notes
 
 Only stations with something to know. Anything not listed has a continuous record from its start.
 
-**Records shorter than the city's history.** These use today's main airport; an older airport or
-downtown station holds earlier years and is not included. Candidates for a future history load
-(below), if the sites are judged comparable:
+**Records shorter than the city's history.** These use today's main airport; an older airport or downtown station holds earlier years and is not included. Candidates for a future history load (below), if the sites are judged comparable:
 - **Denver** (from 1994; DIA opened 1995). Earlier: Stapleton, USW00023062 (in station_merged).
 - **Kansas City** (from 1972, MCI). Earlier: downtown airport (KMKC), not in station_merged.
 - **Dallas** (from 1953, DFW site). Earlier: Love Field, not in station_merged.
@@ -107,44 +97,27 @@ downtown station holds earlier years and is not included. Candidates for a futur
   year and no snow for 1951-1958; temperature is continuous. Values start 1948-07-17.
 
 **QC decisions:**
-- **San Francisco, 1961-06-14 TMAX 106°F:** kept via `cleaned.qc_allowlist` (NOAA flags it O,
-  outlier; it is SFO's official all-time record).
-- **Nashville, 1956-10-08 TMIN -40°F:** blanked (flag G; the day's high was 78°F). Record low is
-  now -17°F (Jan 1985), matching the official record.
-- **Denver:** 698 values blanked, almost all SNOW/SNWD in 1995-2005 (flag Z, rejected by NOAA after
-  manual review). GHCN also has no SNOW at all for 1998-2005, so **snowfall is usable from 2006 only**.
+- **San Francisco, 1961-06-14 TMAX 106°F:** kept via `cleaned.qc_allowlist` (NOAA flags it O, outlier; it is SFO's official all-time record).
+- **Nashville, 1956-10-08 TMIN -40°F:** blanked (flag G; the day's high was 78°F). Record low is now -17°F (Jan 1985), matching the official record.
+- **Denver:** 698 values blanked, almost all SNOW/SNWD in 1995-2005 (flag Z, rejected by NOAA after manual review). GHCN also has no SNOW at all for 1998-2005, so **snowfall is usable from 2006 only**.
 
 **Unverified values:**
-- **Salt Lake City, 2026-07-12 TMAX 109°F:** new all-time high (previous 107°F), not flagged by
-  NOAA, from a preliminary source (`sflag = 1`). Check against NWS Salt Lake City records.
+- **Salt Lake City, 2026-07-12 TMAX 109°F:** new all-time high (previous 107°F), not flagged by NOAA, from a preliminary source (`sflag = 1`). Check against NWS Salt Lake City records.
 
 **Data sources and timing:**
-- **Los Angeles, San Francisco:** the 10:00 UTC ACIS ingest runs before West Coast daily summaries
-  exist, so ACIS returns nothing; these two show GHCN only (2-3 days behind). See issues log.
-- **Sterling** is labeled by town, not by airport ("Sterling", for Dulles); the other original
-  stations use the city.
-- **New York JFK** is labeled with the airport because no two stations share a city label, and
-  LaGuardia is "New York". Plain "New York" and "NYC" resolve to LaGuardia.
+- **Los Angeles, San Francisco:** the 10:00 UTC ACIS ingest runs before West Coast daily summaries exist, so ACIS returns nothing; these two show GHCN only (2-3 days behind). See issues log.
+- **Sterling** is labeled by town, not by airport ("Sterling", for Dulles); the other original stations use the city.
+- **New York JFK** is labeled with the airport because no two stations share a city label, and LaGuardia is "New York". Plain "New York" and "NYC" resolve to LaGuardia.
 
 ## Spliced stations
 
-A spliced station's record joins one or more older GHCN IDs to the current ID, for stations whose
-ID changed (renumbering, automation) or whose airport moved. Used for the Canadian stations
-(tranche 7 in `notes/stations/station_expansion_plan.md`) and Washington, DC.
+A spliced station's record joins one or more older GHCN IDs to the current ID, for stations whose ID changed (renumbering, automation) or whose airport moved. Used for the Canadian stations (tranche 7 in `notes/stations/station_expansion_plan.md`) and Washington, DC.
 
 **Method (one-time history load):** old IDs are downloaded once and written to `raw.obs_ghcn`
-**under the current ID**, then the current ID is activated as usual
-(`src/wx/stations/load_station_history.py`, run by the `wx_load_station_history` job with
-`station_id`, `history_ids`, and `dry_run`, which defaults to true). An old ID's value is loaded for every (date,
-variable) the current ID has no value for; where both have one, the current ID wins. GHCN ingest
-never lets a missing day overwrite an existing value (`keep_existing_values=True` in
-`merge_into_target`), so a later `--full` re-ingest can't erase the history. After the load, rows no
-longer show which ID they came from, so this file is the record of it.
+**under the current ID**, then the current ID is activated as usual (`src/wx/stations/load_station_history.py`, run by the `wx_load_station_history` job with `station_id`, `history_ids`, and `dry_run`, which defaults to true). An old ID's value is loaded for every (date, variable) the current ID has no value for; where both have one, the current ID wins. GHCN ingest never lets a missing day overwrite an existing value (`keep_existing_values=True` in
+`merge_into_target`), so a later `--full` re-ingest can't erase the history. After the load, rows no longer show which ID they came from, so this file is the record of it.
 
-**For each spliced station, record:** current and old IDs and the years each supplied; rows loaded
-per old ID and variable (loader output); load date and run IDs; overlap check (mean TMAX/TMIN
-difference on days both IDs report; a large difference suggests a site move); the handoff and any
-days neither ID reported.
+**For each spliced station, record:** current and old IDs and the years each supplied; rows loaded per old ID and variable (loader output); load date and run IDs; overlap check (mean TMAX/TMIN difference on days both IDs report; a large difference suggests a site move); the handoff and any days neither ID reported.
 
 ### Montreal (CAN07025251)
 
@@ -232,17 +205,10 @@ days neither ID reported.
 
 **Cautions:**
 - Never activate or ingest an old ID on its own; its history already lives under the current ID.
-- Re-running the loader for a station is safe (same keys and values). A `--full` re-ingest of the
-  current ID is safe (missing days don't overwrite loaded values; days the current ID has replace
-  the old ID's, which is intended).
-- Converted rows don't pick up later edits (issue #8 in `notes/issues/issues.txt`). To redo a station,
-  delete its rows from `obs_ghcn_conv`, `obs_merged`, `obs_pivot` and `observations`, then re-run the
-  loader and the activation job.
+- Re-running the loader for a station is safe (same keys and values). A `--full` re-ingest of the current ID is safe (missing days don't overwrite loaded values; days the current ID has replace the old ID's, which is intended).
+- Converted rows don't pick up later edits (issue #8 in `notes/issues/issues.txt`). To redo a station, delete its rows from `obs_ghcn_conv`, `obs_merged`, `obs_pivot` and `observations`, then re-run the loader and the activation job.
 - QC allowlist entries for spliced years use the current ID.
-- Loading onto an already active station takes one more step. Delete the current ID's all-NULL rows
-  in the loaded date range from `obs_merged` after the load, then run the activation job, or those
-  days stay blank (issue #8). Washington, DC needed this for 75 rows, 1941-06-01 to 06-15. Do it
-  away from the nightly transform.
+- Loading onto an already active station takes one more step. Delete the current ID's all-NULL rows in the loaded date range from `obs_merged` after the load, then run the activation job, or those days stay blank (issue #8). Washington, DC needed this for 75 rows, 1941-06-01 to 06-15. Do it away from the nightly transform.
 
 ## Planned (not active)
 
