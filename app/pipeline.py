@@ -1,35 +1,12 @@
 """
-Shared pipeline library for the weather-query-resolver skill.
+The app's Claude side: the resolver's tool loop (SKILL.md as the system
+prompt, with lookup_station and resolve_date_range as tools), its system
+prompt, and answer phrasing. Data access lives in wxcore. Used by
+app/chat_session.py (Streamlit) and app/test_harness.py (CLI), which each
+handle their own persistence.
 
-Runs the real production code: a real Claude API call using SKILL.md as the
-system prompt (with skills/references/count_group.md appended only when the
-question needs it), a Databricks SQL connection for lookup_station and
-answer_query, and resolve_date_range tool run locally in-process.
-
-This matches the decided architecture: production is a separate app calling
-an AI model directly via API rather than a Databricks-hosted AI agent, and
-only the two tools whose data actually live in Unity Catalog:
-
-- lookup_station
-- answer_query
-
-This module holds the Claude side: the resolver's tool loop, its system
-prompt, and answer phrasing. The data access and result shaping live in the
-wxcore package (shared with the MCP server); callers import those from
-wxcore directly.
-
-It has no CLI and no chat-history persistence of its own. Both
-app/test_harness.py (a CLI) and app/chat_session.py (a non-CLI session
-wrapper for the Streamlit chat UI) import these same functions, and each
-does its own chat_store.py persistence around them.
-
-Requires (add to your .env, loaded via python-dotenv):
-    ANTHROPIC_API_KEY   (used by callers to construct the anthropic.Anthropic
-                          client passed into resolve_question/generate_answer;
-                          this module never imports the anthropic package
-                          itself)
-    DATABRICKS_SERVER, DATABRICKS_HTTP, DATABRICKS_CLIENT, DATABRICKS_SECRET
-                        (see wxcore/db.py)
+.env: ANTHROPIC_API_KEY (callers build the client), plus the Databricks
+settings in wxcore/db.py.
 """
 
 import os
@@ -52,9 +29,7 @@ from wxcore.db import fill_station_info as _fill_station_info
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# The app's settings: the repo's .env locally (Streamlit Cloud sets them as
-# secrets instead). Loaded by path, so it's found from any working
-# directory; wxcore reads them when it's called.
+# The repo's .env locally, found from any cwd (Streamlit Cloud uses secrets instead)
 load_dotenv(PROJECT_ROOT / ".env")
 logger = logging.getLogger(__name__)
 
@@ -62,21 +37,14 @@ SKILL_PATH = PROJECT_ROOT / "skills" / "SKILL.md"
 COUNT_GROUP_PATH = PROJECT_ROOT / "skills" / "references" / "count_group.md"
 ANSWER_PHRASING_PATH = PROJECT_ROOT / "skills" / "references" / "answer_phrasing.md"
 PLOTTING_PATH = PROJECT_ROOT / "skills" / "references" / "plotting.md"
-# Worked examples live as data, one set per file above; each file has a marker
-# line where its set is rendered (skill_text below). The marker is a visible
-# link, so a reader on GitHub, or the skill used on its own, can find the set.
+# Worked examples, one set per file above, rendered in at each file's marker line (skill_text)
 EXAMPLES_PATH = PROJECT_ROOT / "skills" / "assets" / "examples.json"
 EXAMPLES_MARKER = "See the `{key}` set in [assets/examples.json]({href})."
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
-# The resolver and answer phrasing see the whole session's history: it lives
-# in the browser tab's session and ends with it, and guardrails'
-# SESSION_TURN_LIMIT already bounds its length. MCP clients keep their own.
-
-# How many recent turns needs_count_group checks for a follow-up to an
-# events/months/years question, so one early "snowiest winters" doesn't load
-# count_group.md for the rest of the session.
+# Recent turns needs_count_group checks, so one early "snowiest winters"
+# doesn't load count_group.md for the rest of the session
 COUNT_GROUP_LOOKBACK_TURNS = 10
 
 # What a failed turn is replayed as, in place of its "[error] ..." text
@@ -100,14 +68,10 @@ RETRY_PROMPT = (
     "to pass the checks."
 )
 
-# The resolver's final reply is this tool's input, never free text: with
-# tool_choice "any" every response is a tool call, so a turn can only end in
-# the Step 6 object (free-text replies used to slip through as clarifications)
+# The resolver's final reply is this tool's input; tool_choice "any" rules out free text
 SUBMIT_TOOL = "submit_resolution"
 
-# Claude calls per resolve: a 3-station question looked up one station at a time,
-# each retried by airport code, plus a date range and the submission. Past it,
-# the turn asks the user to rephrase instead of paying for more rounds.
+# Claude calls per resolve (enough for 3 stations, each retried by airport code); past it, ask to rephrase
 MAX_RESOLVER_ROUNDS = 8
 ROUNDS_CLARIFICATION = (
     "I couldn't work that question out. Could you rephrase it, naming the "
@@ -118,9 +82,7 @@ ROUNDS_CLARIFICATION = (
 NOT_RUN_RESULT = "Not run: submit_resolution was in the same reply."
 
 
-# Tool definitions for the Claude API: lookup_station & resolve_date_range
-# (Step 2 / Step 5) to build the resolved JSON, and submit_resolution to hand it over.
-
+# The resolver's tools (SKILL.md Steps 2, 5, and 6)
 TOOLS = [
     {
         "name": "lookup_station",
@@ -225,12 +187,7 @@ TOOLS = [
 ]
 
 
-# Whether the question needs count_group.md appended, applying Step 4's
-# trigger rule in app code instead of as a model-invoked tool call;
-# this is decided upfront, and applied to the system prompt.
-
-# The trigger words live in skills/assets/count_group_triggers.txt (one regex
-# fragment per line), so they can be edited next to the guide they load.
+# Words that load count_group.md into the system prompt (SKILL.md Step 4), one regex fragment per line
 TRIGGERS_PATH = PROJECT_ROOT / "skills" / "assets" / "count_group_triggers.txt"
 _TRIGGERS = [
     line.strip() for line in TRIGGERS_PATH.read_text().splitlines()
@@ -352,8 +309,6 @@ def _holds_a_record(payload: dict) -> bool:
 
 
 def generate_answer(client, question: str, results: list[dict], history=None) -> str:
-    # answer_phrasing.md is loaded fresh; not appended to the resolver's
-    # system prompt like count_group.md)
     parts = []
     if history:
         transcript = "\n".join(
@@ -395,20 +350,11 @@ def resolve_question(
     Runs the Claude tool-use loop until the model calls submit_resolution,
     and returns that call's input (the Step 6 object).
 
-    conversation, if given, holds this turn's messages (the question, tool
-    calls, the model's submission) and is extended in place. To have the
-    model fix a submission that failed validation, call again with the same
-    conversation and the problems: they're sent back as the submission's
-    tool result.
-
-    station_info maps ghcn_id -> the lookup_station result for it. It is
-    session-scoped: the caller passes the same dict every turn, and each
-    lookup_station call this turn adds to it, so a later follow-up that
-    inherits a station (no fresh lookup) can still name the place.
-
-    history is this session's prior turns ({question, answer, query});
-    it's rendered into the system prompt as a transcript so a follow-up can
-    inherit parameters or refer back to an earlier result.
+    conversation holds this turn's messages and is extended in place; call
+    again with it and `problems` to have the model fix a failed submission.
+    station_info (ghcn_id -> lookup_station result) is session-wide and
+    grows with each lookup. history is the session's prior turns, replayed
+    in the system prompt for follow-ups.
     """
     if station_info is None:
         station_info = {}
