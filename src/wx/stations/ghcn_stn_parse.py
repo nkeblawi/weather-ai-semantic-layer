@@ -26,6 +26,10 @@ from wx.utils.config import (
 from pyspark.sql import functions as F  # type: ignore
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
+
 
 # Convert empty values to NULL
 def null_if_blank(col):
@@ -66,6 +70,11 @@ def parse_station_list(df):
     return parsed
 
 
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+
 def main():
     spark = get_spark()
 
@@ -80,6 +89,10 @@ def main():
     stations = spark.table(STATION_LIST_PARSED_TABLE).count()
     print(f"Wrote {stations} stations to {STATION_LIST_PARSED_TABLE}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

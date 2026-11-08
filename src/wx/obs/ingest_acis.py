@@ -31,7 +31,7 @@ from wx.utils.http_utils import acis_breaker, get_session
 from wx.utils.spark_utils import get_spark
 
 # ---------------------------------------------------------------------------
-# Config
+# Constants
 # ---------------------------------------------------------------------------
 
 # Data source
@@ -64,8 +64,10 @@ TARGET_SCHEMA = StructType(
 
 
 # ---------------------------------------------------------------------------
-# Step 1: Fetch ACIS data for one station, one day
+# Helper Functions
 # ---------------------------------------------------------------------------
+
+# --- Step 1: Fetch ACIS data for one station, one day ---
 
 
 def fetch_acis_data(session, station_id: str, target_date: date) -> dict:
@@ -87,9 +89,7 @@ def fetch_acis_data(session, station_id: str, target_date: date) -> dict:
     return _get().json()
 
 
-# ---------------------------------------------------------------------------
-# Step 2: Parse into raw rows, values stored exactly as ACIS returned them
-# ---------------------------------------------------------------------------
+# --- Step 2: Parse into raw rows, values stored exactly as ACIS returned them ---
 
 
 def parse_acis_raw(station_id: str, target_date: date, payload: dict) -> pd.DataFrame:
@@ -123,10 +123,11 @@ def parse_acis_raw(station_id: str, target_date: date, payload: dict) -> pd.Data
 
 
 # ---------------------------------------------------------------------------
-# Orchestration: fill a given day (default yesterday), per selected station
+# Functions
 # ---------------------------------------------------------------------------
 
 
+# Fill a given day (default yesterday), per selected station
 def load_acis(spark, session, target_date: date) -> None:
     # Get selected stations
     station_ids = get_selected_stations(spark)
@@ -161,6 +162,10 @@ def main():
 
     load_acis(spark, session, target_date)
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

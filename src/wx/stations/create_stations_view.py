@@ -21,6 +21,10 @@ bootstrap()
 from wx.utils.config import STATION_MERGED_TABLE, STATIONS_VIEW
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
 
 def main():
     spark = get_spark()
@@ -47,6 +51,10 @@ def main():
     )
     print(f"Recreated {STATIONS_VIEW}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

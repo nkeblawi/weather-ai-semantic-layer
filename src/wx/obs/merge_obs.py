@@ -52,8 +52,10 @@ from wx.utils.spark_utils import get_spark
 from wx.utils.common import set_cutoff
 
 # ---------------------------------------------------------------------------
-# Step 1: Read source tables
+# Helper Functions
 # ---------------------------------------------------------------------------
+
+# --- Step 1: Read source tables ---
 
 
 def read_sources(spark, watermarks: dict) -> tuple[DataFrame, DataFrame]:
@@ -86,9 +88,7 @@ def read_sources(spark, watermarks: dict) -> tuple[DataFrame, DataFrame]:
     return ghcn_df, acis_df
 
 
-# ---------------------------------------------------------------------------
-# Step 2: Watermark the source reads (incremental)
-# ---------------------------------------------------------------------------
+# --- Step 2: Watermark the source reads (incremental) ---
 
 
 def merged_watermarks(spark) -> dict:
@@ -115,9 +115,7 @@ def ghcn_cutoff_date(spark):
     return last_date - timedelta(days=CUTOFF_LOOKBACK_DAYS) if last_date else None
 
 
-# ---------------------------------------------------------------------------
-# Step 3: Prioritize and deduplicate GHCN vs ACIS
-# ---------------------------------------------------------------------------
+# --- Step 3: Prioritize and deduplicate GHCN vs ACIS ---
 
 
 def dedupe_with_priority(ghcn_last_date, unioned_df: DataFrame) -> DataFrame:
@@ -154,9 +152,7 @@ def dedupe_with_priority(ghcn_last_date, unioned_df: DataFrame) -> DataFrame:
     )
 
 
-# ---------------------------------------------------------------------------
-# Step 4: MERGE UPSERT into target (GHCN replaces ACIS; late values fill empty rows)
-# ---------------------------------------------------------------------------
+# --- Step 4: MERGE UPSERT into target (GHCN replaces ACIS; late values fill empty rows) ---
 
 
 def merge_into_obs_merged(spark, merged_df: DataFrame) -> None:
@@ -196,7 +192,7 @@ def merge_into_obs_merged(spark, merged_df: DataFrame) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Orchestration
+# Functions
 # ---------------------------------------------------------------------------
 
 
@@ -233,6 +229,10 @@ def main():
     spark = get_spark()
     merge_obs(spark)
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

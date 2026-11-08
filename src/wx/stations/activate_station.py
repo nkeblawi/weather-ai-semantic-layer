@@ -28,6 +28,10 @@ bootstrap()
 from wx.utils.config import STATION_MERGED_TABLE
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
+
 
 def check_airport_code(spark, station_id: str) -> None:
     """Refuses a station with no airport code (iata, or faa on tables built before iata)."""
@@ -77,6 +81,11 @@ def update_station(spark, station_id: str, activate: bool, city: str | None):
     )
 
 
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Activate a station and/or set its city, by GHCN station_id."
@@ -111,6 +120,10 @@ def main():
     )
     row.show(truncate=False)
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

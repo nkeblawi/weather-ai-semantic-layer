@@ -34,8 +34,10 @@ from wx.utils.config import OBS_ACIS_TABLE, OBS_ACIS_CONV_TABLE
 from wx.utils.spark_utils import get_spark
 
 # ---------------------------------------------------------------------------
-# Variable mapping
+# Helper Functions
 # ---------------------------------------------------------------------------
+
+# --- Variable mapping ---
 
 
 def map_acis_variable_names(df: DataFrame) -> DataFrame:
@@ -51,9 +53,7 @@ def map_acis_variable_names(df: DataFrame) -> DataFrame:
     )
 
 
-# ---------------------------------------------------------------------------
-# Incremental read
-# ---------------------------------------------------------------------------
+# --- Incremental read ---
 
 
 def read_new_raw_rows(spark) -> DataFrame:
@@ -70,6 +70,11 @@ def read_new_raw_rows(spark) -> DataFrame:
         return raw_df
 
     return raw_df.filter(F.col("ingested_at") > F.lit(watermark))
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def main():
@@ -89,6 +94,10 @@ def main():
 
     print(f"Mapped data merged into {OBS_ACIS_CONV_TABLE}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

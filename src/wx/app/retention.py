@@ -29,13 +29,27 @@ bootstrap()
 from wx.utils.config import CHAT_HISTORY_TABLE, USAGE_DAILY_TABLE
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 CHAT_RETENTION_DAYS = 14
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
 
 
 def _affected(df):
     """num_affected_rows / num_inserted_rows from a DML result, as an int."""
     row = df.collect()[0].asDict()
     return row.get("num_affected_rows", row.get("num_inserted_rows", 0))
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def main():
@@ -72,6 +86,10 @@ def main():
     spark.sql(f"VACUUM {CHAT_HISTORY_TABLE}")
     print(f"{CHAT_HISTORY_TABLE}: purged and vacuumed")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

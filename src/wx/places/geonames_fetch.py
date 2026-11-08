@@ -31,10 +31,19 @@ from wx.utils.config import GEONAMES_RAW_TABLE
 from wx.utils.http_utils import geonames_breaker, get_session
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 BASE_URL = "https://download.geonames.org/export/dump"
 CITIES_ZIP, CITIES_FILE = "cities1000.zip", "cities1000.txt"
 ADMIN1_FILE = "admin1CodesASCII.txt"
 COUNTRY_FILE = "countryInfo.txt"
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
 
 
 def fetch(session, file_name: str) -> bytes:
@@ -60,6 +69,11 @@ def source_lines(session) -> dict[str, list[str]]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+
 def main():
     spark = get_spark()
     session = get_session()
@@ -74,6 +88,10 @@ def main():
     df.write.format("delta").mode("overwrite").saveAsTable(GEONAMES_RAW_TABLE)
     print(f"Wrote {spark.table(GEONAMES_RAW_TABLE).count()} lines to {GEONAMES_RAW_TABLE}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

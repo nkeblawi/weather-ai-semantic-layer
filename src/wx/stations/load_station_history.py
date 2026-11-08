@@ -43,12 +43,19 @@ from wx.utils.config import OBS_GHCN_TABLE, STATION_MERGED_TABLE
 from wx.utils.http_utils import get_session
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 # Tenths of deg C -> deg F difference (offset cancels out in a difference)
 TENTHS_C_TO_F_DIFF = 0.18
 
+
 # ---------------------------------------------------------------------------
-# Fill logic (pure pandas, no Spark)
+# Helper Functions
 # ---------------------------------------------------------------------------
+
+# --- Fill logic (pure pandas, no Spark) ---
 
 
 def day_keys(df: pd.DataFrame) -> pd.Series:
@@ -125,9 +132,7 @@ def overlap_check(
     return results
 
 
-# ---------------------------------------------------------------------------
-# Safety checks
-# ---------------------------------------------------------------------------
+# --- Safety checks ---
 
 
 def check_ids(spark, current_id: str, old_ids: list[str]) -> None:
@@ -158,7 +163,7 @@ def check_ids(spark, current_id: str, old_ids: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Orchestration
+# Functions
 # ---------------------------------------------------------------------------
 
 
@@ -237,6 +242,10 @@ def main():
         "Next: run wx_activate_station for this station, then record the load in docs/station_lineage.md."
     )
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

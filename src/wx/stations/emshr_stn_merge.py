@@ -28,7 +28,16 @@ from pyspark.sql import functions as F  # type: ignore
 from wx.utils.http_utils import get_session, ghcn_breaker
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 COUNTRIES_URL = "https://www.ncei.noaa.gov/pub/data/ghcn/daily/ghcnd-countries.txt"
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
 
 
 def merge_icao(wmo_df, emshr_df, codes_df, countries_df):
@@ -114,6 +123,11 @@ def upsert_station_merged(spark, merged_df, target_table):
     )
 
 
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+
 def main():
     spark = get_spark()
     session = get_session()
@@ -148,6 +162,10 @@ def main():
     upsert_station_merged(spark, merged_df, STATION_MERGED_TABLE)
     print(f"Upserted {total:,} rows into {STATION_MERGED_TABLE}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

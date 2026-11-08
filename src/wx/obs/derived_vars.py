@@ -39,8 +39,10 @@ from wx.utils.config import (
 from wx.utils.spark_utils import get_spark
 
 # ---------------------------------------------------------------------------
-# Incremental read
+# Helper Functions
 # ---------------------------------------------------------------------------
+
+# --- Incremental read ---
 
 
 def read_new_pivot_rows(spark, only_station_id: str | None = None) -> DataFrame:
@@ -70,9 +72,7 @@ def read_new_pivot_rows(spark, only_station_id: str | None = None) -> DataFrame:
     return pivot_df.filter(F.col("obs_date") >= F.lit(ghcn_last_date))
 
 
-# ---------------------------------------------------------------------------
-# Derived variables
-# ---------------------------------------------------------------------------
+# --- Derived variables ---
 
 
 def add_derived_vars(df: DataFrame) -> DataFrame:
@@ -102,6 +102,11 @@ def add_derived_vars(df: DataFrame) -> DataFrame:
         ),
     )
     return df
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def main():
@@ -136,6 +141,10 @@ def main():
 
     print(f"Merged into {OBS_ANALYTICS_TABLE}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

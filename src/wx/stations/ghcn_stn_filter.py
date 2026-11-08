@@ -19,6 +19,10 @@ from delta.tables import DeltaTable  # type: ignore
 from wx.utils.config import STATION_LIST_PARSED_TABLE, STATION_WMO_TABLE
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
+
 
 def filter_wmo_stations(df):
     """Keep only stations with a non-null WMO id, drop raw lineage columns."""
@@ -55,6 +59,11 @@ def upsert_station_wmo(spark, df_wmo):
     )
 
 
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+
 def main():
     spark = get_spark()
 
@@ -66,6 +75,10 @@ def main():
     wmo_count = spark.table(STATION_WMO_TABLE).count()
     print(f"Wrote {wmo_count} WMO stations to {STATION_WMO_TABLE}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

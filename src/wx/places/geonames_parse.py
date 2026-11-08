@@ -27,9 +27,18 @@ from pyspark.sql import functions as F  # type: ignore
 from wx.utils.config import CATALOG, GEONAMES_RAW_TABLE, PLACES_TABLE, SCHEMA_CLEANED
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 CITIES_FILE = "cities1000.txt"
 ADMIN1_FILE = "admin1CodesASCII.txt"
 COUNTRY_FILE = "countryInfo.txt"
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
 
 
 def null_if_blank(col):
@@ -76,6 +85,11 @@ def parse_places(raw):
     )
 
 
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+
 def main():
     spark = get_spark()
     places = parse_places(spark.table(GEONAMES_RAW_TABLE))
@@ -86,6 +100,10 @@ def main():
     print(f"Wrote {table.count()} places to {PLACES_TABLE}")
     print(f"  without a country name: {table.filter(F.col('country_name').isNull()).count()}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

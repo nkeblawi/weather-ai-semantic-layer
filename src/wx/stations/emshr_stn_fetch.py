@@ -20,9 +20,18 @@ from pyspark.sql import functions as F  # type: ignore
 from wx.utils.http_utils import get_session, emshr_breaker
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 # Set source file and path
 SOURCE_FILE = "emshr_lite.txt"
 SOURCE_URL = f"https://www.ncei.noaa.gov/access/homr/file/{SOURCE_FILE}"
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
 
 
 def fetch_station_list(session) -> str:
@@ -50,6 +59,11 @@ def get_fields():
         ("country_code", 188, 189),  # - FIPS country code (NOT ISO 3166-1
         ("country_name", 191, 225),  # - Name of Country
     ]
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def main():
@@ -82,6 +96,10 @@ def main():
 
     print(f"Done at {datetime.now(timezone.utc)}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

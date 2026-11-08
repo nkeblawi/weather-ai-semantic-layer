@@ -40,8 +40,10 @@ from wx.utils.config import OBS_GHCN_TABLE, OBS_GHCN_CONV_TABLE, QC_ALLOWLIST_TA
 from wx.utils.spark_utils import get_spark
 
 # ---------------------------------------------------------------------------
-# QC filtering
+# Helper Functions
 # ---------------------------------------------------------------------------
+
+# --- QC filtering ---
 
 
 def apply_qc_filter(spark, df: DataFrame) -> DataFrame:
@@ -65,9 +67,7 @@ def apply_qc_filter(spark, df: DataFrame) -> DataFrame:
     )
 
 
-# ---------------------------------------------------------------------------
-# Unit conversions
-# ---------------------------------------------------------------------------
+# --- Unit conversions ---
 
 
 def apply_ghcn_unit_conversions(df: DataFrame) -> DataFrame:
@@ -84,9 +84,7 @@ def apply_ghcn_unit_conversions(df: DataFrame) -> DataFrame:
     )
 
 
-# ---------------------------------------------------------------------------
-# Incremental read
-# ---------------------------------------------------------------------------
+# --- Incremental read ---
 
 
 def read_new_raw_rows(spark) -> DataFrame:
@@ -103,6 +101,11 @@ def read_new_raw_rows(spark) -> DataFrame:
         return raw_df
 
     return raw_df.filter(F.col("ingested_at") > F.lit(watermark))
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def main():
@@ -122,6 +125,10 @@ def main():
 
     print(f"Converted data merged into {OBS_GHCN_CONV_TABLE}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

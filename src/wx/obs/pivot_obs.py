@@ -36,14 +36,17 @@ from wx.utils.config import OBS_MERGED_TABLE, OBS_PIVOT_TABLE
 from wx.utils.spark_utils import get_spark
 
 # ---------------------------------------------------------------------------
-# Config
+# Constants
 # ---------------------------------------------------------------------------
 
 VARIABLES = ["AWND", "PRCP", "SNOW", "SNWD", "TMAX", "TMIN"]
 
+
 # ---------------------------------------------------------------------------
-# Incremental read
+# Helper Functions
 # ---------------------------------------------------------------------------
+
+# --- Incremental read ---
 
 
 def read_new_merged_rows(spark, only_station_id: str | None = None) -> DataFrame:
@@ -74,9 +77,7 @@ def read_new_merged_rows(spark, only_station_id: str | None = None) -> DataFrame
     return merged_df.filter(F.col("obs_date") >= F.lit(ghcn_last_date))
 
 
-# ---------------------------------------------------------------------------
-# Pivot
-# ---------------------------------------------------------------------------
+# --- Pivot ---
 
 
 def pivot_obs(df: DataFrame) -> DataFrame:
@@ -105,6 +106,11 @@ def pivot_obs(df: DataFrame) -> DataFrame:
     return pivoted.join(source_df, on=["station_id", "obs_date"], how="inner").select(
         "station_id", "obs_date", *VARIABLES, "source"
     )
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def main():
@@ -138,6 +144,10 @@ def main():
 
     print(f"Merged into {OBS_PIVOT_TABLE}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

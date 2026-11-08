@@ -33,7 +33,7 @@ from wx.utils.http_utils import ghcn_breaker, get_session
 from wx.utils.spark_utils import get_spark
 
 # ---------------------------------------------------------------------------
-# Config
+# Constants
 # ---------------------------------------------------------------------------
 
 DLY_URL_TEMPLATE = "https://www.ncei.noaa.gov/pub/data/ghcn/daily/all/{station_id}.dly"
@@ -70,8 +70,10 @@ TARGET_SCHEMA = StructType(
 
 
 # ---------------------------------------------------------------------------
-# Step 1: Fetch GHCN-Daily data for one station
+# Helper Functions
 # ---------------------------------------------------------------------------
+
+# --- Step 1: Fetch GHCN-Daily data for one station ---
 
 
 def download_dly(session, station_id: str, tail_bytes: int | None = None) -> str:
@@ -104,9 +106,7 @@ def download_dly(session, station_id: str, tail_bytes: int | None = None) -> str
     return text
 
 
-# ---------------------------------------------------------------------------
-# Step 2: parse fixed-width .dly into rows
-# ---------------------------------------------------------------------------
+# --- Step 2: parse fixed-width .dly into rows ---
 
 
 def parse_dly(station_id: str, raw_text: str) -> pd.DataFrame:
@@ -183,7 +183,7 @@ def parse_dly(station_id: str, raw_text: str) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Orchestration
+# Functions
 # ---------------------------------------------------------------------------
 
 
@@ -254,6 +254,10 @@ def main():
         spark, session, tail_bytes=tail_bytes, only_station_id=only_station_id
     )
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

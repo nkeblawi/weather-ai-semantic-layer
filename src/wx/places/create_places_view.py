@@ -21,6 +21,10 @@ bootstrap()
 from wx.utils.config import PLACES_TABLE, PLACES_VIEW
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
 
 def main():
     spark = get_spark()
@@ -43,6 +47,10 @@ def main():
     )
     print(f"Recreated {PLACES_VIEW}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

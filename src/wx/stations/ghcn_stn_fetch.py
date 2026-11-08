@@ -20,8 +20,17 @@ from pyspark.sql import Row  # type: ignore
 from wx.utils.http_utils import get_session, ghcn_breaker
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 SOURCE_FILE = "ghcnd-stations.txt"
 SOURCE_URL = f"https://www.ncei.noaa.gov/pub/data/ghcn/daily/{SOURCE_FILE}"
+
+
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
 
 
 def fetch_station_list(session) -> str:
@@ -34,6 +43,11 @@ def fetch_station_list(session) -> str:
         return response
 
     return _get().text
+
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
 
 
 def main():
@@ -58,6 +72,10 @@ def main():
     station_count = spark.table(STATION_LIST_RAW_TABLE).count()
     print(f"Wrote {station_count} stations to {STATION_LIST_RAW_TABLE}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

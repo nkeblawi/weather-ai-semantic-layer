@@ -19,6 +19,10 @@ from pyspark.sql import functions as F  # type: ignore
 from pyspark.sql.window import Window  # type: ignore
 from wx.utils.spark_utils import get_spark
 
+# ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
+
 
 def filter_null_ghcn_rows(raw_df):
     return raw_df.filter(F.col("ghcnd").isNotNull())
@@ -46,6 +50,11 @@ def most_recent_ghcn_rows(df):
     return filtered_df
 
 
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+
 def main():
     spark = get_spark()
 
@@ -65,6 +74,10 @@ def main():
     filtered_df.write.mode("overwrite").saveAsTable(STATION_EMSHR_FILTERED_TABLE)
     print(f"Wrote {filtered_df.count():,} rows to {STATION_EMSHR_FILTERED_TABLE}")
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()
