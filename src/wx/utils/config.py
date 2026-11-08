@@ -1,11 +1,4 @@
-"""
-Central configuration for the weather pipeline: catalog, schema, and table
-name constants, plus pipeline settings. Every ingest/transform script should import from here rather
-than hardcoding these strings, so a rename only has to happen in one place.
-
-Names follow the productionization plan (see Productionize `Projects/Weather`
-notebooks doc), not the older "silver" naming used in earlier notes.
-"""
+"""Catalog, schema, and table names for the pipeline, plus pipeline settings."""
 
 import os
 

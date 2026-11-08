@@ -14,9 +14,7 @@ from wx.utils.config import STATION_MERGED_TABLE
 
 
 def get_selected_stations(spark) -> list[str]:
-    """
-    Return station_id values from station_wmo where selected = true.
-    """
+    """station_id values from station_wmo where selected = true."""
     stations = (
         spark.table(STATION_MERGED_TABLE)
         .filter(F.col("selected") == True)
@@ -40,18 +38,10 @@ def merge_into_target(
     keep_existing_values: bool = False,
 ) -> None:
     """
-    Create target_table from df if it doesn't exist yet, otherwise merge
-    (upsert) df into it, matching on merge_keys. Both existing ingest
-    sources (GHCN and ACIS) merge on the same three-column key
-    (station_id, obs_date, variable), so that's the default, but it's
-    overridable in case a future source needs a different key.
-
-    keep_existing_values=True: a matched row with a NULL incoming `value`
-    doesn't overwrite a non-NULL existing one (the rest of that row is left
-    as is too). GHCN ingest uses it so a missing day (-9999) in a station's
-    .dly file can't erase a value loaded for that day from an older station
-    ID (see wx/stations/load_station_history.py). Side effect: if NOAA ever
-    blanks a value it published earlier, the old value stays.
+    Creates target_table from a pandas df, or upserts into it on merge_keys.
+    keep_existing_values: a NULL incoming value doesn't overwrite an existing
+    one, so a missing GHCN day can't erase a value loaded from an older
+    station id (side effect: a value NOAA later blanks stays).
     """
     if df.empty:
         print("Nothing to merge, DataFrame is empty.")
@@ -86,13 +76,7 @@ def upsert_dataframe(
     target_table: str,
     merge_keys: tuple[str, ...] = ("station_id", "obs_date", "variable"),
 ) -> None:
-    """
-    Create target_table from df if it doesn't exist yet, otherwise merge
-    (upsert) df into it, matching on merge_keys. Spark-DataFrame
-    counterpart to merge_into_target(), for transform steps (map/convert)
-    whose input is already a Spark DataFrame rather than a pandas
-    DataFrame from an HTTP fetch.
-    """
+    """merge_into_target for a Spark DataFrame."""
     if not spark.catalog.tableExists(target_table):
         print(f"{target_table} does not exist yet, creating it from this load.")
         df.write.format("delta").saveAsTable(target_table)
@@ -114,12 +98,9 @@ def upsert_dataframe(
 # GHCN cutoff date shared between job tasks
 # ---------------------------------------------------------------------------
 
-# Passes ghcn_last_date between tasks of one job run (Databricks job task
-# values), so merge_obs, pivot_obs and derived_vars don't each recompute it
-# with a full-table scan. Best-effort: outside a job run, in a job whose
-# upstream task key differs (e.g. wx_activate_station's backfill_* tasks),
-# or without dbutils, get_cutoff() returns None and the caller computes the
-# cutoff itself (the pre-existing behavior). set_cutoff() never raises.
+# Passes ghcn_last_date between a job run's tasks (task values), saving each a
+# full-table scan. Best-effort: get_cutoff() returns None when unavailable and
+# the caller computes it; set_cutoff() never raises.
 
 GHCN_LAST_DATE_KEY = "ghcn_last_date"
 
@@ -141,13 +122,9 @@ def set_cutoff(cutoff: date | None) -> None:
 
 
 def get_cutoff(upstream_task_key: str) -> date | None:
-    """
-    Cutoff published by upstream_task_key in this job run, or None if it's
-    unavailable for any reason (caller then computes it).
-    """
+    """The cutoff upstream_task_key published this run, or None."""
     try:
-        # "" (not None, which get() rejects) when the key wasn't set this run
-        # or outside a job run.
+        # "" when unset: get() rejects a None default
         value = _task_values().get(
             taskKey=upstream_task_key,
             key=GHCN_LAST_DATE_KEY,
