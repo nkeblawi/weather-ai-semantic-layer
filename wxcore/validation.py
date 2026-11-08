@@ -1,14 +1,8 @@
 """
-Query validation: the allowed values and limits a query must fit, and the
-checks that run on queries before anything runs on the warehouse.
-
-validate_queries checks a list of queries; cap_rank_limits and
-coerce_series fix what can be answered instead of rejected. All three take
-the list of queries itself. Nothing here calls a model or the database, or
-reads the user's question text.
-
-The allowed-value sets below mirror SKILL.md Step 6's output schema;
-tests/test_guardrails.py (local-only, gitignored) fails if the two drift apart.
+Query validation before the warehouse: the allowed values and limits
+(mirroring SKILL.md Step 6), validate_queries, and cap_rank_limits and
+coerce_series, which fix what can be answered instead of rejected. Reads
+only the queries: no model, database, or question text.
 """
 
 from __future__ import annotations
@@ -27,12 +21,10 @@ from wxcore.units import TEMP_METRICS, TOTAL_METRICS, natural_aggregation
 MAX_QUERIES_PER_QUESTION = 4  # each query is a warehouse call
 MAX_RANK_LIMIT = 15  # top/bottom ranks per query; answer_query clamps to the same
 
-# Series: a monthly series longer than this becomes yearly points, which keeps
-# 4 series under Altair's 5,000-row default (4 x 1,200 points)
+# Longer monthly series become yearly: keeps 4 series under Altair's 5,000-row default
 MAX_MONTHLY_SERIES_YEARS = 100
 
-# Series: daily points only for a span this long or shorter (a year, leap or
-# not, or one snow season); longer daily requests become monthly
+# Daily points up to a year (leap or not); longer daily requests become monthly
 MAX_DAILY_SERIES_DAYS = 366
 MIN_BASELINE_YEARS, MAX_BASELINE_YEARS = 10, 50
 
@@ -126,13 +118,9 @@ THRESHOLD_PERIOD_AGGREGATIONS = {"count", "any"} | DATE_AGGREGATIONS
 SERIES_PERIOD_AGGREGATIONS = PERIOD_AGGREGATIONS | THRESHOLD_PERIOD_AGGREGATIONS
 OUTPUT_UNITS = {"C", "F"}
 
-# Halves of the year a first/last date is searched in: the last spring freeze
-# is in spring's half, the first fall freeze in fall's (wxcore.defaults turns
-# half_year into month_filter).
+# Where a first/last date is searched: the last spring freeze in Jan-Jun, the first fall freeze in Jul-Dec
 HALF_YEARS = {"spring": SPRING_MONTHS, "fall": FALL_MONTHS}
-# Named day conditions: name -> (metric, operator, value). A query with a
-# condition gets its metric and threshold from it (wxcore.defaults).
-# Freeze is a low at or below 32F (0C).
+# Named day conditions: name -> (metric, operator, value), filled in by wxcore.defaults
 CONDITIONS = {
     "snow_day": ("SNOW", ">=", 0.5),
     "measurable_snow": ("SNOW", ">=", 0.1),
@@ -144,9 +132,7 @@ CONDITIONS = {
     "snow_on_ground": ("SNWD", ">=", 1),
 }
 
-# Plot modes, which say whether queries may or must be series: PLOT_EXPLICIT
-# (a chart request: all series, or a ranking drawn as bars), PLOT_INHERITED
-# (either kind, e.g. a follow-up to a chart), PLOT_OFF (no series).
+# Plot modes: EXPLICIT (all series, or a ranking drawn as bars), INHERITED (either), OFF (no series)
 PLOT_EXPLICIT, PLOT_INHERITED, PLOT_OFF = "plot", "plot_inherited", None
 MIN_DATE = date.fromisoformat(ALL_TIME_START)  # the start of every record
 
@@ -228,8 +214,7 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         return ["query is not an object"]
     problems: list[str] = []
 
-    # Must be a station lookup_station returned (station_info), not an ID the
-    # model made up.
+    # Only stations lookup_station returned, not an id the model made up
     if q.get("station_id") not in station_info:
         problems.append(
             f"station_id {q.get('station_id')!r} wasn't returned by lookup_station"
@@ -366,10 +351,8 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
             and all(isinstance(m, int) and 1 <= m <= 12 for m in mf)
         ):
             problems.append(f"month_filter {mf!r} must be a list of months 1-12")
-        # query_by_period ignores it for any other unit, so e.g. "hottest
-        # summers" as unit year + [6, 7, 8] would silently rank whole years
-        # unit day: daily rows in those months across years ("the hottest
-        # January day"); not for a daily series, which query_series doesn't filter
+        # Other units ignore it in SQL ("hottest summers" as year + [6, 7, 8] would
+        # rank whole years); a daily series isn't filtered either
         dates = (
             aggregation in DATE_AGGREGATIONS
             or q.get("period_aggregation") in DATE_AGGREGATIONS
@@ -395,9 +378,7 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
             problems.append("start_date is after end_date")
         if start < MIN_DATE:
             problems.append(f"start_date before {MIN_DATE}")
-        # Only a range that hasn't started yet is a forecast. A range already
-        # under way ("October 2026", "this year") legitimately ends in the
-        # future; the query just finds observations up to today.
+        # Only a range that hasn't started is a forecast; "this year" may end in the future
         if start > today:
             problems.append("start_date is in the future")
     return problems
@@ -551,13 +532,9 @@ def _cross_query_displays(queries: list[dict]) -> list[str]:
 
 def cap_rank_limits(queries) -> None:
     """
-    Trims a top/bottom limit over MAX_RANK_LIMIT down to it, in place, and
-    keeps what was asked for as requested_limit so the answer can say so
-    ("top 20" -> 15 ranks). Runs before validate_queries, so an over-cap
-    limit is answered instead of rejected; anything else odd about limit
-    (not an integer, below 1) is still left for validation to reject.
-    A limit of 1 on max/min ("which year was wettest" asked as max with
-    limit 1) is dropped: max/min already is the single top value.
+    In place: trims a top/bottom limit over MAX_RANK_LIMIT, keeping the ask
+    as requested_limit so the answer can say so ("top 20" -> 15), and drops
+    a limit of 1 on max/min. Other bad limits are left for validation.
     """
     for q in queries or []:
         if not isinstance(q, dict):
@@ -584,12 +561,9 @@ def series_span(q: dict) -> tuple[date | None, date | None, bool]:
 
 def coerce_series(queries) -> None:
     """
-    Fixes series queries that ask for more than charts allow, in place, before
-    validation -- a chart instead of an error, like cap_rank_limits. Daily
-    points over more than MAX_DAILY_SERIES_DAYS become monthly; a monthly
-    series over MAX_MONTHLY_SERIES_YEARS becomes yearly. Each change leaves a
-    note under the chart (notes). Reads the query parameters only, never the
-    question's wording.
+    In place: daily series over MAX_DAILY_SERIES_DAYS become monthly, and
+    monthly over MAX_MONTHLY_SERIES_YEARS become yearly, each with a note
+    under the chart. A chart instead of an error.
     """
     for q in queries or []:
         if not isinstance(q, dict) or q.get("aggregation") != "series":

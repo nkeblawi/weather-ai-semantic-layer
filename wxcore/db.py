@@ -2,18 +2,10 @@
 Databricks access: the service principal connection, lookup_station, and
 answer_query, the Unity Catalog functions the front ends call.
 
-Requires these environment variables, read when they're used (never at
-import). wxcore doesn't load .env files: the caller sets the environment
-(the app loads its .env; a hosted server gets them from the platform).
+Environment (read when used; the caller loads any .env):
     WX_CATALOG          (weather for prod, weather_dev for dev; no default)
-    DATABRICKS_SERVER
-    DATABRICKS_HTTP     (SQL warehouse connection details page in Databricks)
-    DATABRICKS_CLIENT   (service principal application/client ID)
-    DATABRICKS_SECRET   (service principal OAuth secret)
-
-NOTE: the exact parameter-binding syntax below (":name" style, passed via
-the `parameters=` dict to cursor.execute) is databricks-sql-connector's
-native-parameters feature.
+    DATABRICKS_SERVER, DATABRICKS_HTTP   (the SQL warehouse's connection details)
+    DATABRICKS_CLIENT, DATABRICKS_SECRET (the service principal's OAuth credentials)
 """
 
 import json
@@ -42,11 +34,9 @@ from wxcore.dates import (
 
 MATCHING_DAYS_MAX = 5  # a day count names its days: all of them up to this many, else at least this many of the most extreme (whole ties)
 
-# A place lookup_station's names don't match, from its coordinates: a station
-# whose city is that place (e.g. "New York" -> New York, NY) and within
-# NEARBY_MILES is used, else the only station within AUTO_MILES if there's
-# just one; any other station up to NEARBY_MILES is offered to the user; up
-# to FAR_MILES it's offered with a warning; beyond, none.
+# A place matched by coordinates: a station in that city within NEARBY_MILES is
+# used, else the only one within AUTO_MILES; others are offered up to
+# NEARBY_MILES, then with a warning up to FAR_MILES.
 AUTO_MILES = 10
 NEARBY_MILES = 50
 FAR_MILES = 150
@@ -78,10 +68,8 @@ CONTINENTS = {
     "PR": "North America",
 }
 
-# A place's coordinates come from analytics.places (GeoNames cities with
-# 1,000+ people). Qualifiers after the name ("Vienna, VA", "Paris, France")
-# match a state/province or country by code or name; these are the other
-# ways people write them. Canadian provinces have numeric GeoNames codes.
+# Other ways people write a qualifier ("Vienna, VA", "Paris, France") than the
+# GeoNames code or name; Canadian provinces have numeric GeoNames codes.
 COUNTRY_ALIASES = {
     "usa": "us",
     "united states of america": "us",
@@ -110,11 +98,9 @@ PROVINCE_NAMES = {
 }
 # a qualifier with no comma before it is at most this many words ("Newfoundland and Labrador")
 MAX_QUALIFIER_WORDS = 3
-# A bare name several places share ("Springfield") asks which one when they
-# lead to different stations: the most populous exact matches, up to
-# MAX_PLACE_CHOICES, each with at least PLACE_CHOICE_SHARE of the top one's
-# population (leaves out Washington, England, and Portland, ME). A city with a
-# station is matched before this (Portland, Columbus).
+# A name several places share ("Springfield") asks which, offering exact matches
+# with at least PLACE_CHOICE_SHARE of the top one's population (leaves out
+# Washington, England). A city with a station is matched before this.
 MAX_PLACE_CHOICES = 4
 PLACE_CHOICE_SHARE = 0.15
 
@@ -423,11 +409,7 @@ def _max_min_result(ranked: dict | None) -> dict:
 
 
 def catalog() -> str:
-    """
-    The Unity Catalog catalog holding the analytics functions and views:
-    WX_CATALOG, read on every call. Raises when it's unset rather than
-    falling back to prod.
-    """
+    """WX_CATALOG, read on every call. Raises when unset rather than falling back to prod."""
     name = os.environ.get("WX_CATALOG", "").strip()
     if not name:
         raise RuntimeError(
@@ -448,17 +430,11 @@ def get_databricks_connection():
 def call_lookup_station(conn, location_text: str, latitude=None, longitude=None):
     """
     The active station a place names: {ghcn_id, name, city, state} for a
-    name, code, or alias match. Otherwise the place's coordinates (from
-    analytics.places, else the caller's) give: the station in that city
-    (adding nearest_to and miles), or {"match": "none", "nearby": [...],
-    "ask_user": "..."}: stations within FAR_MILES and a question to put to
-    the user before using one (with nothing in range, ask_user names the
-    countries covered; with no place found, it asks where the place is).
-    A bare name several places share, leading to different stations,
-    gets an ask_user naming them instead, with the list in places.
-    matched_place says which place the name was taken to mean. Text that
-    names no place gets {"error": NO_PLACE_ERROR}, so the caller asks where
-    instead of relaying "couldn't find a place called <UNKNOWN>".
+    name, code, or alias match, else one found from the place's coordinates
+    (adding nearest_to and miles). Otherwise {"match": "none", "nearby",
+    "ask_user"}: a question for the user (nearby stations, which of several
+    same-named places, or where the place is). Placeholder text like
+    "<UNKNOWN>" gets {"error": NO_PLACE_ERROR}.
     """
     if PLACEHOLDER_PLACE.fullmatch(location_text or ""):
         return {"error": NO_PLACE_ERROR}
@@ -554,12 +530,9 @@ def _station_near(conn, location_text: str, place: dict | None, latitude=None, l
 
 def fill_station_info(conn, queries, station_info: dict) -> None:
     """
-    Adds to station_info the stations these queries use without a
-    lookup_station result, when the id is a real station. The skill's worked
-    examples use real ids (Dulles above all), so a model sometimes reuses one
-    from memory; the id is right, but validation only trusts station_info.
-    An id that isn't in the stations table stays missing and is still
-    rejected.
+    Adds the real stations these queries use without a lookup_station
+    result (a model may reuse an id from the worked examples). Unknown ids
+    stay missing, so validation still rejects them.
     """
     missing = {
         q.get("station_id")
@@ -586,20 +559,12 @@ def fill_station_info(conn, queries, station_info: dict) -> None:
 
 
 def place_label(city: str, state: str | None) -> str:
-    """
-    A city as shown to users: "Portland, OR", "Montreal, QC". A city that
-    already carries its own qualifier (e.g. "Washington, DC", stored with
-    state VA) is used as-is, and so is one with no state.
-    """
+    """"Portland, OR"; a city already qualified ("Washington, DC") or with no state is used as-is."""
     return city if "," in city or not state else f"{city}, {state}"
 
 
 def station_place(station: dict, station_id: str) -> str:
-    """
-    The place a station's answers, titles, and subtitles name: its city
-    with state/province, else its station name, else the id. Station info
-    saved before lookup_station returned state shows the bare city.
-    """
+    """The place a station's answers and charts name: its city and state, else its name, else the id."""
     if station.get("city"):
         return place_label(station["city"], station.get("state"))
     return station.get("name") or station_id
@@ -607,10 +572,9 @@ def station_place(station: dict, station_id: str) -> str:
 
 def list_home_locations(conn) -> dict[str, str]:
     """
-    {station code: display name} for the home-location picker, ordered by
-    name, e.g. {"KIAD": "Sterling, VA (KIAD)"}. The code (ICAO, else IATA) is
-    the value saved as home_location and given to the resolver -- an exact
-    lookup_station key. The display name is presentation only (place_label).
+    {station code: display name} for the home-location picker, e.g.
+    {"KIAD": "Sterling, VA (KIAD)"}. The code (ICAO, else IATA) is what's
+    saved and given to the resolver: an exact lookup_station key.
     """
     with conn.cursor() as cur:
         cur.execute(f"""
@@ -706,13 +670,9 @@ def call_answer_query(conn, entry: dict):
 def matching_days(conn, entry: dict, result: dict | None) -> list[dict] | None:
     """
     The days behind a daily count ("has DCA ever hit 80 in January?" -> 1,
-    on Jan 26, 2024), so the answer says when they happened without being
-    asked: every day up to MATCHING_DAYS_MAX, else at least that many of
-    the most extreme, ties kept whole (the hottest of 103 days at 95°F+). A
-    count only returns the
-    number; this ranks the days the threshold points at (top for >/>=,
-    bottom for </<=) and keeps those that meet it. None when the count is 0
-    or not a day count.
+    on Jan 26, 2024), so the answer can say when: every day up to
+    MATCHING_DAYS_MAX, else at least that many of the most extreme, ties
+    kept whole. None when the count is 0 or not a day count.
     """
     t = entry.get("threshold") or {}
     n = (result or {}).get("value")
@@ -735,10 +695,7 @@ def matching_days(conn, entry: dict, result: dict | None) -> list[dict] | None:
         "<": lambda v: v < t["value"],
         "<=": lambda v: v <= t["value"],
     }[t["operator"]]
-    # The limit counts ranks, and tied days share one, so the rows can hold
-    # more days than MATCHING_DAYS_MAX: keep at least that many, finishing
-    # the tie the cutoff falls in rather than naming only some of its days.
-    # answer_query's own row cap still bounds the list.
+    # Tied days share a rank: past MATCHING_DAYS_MAX, finish the tie the cutoff falls in
     days, last_rank = [], None
     for r in rows:
         if r.get("value") is None or not meets(r["value"]):
