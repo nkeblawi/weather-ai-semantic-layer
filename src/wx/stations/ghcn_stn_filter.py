@@ -1,10 +1,4 @@
-"""
-Filter the parsed station list down to WMO-identified stations and
-merge/upsert into weather.cleaned.station_wmo.
-
-Existing rows are updated on every column EXCEPT `selected`, so a station
-that was manually activated stays activated even after this script re-runs.
-"""
+"""Upserts the WMO-identified stations into cleaned.station_wmo, leaving `selected` as it is."""
 
 import os
 import sys
@@ -17,7 +11,7 @@ if not args.workspace_root:
     parser.error("--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)")
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 bootstrap()
 
 from pyspark.sql import functions as F  # type: ignore
@@ -34,12 +28,7 @@ def filter_wmo_stations(df):
 
 
 def upsert_station_wmo(spark, df_wmo):
-    """
-    Create cleaned station_wmo if it doesn't exist, otherwise
-    merge/upsert on station_id, leaving `selected` untouched
-    for existing rows so manual activations survive a rerun.
-    """
-
+    """Creates station_wmo, or upserts on station_id leaving `selected` as it is."""
     if not spark.catalog.tableExists(STATION_WMO_TABLE):
         df_wmo.write.format("delta").saveAsTable(STATION_WMO_TABLE)
         return

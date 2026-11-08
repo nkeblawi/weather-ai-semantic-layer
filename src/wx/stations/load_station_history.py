@@ -1,53 +1,18 @@
 """
-One-time history load for a station whose GHCN ID changed: download the old
-IDs' .dly files and write their data into raw.obs_ghcn UNDER THE CURRENT ID,
-so the station's record runs across the ID change. The pipeline downstream
-(convert, merge, pivot, derived vars, query functions, app) is unchanged and
-only ever sees the current ID.
+One-time history load for a station whose GHCN ID changed: the old IDs' .dly
+data goes into raw.obs_ghcn under the current ID, so the record runs across
+the change. Method and record of each load: docs/station_lineage.md.
 
-Fill rule, per day and variable: an old ID supplies a value for a
-(date, variable) only where the current ID has no value for it (no line for
-that month, or a missing day inside a line). Where both have a value, the
-current ID wins. The result is continuous wherever either ID has data,
-including the handoff month itself.
+- Fill rule: an old ID supplies a (date, variable) only where the current ID
+  has no value; old IDs apply in the order given (most recent first).
+- It stays filled because GHCN ingest merges with keep_existing_values=True.
+- Only for a clean handoff: if the current ID also has an earlier, differently
+  measured record, don't fill from the old one (why Vancouver was dropped).
+- Run this first (dry_run defaults to true; check the overlap report), then
+  wx_activate_station. Reruns are safe; never activate or ingest an old ID.
 
-What keeps it that way: GHCN ingest merges into raw with
-keep_existing_values=True (wx.utils.common.merge_into_target), so a missing
-day (-9999 -> NULL) in the current ID's .dly never overwrites a value this
-loader put there. The activation job's --full backfill, the daily tail
-ingest, and backfill.sh all go through that same merge.
-
-Several old IDs are applied in the order given (put the most recent first);
-each fills only days still missing after the ones before it. Only non-NULL
-old values are loaded.
-
-This suits a clean handoff: the old ID stops when the current one starts.
-Check the overlap report first. If the current ID also has a partial or
-differently measured record before the handoff, filling its missing days
-from the old ID would mix two different records: don't use it for that
-station (Vancouver was dropped from tranche 7 for this reason: CAN01108395
-has ~200 days/yr before 2013, reading ~2.3F warmer than CAN01108447).
-
-Order of operations for a station:
-  1. Run this loader (--dry-run first to review counts and the overlap check).
-  2. Run wx_activate_station for the current ID as usual.
-Record each load in docs/station_lineage.md (old IDs, rows per variable,
-overlap check, date). After the load, raw rows no longer show which ID they
-came from.
-
-Re-running is safe: same keys, same values. Never activate or ingest an old
-ID on its own; its history already lives under the current ID.
-
-Run on demand with the wx_load_station_history job
-(resources/wx_load_station_history.job.yml). Its parameters are station_id,
-history_ids (old IDs, most recent first, separated by commas, e.g.
-"CAN07025250,CA007025250"), and dry_run, which defaults to true. Review the dry run's
-output, then rerun with dry_run=false to write:
-
-    databricks jobs run-now --json '{"job_id": <job_id>, "job_parameters": {"station_id": "CAN07025251",
-        "history_ids": "CAN07025250", "dry_run": "true"}}'
-
-Or from a notebook / the command line (--dry-run alone also means true):
+Run with the wx_load_station_history job (station_id, history_ids separated
+by commas, dry_run), or by hand:
 
     python load_station_history.py --workspace-root <.../files/src> --catalog weather \\
         --station-id CAN07025251 --history-ids CAN07025250 --dry-run
@@ -67,7 +32,7 @@ if not args.workspace_root:
     )
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 
 bootstrap()
 
@@ -94,11 +59,7 @@ def day_keys(df: pd.DataFrame) -> pd.Series:
 def select_history(
     current_df: pd.DataFrame, history: list[tuple[str, pd.DataFrame]]
 ) -> tuple[pd.DataFrame, list[dict]]:
-    """
-    Rows from the old IDs to load, relabeled to the current ID, plus a
-    summary per old ID and variable. history is [(old_id, parsed_df), ...]
-    in priority order.
-    """
+    """Old-ID rows to load, relabeled to the current ID, and a summary per ID and variable."""
     current_id = current_df["station_id"].iloc[0]
     covered = set(day_keys(current_df[current_df["value"].notna()]))
     selected, summary = [], []
@@ -134,11 +95,7 @@ def select_history(
 def overlap_check(
     current_df: pd.DataFrame, old_id: str, old_df: pd.DataFrame
 ) -> list[dict]:
-    """
-    Where the current and an old ID both have a value on the same day,
-    compare them: a same-site ID change should agree closely; a large
-    difference suggests a site or instrument change worth noting.
-    """
+    """Days both IDs have, compared: a large difference suggests a site or instrument change."""
     both = current_df.merge(
         old_df, on=["obs_date", "variable"], suffixes=("_new", "_old")
     ).dropna(subset=["value_new", "value_old"])
@@ -174,10 +131,7 @@ def overlap_check(
 
 
 def check_ids(spark, current_id: str, old_ids: list[str]) -> None:
-    """
-    The current ID must exist in station_merged (catches typos and stale
-    IDs); old IDs must not be the current ID, repeated, or active stations.
-    """
+    """The current ID must exist; old IDs can't be it, repeat, or be active stations."""
     if current_id in old_ids or len(set(old_ids)) != len(old_ids):
         raise ValueError("History IDs must be distinct and differ from --station-id.")
 

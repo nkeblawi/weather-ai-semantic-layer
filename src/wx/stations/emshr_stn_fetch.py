@@ -1,8 +1,4 @@
-"""
-Fetch the EMSHR station list from NOAA and land it as raw, unparsed
-lines in weather.raw.emshr_lite_raw. We need this in order to get
-ICAO, FAA, and country codes and merge them into the stations table.
-"""
+"""Fetches NOAA's EMSHR station list (for ICAO, FAA, and country codes) into raw.emshr_lite_raw."""
 
 import os
 import sys
@@ -15,7 +11,7 @@ if not args.workspace_root:
     parser.error("--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)")
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 bootstrap()
 
 from wx.utils.config import STATION_EMSHR_RAW_TABLE
@@ -73,8 +69,7 @@ def main():
     ]
     parsed_df = lines_df.select(*select_exprs)
 
-    # Empty-string vs null gets inconsistent once you start filtering/joining on these columns --
-    # normalize blanks to null right away
+    # Blanks to null, so filters and joins treat them alike
     for name, _, _ in fields:
         parsed_df = parsed_df.withColumn(
             name, F.when(F.col(name) == "", None).otherwise(F.col(name))

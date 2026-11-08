@@ -33,12 +33,12 @@ if not args.workspace_root:
     )
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 
 bootstrap()
 
-from wx.utils.config import CHAT_HISTORY_TABLE, USAGE_DAILY_TABLE  # noqa: E402
-from wx.utils.spark_utils import get_spark  # noqa: E402
+from wx.utils.config import CHAT_HISTORY_TABLE, USAGE_DAILY_TABLE
+from wx.utils.spark_utils import get_spark
 
 CHAT_RETENTION_DAYS = 14
 

@@ -24,16 +24,16 @@ if not args.workspace_root:
     parser.error("--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)")
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 bootstrap()
 
-import io  # noqa: E402
-import zipfile  # noqa: E402
-from datetime import datetime, timezone  # noqa: E402
-from pyspark.sql import Row  # type: ignore  # noqa: E402
-from wx.utils.config import GEONAMES_RAW_TABLE  # noqa: E402
-from wx.utils.http_utils import geonames_breaker, get_session  # noqa: E402
-from wx.utils.spark_utils import get_spark  # noqa: E402
+import io
+import zipfile
+from datetime import datetime, timezone
+from pyspark.sql import Row  # type: ignore
+from wx.utils.config import GEONAMES_RAW_TABLE
+from wx.utils.http_utils import geonames_breaker, get_session
+from wx.utils.spark_utils import get_spark
 
 BASE_URL = "https://download.geonames.org/export/dump"
 CITIES_ZIP, CITIES_FILE = "cities1000.zip", "cities1000.txt"

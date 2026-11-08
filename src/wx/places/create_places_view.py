@@ -18,11 +18,11 @@ if not args.workspace_root:
     parser.error("--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)")
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 bootstrap()
 
-from wx.utils.config import PLACES_TABLE, PLACES_VIEW  # noqa: E402
-from wx.utils.spark_utils import get_spark  # noqa: E402
+from wx.utils.config import PLACES_TABLE, PLACES_VIEW
+from wx.utils.spark_utils import get_spark
 
 
 def main():

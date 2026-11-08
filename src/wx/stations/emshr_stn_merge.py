@@ -1,9 +1,6 @@
 """
-Merge the filtered EMSHR stations with WMO stations into a merged station table.
-Existing rows are upserted on station_id, not overwritten, so that
-station_merged.selected/city (set by hand in activate_station.py) survive a
-rerun; same principle ghcn_stn_filter.py already applies for
-station_wmo.selected.
+Merges EMSHR codes into the WMO stations as station_merged, upserting on
+station_id so hand-set selected/city survive a rerun.
 """
 
 import os
@@ -17,7 +14,7 @@ if not args.workspace_root:
     parser.error("--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)")
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 bootstrap()
 
 from wx.utils.config import (
@@ -36,21 +33,11 @@ COUNTRIES_URL = "https://www.ncei.noaa.gov/pub/data/ghcn/daily/ghcnd-countries.t
 
 def merge_icao(wmo_df, emshr_df, codes_df, countries_df):
     """
-    Join WMO stations with EMSHR-derived ICAO/FAA/country columns. Drops
-    station_wmo's own `selected` column first; it's a different flag from
-    station_merged's `selected` (set by activate_station.py), and there's no
-    reason for this merge to touch it either way.
-
-    EMSHR covers US stations only, so other stations get their codes and
-    country from elsewhere:
-      - icao / iata: cleaned.station_codes (hand-maintained, seeded from
-        sql/maintenance/station_codes.sql) wins where it has a row; otherwise EMSHR's
-        icao, and EMSHR's FAA code as the IATA code (the same for US
-        commercial airports).
-      - country_code: EMSHR, else the GHCN ID's first two letters (its FIPS
-        country code, e.g. "CA" in CAN07025251).
-      - country_name: EMSHR, else NOAA's ghcnd-countries.txt (upper-cased to
-        match EMSHR's "UNITED STATES" style).
+    WMO stations plus codes and country (station_wmo's own `selected` is
+    dropped). EMSHR is US-only, so:
+      - icao / iata: station_codes wins, else EMSHR's icao and FAA code
+      - country_code: EMSHR, else the GHCN id's first two letters (FIPS)
+      - country_name: EMSHR, else ghcnd-countries.txt, upper-cased
     """
     prefix = F.substring(F.col("sw.station_id"), 1, 2)
     stations_df = (
@@ -100,11 +87,7 @@ def fetch_countries(spark, session):
 
 
 def upsert_station_merged(spark, merged_df, target_table):
-    """
-    Create station_merged if it doesn't exist yet, otherwise merge/upsert on
-    station_id, leaving `selected`/`city` untouched for existing rows so
-    manual activation (activate_station.py) survives a rerun.
-    """
+    """Creates station_merged, or upserts on station_id leaving selected/city as they are."""
     preserved_columns = {"station_id", "selected", "city"}
     update_columns = [c for c in merged_df.columns if c not in preserved_columns]
 
@@ -112,8 +95,7 @@ def upsert_station_merged(spark, merged_df, target_table):
         merged_df.write.format("delta").saveAsTable(target_table)
         return
 
-    # Columns added since the table was created (e.g. iata) are added to it
-    # first, so the MERGE can set them.
+    # Add columns new since the table was created (e.g. iata), so the MERGE can set them
     existing = set(spark.table(target_table).columns)
     for field in merged_df.schema.fields:
         if field.name not in existing:

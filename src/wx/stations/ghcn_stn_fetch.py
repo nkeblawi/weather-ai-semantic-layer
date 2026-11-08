@@ -1,12 +1,4 @@
-"""
-Fetch the GHCN-Daily station list from NOAA and land it as raw, unparsed
-lines in weather.raw.station_list_raw.
-
-This step does a full overwrite on every run, since it's just re-pulling
-NOAA's current station list file, not merging incremental data. There's
-no upsert logic needed here unlike notebook testing, which does merge/upsert
-to protect manual `selected` activations downstream).
-"""
+"""Fetches NOAA's GHCN-Daily station list into raw.station_list_raw, overwriting it."""
 
 import os
 import sys
@@ -19,7 +11,7 @@ if not args.workspace_root:
     parser.error("--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)")
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 bootstrap()
 
 from wx.utils.config import STATION_LIST_RAW_TABLE

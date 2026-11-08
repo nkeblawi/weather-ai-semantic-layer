@@ -1,19 +1,6 @@
 """
-Parse the raw, fixed-width GHCN-Daily station list lines into a typed table.
-
-Fixed-width column positions follow the GHCN-Daily station list spec column layout:
-    station_id 1-11
-    latitude 13-20,
-    longitude 22-30
-    elevation 32-37
-    state 39-40
-    name 42-71
-    gsn 73-75,
-    hcn_crn 77-79
-    wmo 81-85
-
-This step always sets `selected=False` for every row, on every run since these
-stations are assumed to not be selected for the app unless explicitly activated.
+Parses the fixed-width GHCN-Daily station list (NOAA's column positions)
+into a typed table, every row selected=False.
 """
 
 import os
@@ -27,7 +14,7 @@ if not args.workspace_root:
     parser.error("--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)")
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 bootstrap()
 
 from wx.utils.config import (

@@ -1,30 +1,11 @@
 """
-Manually update one station in station_merged, by its GHCN station_id:
-activate it (selected=true) and/or set its city. station_merged has no city
-column derived from source data (only the raw `name` and `state`), so city
-is always set by hand here.
+Activates one station in station_merged (selected=true) and/or sets its city,
+which no source provides. Run on demand by wx_activate_station, e.g.:
 
-station_id is a unique key, so every update here touches at most one row --
-no ambiguous-match handling needed. Look up the station_id first, e.g.:
+    --station-id USW00014739 --activate --city "Boston"
 
-    SELECT station_id, name, icao, iata
-    FROM weather.cleaned.station_merged
-    WHERE contains(upper(name), 'DULLES')
-
-This is NOT part of any scheduled job. It is run on demand with usage:
-
-    python activate_station.py --station-id USW00014739 --activate --city "Boston"
-    python activate_station.py --station-id USW00093738 --activate            # no city yet
-    python activate_station.py --station-id USW00014922 --city "Minneapolis" # fix city on an already-active station
-
---activate requires the station to have an airport code (icao, or iata /
-faa) in station_merged: the app's home-city menu and code lookups need one.
-US stations get theirs from EMSHR; for others, add the codes to
-sql/maintenance/station_codes.sql, run it, and rerun wx_station_ingest first.
-
-Uses parameterized SQL (args=) to avoid string interpolation for
-user-supplied values, matching the pattern already used elsewhere in this
-project.
+--activate needs an airport code (icao or iata): for non-US stations, add it
+to sql/maintenance/station_codes.sql and rerun wx_station_ingest first.
 """
 
 import os
@@ -40,7 +21,7 @@ if not args.workspace_root:
     )
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 
 bootstrap()
 
@@ -49,10 +30,7 @@ from wx.utils.spark_utils import get_spark
 
 
 def check_airport_code(spark, station_id: str) -> None:
-    """
-    Refuse to activate a station with no airport code. Reads iata when
-    station_merged has it, else faa (tables built before the iata column).
-    """
+    """Refuses a station with no airport code (iata, or faa on tables built before iata)."""
     code_col = "iata" if "iata" in spark.table(STATION_MERGED_TABLE).columns else "faa"
     row = spark.sql(
         f"SELECT icao, {code_col} AS code FROM {STATION_MERGED_TABLE} WHERE station_id = :station_id",
@@ -66,11 +44,7 @@ def check_airport_code(spark, station_id: str) -> None:
 
 
 def update_station(spark, station_id: str, activate: bool, city: str | None):
-    """
-    Set selected=true (if activate) and/or city (if provided) on the
-    station matching station_id. Errors if station_id doesn't exist.
-    """
-
+    """Sets selected and/or city on station_id; ValueError if it doesn't exist."""
     exists = (
         spark.sql(
             f"SELECT 1 FROM {STATION_MERGED_TABLE} WHERE station_id = :station_id",
@@ -117,8 +91,7 @@ def main():
     parser.add_argument("--city", default=None, help='City to set, e.g. "New York".')
 
     args, _ = parser.parse_known_args()
-    # The job always passes --city '{{job.parameters.city}}', which is "" when
-    # left blank: treat that as "no city" so a backfill-only run keeps the label.
+    # The job passes --city "" when blank: keep the existing city
     args.city = (args.city or "").strip() or None
 
     if not args.activate and args.city is None:

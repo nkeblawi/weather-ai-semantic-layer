@@ -46,7 +46,7 @@ if not args.workspace_root:
     )
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 
 bootstrap()
 

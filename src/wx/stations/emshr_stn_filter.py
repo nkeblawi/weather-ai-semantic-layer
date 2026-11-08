@@ -1,6 +1,4 @@
-"""
-Filter the EMSHR station list to only WMO-identified stations.
-"""
+"""Keeps EMSHR rows with a GHCN id, the most recent per station."""
 
 import os
 import sys
@@ -13,7 +11,7 @@ if not args.workspace_root:
     parser.error("--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)")
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 bootstrap()
 
 from wx.utils.config import STATION_EMSHR_RAW_TABLE, STATION_EMSHR_FILTERED_TABLE
@@ -43,7 +41,7 @@ def most_recent_ghcn_rows(df):
         "country_code",
         "country_name",
         "station_name",
-        "end_dt",  # kept for reference/debugging, not necessarily needed downstream
+        "end_dt",  # for debugging
     )
     return filtered_df
 

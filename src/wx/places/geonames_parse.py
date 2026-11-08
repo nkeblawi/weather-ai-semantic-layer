@@ -24,12 +24,12 @@ if not args.workspace_root:
     parser.error("--workspace-root is required (or set WX_WORKSPACE_ROOT for manual/notebook testing)")
 sys.path.append(args.workspace_root)
 
-from wx.utils.bootstrap import bootstrap  # noqa: E402
+from wx.utils.bootstrap import bootstrap
 bootstrap()
 
-from pyspark.sql import functions as F  # type: ignore  # noqa: E402
-from wx.utils.config import CATALOG, GEONAMES_RAW_TABLE, PLACES_TABLE, SCHEMA_CLEANED  # noqa: E402
-from wx.utils.spark_utils import get_spark  # noqa: E402
+from pyspark.sql import functions as F  # type: ignore
+from wx.utils.config import CATALOG, GEONAMES_RAW_TABLE, PLACES_TABLE, SCHEMA_CLEANED
+from wx.utils.spark_utils import get_spark
 
 CITIES_FILE = "cities1000.txt"
 ADMIN1_FILE = "admin1CodesASCII.txt"
