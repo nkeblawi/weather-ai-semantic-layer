@@ -4,8 +4,6 @@ resources:
       name: wx_app_retention
       tasks:
         - task_key: apply_retention
-          disabled: false
-          email_notifications: {}
           environment_key: Default
           run_if: ALL_SUCCESS
           spark_python_task:
@@ -15,10 +13,7 @@ resources:
               - "--catalog"
               - "${var.catalog}"
             python_file: ../src/wx/app/retention.py
-          timeout_seconds: 0
-          webhook_notifications: {}
       email_notifications:
-        no_alert_for_skipped_runs: false
         on_failure:
           - kebnab@gmail.com
       environments:
@@ -36,5 +31,3 @@ resources:
         pause_status: UNPAUSED
         quartz_cron_expression: 0 0 3 * * ?
         timezone_id: America/New_York
-      timeout_seconds: 0
-      webhook_notifications: {}

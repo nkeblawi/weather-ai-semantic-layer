@@ -4,8 +4,6 @@ resources:
       name: wx_activate_station
       tasks:
         - task_key: activate_station
-          disabled: false
-          email_notifications: {}
           environment_key: Default
           run_if: ALL_SUCCESS
           spark_python_task:
@@ -20,29 +18,21 @@ resources:
               - --city
               - '{{job.parameters.city}}'
             python_file: ../src/wx/stations/activate_station.py
-          timeout_seconds: 0
-          webhook_notifications: {}
         - task_key: update_stations_table
           depends_on:
             - task_key: activate_station
-          disabled: false
-          email_notifications: {}
           environment_key: Default
           run_if: ALL_SUCCESS
           spark_python_task:
-            parameters:
+            parameters: &workspace_params
               - "--workspace-root"
               - "${workspace.file_path}/src"
               - "--catalog"
               - "${var.catalog}"
             python_file: ../src/wx/stations/create_stations_view.py
-          timeout_seconds: 0
-          webhook_notifications: {}
         - task_key: backfill_ghcn
           depends_on:
             - task_key: activate_station
-          disabled: false
-          email_notifications: {}
           environment_key: wx_env_v1
           run_if: ALL_SUCCESS
           spark_python_task:
@@ -55,45 +45,25 @@ resources:
               - '{{job.parameters.station_id}}'
               - --full
             python_file: ../src/wx/obs/ingest_ghcn.py
-          timeout_seconds: 0
-          webhook_notifications: {}
         - task_key: backfill_convert_ghcn
           depends_on:
             - task_key: backfill_ghcn
-          disabled: false
-          email_notifications: {}
           environment_key: Default
           run_if: ALL_SUCCESS
           spark_python_task:
-            parameters:
-              - "--workspace-root"
-              - "${workspace.file_path}/src"
-              - "--catalog"
-              - "${var.catalog}"
+            parameters: *workspace_params
             python_file: ../src/wx/obs/convert_ghcn.py
-          timeout_seconds: 0
-          webhook_notifications: {}
         - task_key: backfill_merge_obs
           depends_on:
             - task_key: backfill_convert_ghcn
-          disabled: false
-          email_notifications: {}
           environment_key: Default
           run_if: ALL_SUCCESS
           spark_python_task:
-            parameters:
-              - "--workspace-root"
-              - "${workspace.file_path}/src"
-              - "--catalog"
-              - "${var.catalog}"
+            parameters: *workspace_params
             python_file: ../src/wx/obs/merge_obs.py
-          timeout_seconds: 0
-          webhook_notifications: {}
         - task_key: backfill_pivot_obs
           depends_on:
             - task_key: backfill_merge_obs
-          disabled: false
-          email_notifications: {}
           environment_key: Default
           run_if: ALL_SUCCESS
           spark_python_task:
@@ -105,13 +75,9 @@ resources:
               - --station-id
               - '{{job.parameters.station_id}}'
             python_file: ../src/wx/obs/pivot_obs.py
-          timeout_seconds: 0
-          webhook_notifications: {}
         - task_key: backfill_derived_vars
           depends_on:
             - task_key: backfill_pivot_obs
-          disabled: false
-          email_notifications: {}
           environment_key: Default
           run_if: ALL_SUCCESS
           spark_python_task:
@@ -123,8 +89,6 @@ resources:
               - --station-id
               - '{{job.parameters.station_id}}'
             python_file: ../src/wx/obs/derived_vars.py
-          timeout_seconds: 0
-          webhook_notifications: {}
       parameters:
         - name: station_id
           default: ""
@@ -145,5 +109,3 @@ resources:
       performance_target: PERFORMANCE_OPTIMIZED
       queue:
         enabled: true
-      timeout_seconds: 0
-      webhook_notifications: {}

@@ -4,8 +4,6 @@ resources:
       name: wx_ghcn_validation_sync
       tasks:
         - task_key: ghcn_validation_sync
-          disabled: false
-          email_notifications: {}
           run_if: ALL_SUCCESS
           # a SQL file, not the saved query: only a file task is documented to run
           # every statement in it. The script targets prod (weather) whatever the
@@ -15,10 +13,7 @@ resources:
               path: ${workspace.file_path}/sql/maintenance/ghcn_validation_sync.sql
               source: WORKSPACE
             warehouse_id: 806413d104ce2150  # Serverless Starter Warehouse
-          timeout_seconds: 0
-          webhook_notifications: {}
       email_notifications:
-        no_alert_for_skipped_runs: false
         on_failure:
           - kebnab@gmail.com
       max_concurrent_runs: 1
@@ -32,5 +27,3 @@ resources:
         # 2 am ET on the 1st: after the 11:45 pm transform
         quartz_cron_expression: 0 0 2 1 * ?
         timezone_id: America/New_York
-      timeout_seconds: 0
-      webhook_notifications: {}
