@@ -58,6 +58,14 @@ def _check_resolved(
     )
 
 
+def _ui_reply(session: QuerySession, question: str, reply: str, **extra) -> str:
+    """A reply shown in the chat but never replayed to the model; returns it."""
+    session.history.append(
+        {"question": question, "answer": reply, "query": None, "ui_only": True, **extra}
+    )
+    return reply
+
+
 def _retryable(resolved: dict, problems: list[str], plot_mode) -> bool:
     """
     Whether to send the problems back to the model: only a resolved reply
@@ -219,60 +227,19 @@ def get_answer(
         logger.info("blocked (%s) session=%s", blocked.reason, session.session_id)
         if blocked.off_topic:
             session.off_topic_streak += 1
-        session.history.append(
-            {
-                "question": question,
-                "answer": blocked.reply,
-                "query": None,
-                "ui_only": True,
-            }
-        )
-        return blocked.reply
+        return _ui_reply(session, question, blocked.reply)
     plot_mode, text = plot_mode_for(session, question)
     if plot_mode == validation.PLOT_EXPLICIT and not text:
-        session.history.append(
-            {
-                "question": question,
-                "answer": PLOT_USAGE_MSG,
-                "query": None,
-                "ui_only": True,
-            }
-        )
-        return PLOT_USAGE_MSG
+        return _ui_reply(session, question, PLOT_USAGE_MSG)
 
     # Explicit chart words without /plot: offer the Plot it button, no model call
     if plot_mode == validation.PLOT_OFF and guardrails.CHART_WORDS.search(text):
-        session.history.append(
-            {
-                "question": question,
-                "answer": guardrails.NEEDS_PLOT_MSG,
-                "query": None,
-                "ui_only": True,
-                "needs_plot": True,
-            }
-        )
-        return guardrails.NEEDS_PLOT_MSG
+        return _ui_reply(session, question, guardrails.NEEDS_PLOT_MSG, needs_plot=True)
     if rate_limited and (limited := rate_limited()):
         logger.info("blocked (%s) session=%s", limited.reason, session.session_id)
-        session.history.append(
-            {
-                "question": question,
-                "answer": limited.reply,
-                "query": None,
-                "ui_only": True,
-            }
-        )
-        return limited.reply
+        return _ui_reply(session, question, limited.reply)
     if over_daily_limit and over_daily_limit():
-        session.history.append(
-            {
-                "question": question,
-                "answer": guardrails.DAILY_LIMIT_MSG,
-                "query": None,
-                "ui_only": True,
-            }
-        )
-        return guardrails.DAILY_LIMIT_MSG
+        return _ui_reply(session, question, guardrails.DAILY_LIMIT_MSG)
 
     resolved: dict = {}
     answer_text: str | None = None
@@ -314,16 +281,11 @@ def get_answer(
             logger.warning(
                 "invalid resolver output session=%s: %s", session.session_id, problems
             )
-            if plot_mode == validation.PLOT_EXPLICIT and problems == [
-                "/plot answered without a series"
-            ]:
-                # a single value for a /plot request: say what can be charted
-                answer_text = guardrails.NOT_CHARTABLE_MSG
-                status = "needs_clarification"
-            elif (
-                resolved.get("status") == "needs_clarification"
-                and plot_mode == validation.PLOT_EXPLICIT
+            if plot_mode == validation.PLOT_EXPLICIT and (
+                problems == ["/plot answered without a series"]
+                or resolved.get("status") == "needs_clarification"
             ):
+                # a /plot request that can't be charted: say what can be
                 answer_text = guardrails.NOT_CHARTABLE_MSG
                 status = "needs_clarification"
             elif resolved.get("status") == "needs_clarification":
