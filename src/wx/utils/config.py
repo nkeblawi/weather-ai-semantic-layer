@@ -3,7 +3,9 @@
 import os
 
 # --- Catalog ---
-CATALOG = os.environ.get("WX_CATALOG", "weather")
+CATALOG = os.environ.get("WX_CATALOG", "").strip()
+if not CATALOG:
+    raise RuntimeError("WX_CATALOG is not set: pass --catalog weather (prod) or weather_dev (dev)")
 
 # --- Schemas ---
 SCHEMA_RAW = "raw"

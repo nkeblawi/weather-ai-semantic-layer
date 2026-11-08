@@ -4,22 +4,22 @@
 -- Revised = a GHCN row in obs_merged whose value or flags differ from obs_ghcn_conv. Only those
 -- rows, and the station-dates they're on, are touched; everything else is left as is.
 -- obs_ghcn_conv already has convert_ghcn.py's QC rule and the qc_allowlist applied.
--- Target: prod (weather). Idempotent: every step touches only rows that still differ, so a
+-- :catalog is the job's catalog parameter (weather or weather_dev). Idempotent: every step touches only rows that still differ, so a
 -- clean rerun reports 0 affected rows in all three steps. Run the statements in order.
 
 -- 0. Preview (changes nothing): the revisions step 1 would apply
 SELECT m.station_id, m.obs_date, m.variable,
        m.value AS old_value, c.value AS new_value, m.qflag AS old_qflag, c.qflag AS new_qflag
-FROM weather.cleaned.obs_merged m
-JOIN weather.cleaned.obs_ghcn_conv c
+FROM IDENTIFIER(:catalog || '.cleaned.obs_merged') m
+JOIN IDENTIFIER(:catalog || '.cleaned.obs_ghcn_conv') c
   ON c.station_id = m.station_id AND c.obs_date = m.obs_date AND c.variable = m.variable
 WHERE m.source = 'GHCN'
   AND NOT (m.value <=> c.value AND m.mflag <=> c.mflag AND m.qflag <=> c.qflag AND m.sflag <=> c.sflag)
 ORDER BY m.obs_date, m.station_id, m.variable;
 
 -- 1. cleaned.obs_merged: take the revised GHCN rows from obs_ghcn_conv
-MERGE INTO weather.cleaned.obs_merged t
-USING weather.cleaned.obs_ghcn_conv s
+MERGE INTO IDENTIFIER(:catalog || '.cleaned.obs_merged') t
+USING IDENTIFIER(:catalog || '.cleaned.obs_ghcn_conv') s
 ON t.station_id = s.station_id AND t.obs_date = s.obs_date AND t.variable = s.variable
 WHEN MATCHED AND t.source = 'GHCN'
   AND NOT (t.value <=> s.value AND t.mflag <=> s.mflag AND t.qflag <=> s.qflag AND t.sflag <=> s.sflag)
@@ -28,7 +28,7 @@ THEN UPDATE SET
 
 -- 2. cleaned.obs_pivot: re-pivot the station-dates where a GHCN value in obs_merged
 --    differs from obs_pivot (the rows step 1 revised)
-MERGE INTO weather.cleaned.obs_pivot t
+MERGE INTO IDENTIFIER(:catalog || '.cleaned.obs_pivot') t
 USING (
   SELECT m.station_id, m.obs_date,
          max(CASE WHEN m.variable = 'AWND' THEN m.value END) AS AWND,
@@ -37,11 +37,11 @@ USING (
          max(CASE WHEN m.variable = 'SNWD' THEN m.value END) AS SNWD,
          max(CASE WHEN m.variable = 'TMAX' THEN m.value END) AS TMAX,
          max(CASE WHEN m.variable = 'TMIN' THEN m.value END) AS TMIN
-  FROM weather.cleaned.obs_merged m
+  FROM IDENTIFIER(:catalog || '.cleaned.obs_merged') m
   JOIN (
     SELECT DISTINCT m.station_id, m.obs_date
-    FROM weather.cleaned.obs_merged m
-    JOIN weather.cleaned.obs_pivot p ON p.station_id = m.station_id AND p.obs_date = m.obs_date
+    FROM IDENTIFIER(:catalog || '.cleaned.obs_merged') m
+    JOIN IDENTIFIER(:catalog || '.cleaned.obs_pivot') p ON p.station_id = m.station_id AND p.obs_date = m.obs_date
     WHERE m.source = 'GHCN'
       AND NOT (m.value <=> CASE m.variable
         WHEN 'AWND' THEN p.AWND WHEN 'PRCP' THEN p.PRCP WHEN 'SNOW' THEN p.SNOW
@@ -58,10 +58,10 @@ WHEN MATCHED AND NOT (
 
 -- 3. analytics.observations: copy the re-pivoted GHCN station-dates and recompute derived vars
 --    (same formulas as derived_vars.py; HDD/CDD are NULL when TAVG is NULL)
-MERGE INTO weather.analytics.observations t
+MERGE INTO IDENTIFIER(:catalog || '.analytics.observations') t
 USING (
   SELECT station_id, obs_date, AWND, PRCP, SNOW, SNWD, TMAX, TMIN, (TMAX + TMIN) / 2.0 AS TAVG
-  FROM weather.cleaned.obs_pivot
+  FROM IDENTIFIER(:catalog || '.cleaned.obs_pivot')
   WHERE source = 'GHCN'
 ) s
 ON t.station_id = s.station_id AND t.obs_date = s.obs_date

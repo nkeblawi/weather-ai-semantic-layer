@@ -6,9 +6,10 @@ resources:
         - task_key: ghcn_validation_sync
           run_if: ALL_SUCCESS
           # a SQL file, not the saved query: only a file task is documented to run
-          # every statement in it. The script targets prod (weather) whatever the
-          # bundle target, so dev pauses this job (databricks.yml).
+          # every statement in it
           sql_task:
+            parameters:
+              catalog: ${var.catalog}
             file:
               path: ${workspace.file_path}/sql/maintenance/ghcn_validation_sync.sql
               source: WORKSPACE

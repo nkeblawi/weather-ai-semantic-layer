@@ -10,6 +10,6 @@ import argparse
 
 def bootstrap():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--catalog", default="weather")
+    parser.add_argument("--catalog", required=True)  # weather (prod) or weather_dev; no default
     args, _ = parser.parse_known_args()
     os.environ["WX_CATALOG"] = args.catalog
