@@ -1,8 +1,6 @@
 """
-Session management for the weather-query-resolver skill: wraps the shared
-pipeline in app/pipeline.py with per-session state and chat_store.py
-persistence, for callers with no CLI of their own (e.g. a future Streamlit
-chat UI).
+One chat session for the Streamlit app: wraps app/pipeline.py with
+per-session state, guardrails, and chat_store.py persistence.
 """
 
 from __future__ import annotations
@@ -15,18 +13,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-# app/ is not a package (no __init__.py). Put app/ itself on sys.path before
-# importing pipeline/chat_store, so these bare imports resolve regardless of
-# the caller's cwd or how THIS module was imported (e.g. from a Streamlit
-# entry point elsewhere in the repo). Must run before the imports below.
+# app/ isn't a package: put it on sys.path so the bare imports below resolve from any cwd
 _APP_DIR = str(Path(__file__).resolve().parent)
 if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
 
-import pipeline  # noqa: E402
-import chat_store  # noqa: E402
-import guardrails  # noqa: E402
-from wxcore import answers, db, defaults, series, validation  # noqa: E402
+import pipeline
+import chat_store
+import guardrails
+from wxcore import answers, db, defaults, series, validation
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +45,7 @@ def _check_resolved(
     """The steps between the resolver's reply and the warehouse; returns validate_resolved's problems."""
     try:
         pipeline.fill_station_info(session.conn, resolved, session.station_info)
-    except Exception as exc:  # noqa: BLE001 -- unchecked ids are rejected below
+    except Exception as exc:
         logger.warning(
             "station id check failed session=%s: %s", session.session_id, exc
         )
@@ -100,14 +95,9 @@ def plot_mode_for(session: "QuerySession", question: str) -> tuple[str | None, s
 @dataclass
 class QuerySession:
     """
-    Session-scoped state for one chat session, matching the local variables
-    app/test_harness.py's main() holds across its while-loop. Create via
-    create_session(); pass the same instance to get_answer() once per
-    question.
-
-    conn/client are supplied by the caller and are not owned or
-    closed here (construct via wxcore.db.get_databricks_connection() and
-    anthropic.Anthropic(), e.g. behind st.cache_resource).
+    State for one chat session. Create with create_session() and pass it to
+    get_answer() once per question. conn and client belong to the caller,
+    which closes them.
     """
 
     conn: Any
@@ -121,13 +111,10 @@ class QuerySession:
     user_saved: bool = True
     turn_index: int = 0
 
-    # Turns that resolved and ran answer_query -- what usage limits count.
-    # Clarifications and errors don't.
+    # Turns that ran answer_query: what the usage limits count
     resolved_count: int = 0
 
-    # Off-topic messages in a row (keyword-blocked or resolver off_topic);
-    # reset by a resolved answer. guardrails.OFF_TOPIC_STREAK_LIMIT ends the
-    # session -- see guardrails.session_limit().
+    # Off-topic messages in a row, reset by a resolved answer (see guardrails.session_limit)
     off_topic_streak: int = 0
 
     # time.monotonic() of each attempt, for the rate limit
@@ -206,31 +193,15 @@ def get_answer(
     rate_limited: Callable[[], guardrails.Blocked | None] | None = None,
 ) -> str:
     """
-    Answers one question within `session`. Every step below
-    calls into pipeline's and chat_store's existing public functions only.
+    Answers one question within `session` and returns the answer text,
+    updating session.history, station_info, and the counters in place.
+    Never raises for runtime failures: they come back as "[error] {exc}".
 
-    Mutates session.history and session.station_info in place by
-    pipeline.resolve_question itself on each lookup_station hit, and
-    session.turn_index. Returns the answer text.
-
-    Matches the CLI's error-handling convention exactly: on any internal
-    failure (Claude API error, SQL error, etc.) this returns
-    "[error] {exc}" as the answer text rather than raising.
-
-    This does not raise for ordinary runtime failures. To distinguish between
-    resolved / needs_clarification / error, function calls should check the
-    returned string's "[error] " prefix for now (status is still recorded via
-    chat_store.record_turn, just not returned).
-
-    Guardrails (app/guardrails.py): a message blocked by pre_check never
-    reaches Claude and isn't recorded; resolver output that fails
-    validate_resolved is answered with a canned reply (status "invalid") and
-    nothing runs on the warehouse. off_topic replies are canned too -- the
-    model's own text is never shown for them.
-
-    over_daily_limit (optional) is checked only after pre_check passes, so a
-    blocked message never costs the warehouse query it may run.
-    rate_limited (optional) is checked just before it.
+    A message blocked by pre_check never reaches Claude and isn't recorded.
+    Resolver output that fails validation, and off_topic replies, get a
+    canned reply, and nothing runs on the warehouse. rate_limited and
+    over_daily_limit run only after pre_check passes, so a blocked message
+    never costs the database count.
     """
     now = time.monotonic()
     blocked = guardrails.pre_check(
@@ -316,7 +287,7 @@ def get_answer(
 
     try:
         conversation: list = []
-        resolve = lambda problems=None: pipeline.resolve_question(  # noqa: E731
+        resolve = lambda problems=None: pipeline.resolve_question(
             session.client,
             session.conn,
             text,
@@ -441,7 +412,7 @@ def get_answer(
                     if (t := answers.ranking_table(p))
                 ]
             status = "resolved"
-    except Exception as exc:  # noqa: BLE001 -- parity with the CLI's main()
+    except Exception as exc:
         answer_text = f"[error] {exc}"
         replay_answer = pipeline.ERROR_REPLAY
         status = "error"
