@@ -1,10 +1,7 @@
 """
-(Re)creates weather.analytics.places, the view the station lookup
-(wxcore.db.call_lookup_station) reads to find a town's coordinates: every
-GeoNames place with 1,000+ people, with a lowercase name_key to match on.
-
-Runs as the last task of wx_places_ingest, after geonames_parse.py. The
-app's service principal reads it through its SELECT on the analytics schema.
+Recreates analytics.places, where station lookup finds a town's coordinates:
+GeoNames places with 1,000+ people and a lowercase name_key. Last task of
+wx_places_ingest.
 """
 
 import os

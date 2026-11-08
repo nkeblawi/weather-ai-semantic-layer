@@ -1,23 +1,12 @@
 """
-Applies the `app` schema's data retention policy (docs/governance.md):
+The app schema's retention policy (docs/governance.md), run daily by
+wx_app_retention:
 
-1. Rolls up every completed UTC day in `app.chat_history` into
-   `app.usage_daily` (turns, distinct users, distinct sessions per status).
-   Days already recorded are left as they are, so a re-run adds nothing, and
-   the first run backfills every day still in chat_history.
-2. Deletes `app.chat_history` turns older than CHAT_RETENTION_DAYS.
-3. Purges the deleted rows from the table's files (REORG ... APPLY (PURGE),
-   which rewrites files that only mark rows deleted) and runs VACUUM, which
-   removes files older than Delta's retention window (7 days by default).
-   So deleted rows leave queries right away and storage within ~7 days.
-
-Runs as the single task in the wx_app_retention job: daily in prod, paused
-in dev (databricks.yml). Step 1 runs first in the same run, so no day is
-purged before it has been counted.
-
---catalog (passed once per bundle target: dev -> weather_dev, prod ->
-weather) is turned into WX_CATALOG by bootstrap(), so the table names below
-resolve to the right catalog for the target that deployed this job.
+1. Rolls up each completed UTC day of chat_history into usage_daily
+   (days already there are skipped), so no day is purged before it's counted.
+2. Deletes chat_history turns older than CHAT_RETENTION_DAYS.
+3. REORG ... APPLY (PURGE) and VACUUM, so deleted rows leave storage within
+   ~7 days.
 """
 
 import os

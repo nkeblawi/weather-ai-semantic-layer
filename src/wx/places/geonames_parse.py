@@ -1,16 +1,12 @@
 """
-Parse weather.raw.geonames_raw's tab-separated lines into
-weather.cleaned.places: one row per populated place, with its first-level
-division (state/province) and country names joined in, and only the columns
-the station lookup uses (place_name is GeoNames' ASCII name).
+Parses raw.geonames_raw into cleaned.places (overwriting it): one row per
+place with its state/province and country names, and only the columns
+station lookup uses (place_name is the ASCII name).
 
 cities1000.txt columns (GeoNames readme, 0-based): 0 geonameid,
 2 asciiname, 4 latitude, 5 longitude, 8 country code, 10 admin1 code,
 14 population. admin1CodesASCII.txt: "US.VA" (0), name (1), ASCII name (2).
-countryInfo.txt: ISO code (0), country name (4); lines starting "#" are
-comments.
-
-Full overwrite on every run, after geonames_fetch.py.
+countryInfo.txt: ISO code (0), country name (4); "#" lines are comments.
 """
 
 import os

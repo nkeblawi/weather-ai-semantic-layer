@@ -1,34 +1,14 @@
 """
-Creates the `<catalog>.app` schema and its tables that persist the
-weather-query application's chat history so it can support multiple users:
+Creates the app schema's tables (run by hand with the wx_app_schema job):
 
-- `app.users`         -- one row per user (identity + first/last seen)
-- `app.chat_history`  -- one row per prompt/answer turn, linked to a user by
-                         user_id and grouped into conversations by session_id
-- `app.usage_daily`   -- turn counts per day and status, kept after the
-                         turns themselves are purged (src/wx/app/retention.py)
+- app.users: one row per user
+- app.chat_history: one row per turn, by user_id and session_id
+- app.usage_daily: turn counts per day and status, kept after retention.py
+  purges the turns
 
-This is the src/wx counterpart of sql/uc for the `app` schema:
-pipeline DDL run as a Databricks Job "Python script" task and deployed via
-the asset bundle. It runs as the single task in the wx_app_schema job; on
-demand, right after `databricks bundle deploy -t <target>`. No schedule.
-
-The `app` schema holds application state, separate from weather data.
-
---catalog (passed once per bundle target: dev -> weather_dev, prod ->
-weather) is turned into WX_CATALOG by bootstrap(), so USERS_TABLE /
-CHAT_HISTORY_TABLE below resolve to the right catalog for the target that
-deployed this job.
-
-All statements are idempotent (CREATE ... IF NOT EXISTS), so re-running is
-safe, but that also means column/constraint changes to an existing table
-are NOT picked up on a re-run. Anytime the schema evolves, add explicit
-ALTER TABLE statements here so a deploy + run applies them.
-
-NOTE on constraints: Unity Catalog PRIMARY KEY / FOREIGN KEY are
-informational (NOT ENFORCED). They document the model and feed
-lineage/BI tools; the writing app must still guarantee turn_id/user_id
-uniqueness and referential integrity itself.
+CREATE ... IF NOT EXISTS, so reruns are safe but don't change an existing
+table: add ALTER TABLE statements for schema changes. Unity Catalog keys
+are informational only; the app keeps ids unique itself.
 """
 
 import os
@@ -69,10 +49,7 @@ def main():
 
     # --- APP.USERS ---
     # One row per user
-    # user_id is an opaque surrogate key. Until a real auth provider is
-    # wired in, the app derives it deterministically (uuid5) from `username`
-    # an email or handle taken from an env var / prompt, so rows stay
-    # stable when real auth is worked in and just starts populating `email`.
+    # user_id: uuid5 of the username (no login yet)
     spark.sql(f"""
         CREATE TABLE IF NOT EXISTS {USERS_TABLE} (
           user_id       STRING    NOT NULL
@@ -139,9 +116,7 @@ def main():
     print(f"Ensured table {CHAT_HISTORY_TABLE}")
 
     # --- APP.USAGE_DAILY ---
-    # One row per UTC day and turn status. Written by retention.py before it
-    # purges old turns, so usage survives the chat_history retention period.
-    # Holds counts only: no prompts, responses, or user ids.
+    # One row per UTC day and turn status, counts only, written by retention.py before purging
     spark.sql(f"""
         CREATE TABLE IF NOT EXISTS {USAGE_DAILY_TABLE} (
           usage_date    DATE      NOT NULL

@@ -1,16 +1,12 @@
 """
-Fetch the GeoNames gazetteer files and land them as raw, unparsed lines in
-weather.raw.geonames_raw (one row per line, tagged with its source file):
+Fetches the GeoNames files into raw.geonames_raw, one row per line tagged with
+its file, overwriting it (run by hand with wx_places_ingest):
 
     cities1000.txt         every populated place with 1,000+ people (from cities1000.zip)
     admin1CodesASCII.txt   first-level division names (US states, Canadian provinces, ...)
     countryInfo.txt        country names
 
-GeoNames (https://www.geonames.org) is licensed CC BY 4.0: credit it
-wherever its data is shown.
-
-Full overwrite on every run (a new snapshot of GeoNames, nothing to merge).
-Runs only when the wx_places_ingest job is started by hand.
+GeoNames (https://www.geonames.org) is CC BY 4.0: credit it wherever its data is shown.
 """
 
 import os
