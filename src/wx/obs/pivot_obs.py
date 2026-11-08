@@ -2,40 +2,16 @@
 # (wide: one row per station/date, variables as columns).
 
 """
-Reshapes weather.cleaned.obs_merged into weather.cleaned.obs_pivot: one row
-per (station_id, obs_date), with each meteorological variable (TMAX, TMIN,
-PRCP, SNOW, SNWD, AWND) as its own column. Quality flags (mflag/qflag/sflag)
-and ingested_at are dropped -- not needed downstream of this table.
+Reshapes cleaned.obs_merged into cleaned.obs_pivot: one row per
+(station_id, obs_date), variables as columns, flags dropped. A date with
+mixed sources is labeled GHCN.
 
-Source column: normally uniform across all variables for a given station/
-date (confirmed in practice), but the per-row merge priority logic in
-merge_obs.py technically allows a date to have variables from mixed
-sources. When that happens, GHCN wins the tiebreak (GHCN is the more
-authoritative source once its data catches up).
-
-Incremental: watermarks on how far GHCN has progressed, not on obs_pivot's
-own state. ghcn_last_date = MAX(obs_date) where source = 'GHCN' in
-obs_merged (same concept merge_obs.py already uses to decide ACIS-vs-GHCN
-priority), recomputed fresh from obs_merged every run -- no stored
-watermark, no side table. In wx_obs_transform the date comes from
-merge_obs via a job task value (held back CUTOFF_LOOKBACK_DAYS, no second full scan); any
-other run computes it here. Reprocesses obs_date >= ghcn_last_date each
-run, which covers both:
-  - brand-new dates (ACIS running ahead of GHCN), and
-  - the trailing dates GHCN might still catch up on and replace an
-    existing ACIS row for -- merge_obs.py updates that row in place
-    without changing its obs_date, so a plain "obs_date > previous max"
-    watermark would silently miss it. Anchoring to ghcn_last_date instead
-    means we keep re-pivoting exactly the window where that can still
-    happen, until GHCN moves past it.
-Dates older than that are treated as settled and are not reprocessed; a
-value arriving later than that needs a backfill.
-
---station-id bypasses the date watermark and re-pivots that one station's
-entire obs_merged history. A bulk historical backfill (a newly activated
-station getting `ingest_ghcn.py --full`) inserts rows far below
-ghcn_last_date, exactly the "settled" range this normally skips -- run by
-the backfill_pivot_obs task in wx_activate_station.job.yml.
+Incremental: reprocesses obs_date >= the last GHCN date in obs_merged (from
+merge_obs's task value in wx_obs_transform). That covers new ACIS dates and
+the recent ones where GHCN can still replace ACIS in place, which an
+"after the previous max" watermark would miss. Older dates are settled; a
+late value needs a backfill. --station-id re-pivots one station's whole
+history (station backfill).
 """
 
 import os
@@ -72,13 +48,8 @@ VARIABLES = ["AWND", "PRCP", "SNOW", "SNWD", "TMAX", "TMIN"]
 
 def read_new_merged_rows(spark, only_station_id: str | None = None) -> DataFrame:
     """
-    Read obs_merged rows with obs_date >= ghcn_last_date (the most recent
-    obs_date GHCN has non-null data for). Reads the full table on first
-    run, when obs_pivot doesn't exist yet.
-
-    only_station_id: restrict to that station and skip the date watermark
-    entirely -- re-pivot its full history (used to backfill a station
-    right after activation).
+    obs_merged rows from ghcn_last_date on (all of them on the first run).
+    only_station_id: that station's full history, no watermark.
     """
     merged_df = spark.table(OBS_MERGED_TABLE)
 
@@ -109,11 +80,7 @@ def read_new_merged_rows(spark, only_station_id: str | None = None) -> DataFrame
 
 
 def pivot_obs(df: DataFrame) -> DataFrame:
-    """
-    One row per (station_id, obs_date): variables become columns, source
-    is the shared source across that date's variables, or 'GHCN' if the
-    date turns out to have mixed sources.
-    """
+    """One row per (station_id, obs_date), variables as columns; mixed sources -> GHCN."""
     pivoted = (
         df.groupBy("station_id", "obs_date")
         .pivot("variable", VARIABLES)

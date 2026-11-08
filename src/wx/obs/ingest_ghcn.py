@@ -3,18 +3,9 @@
 # Schedule: GHCN-Daily updates daily by 2 PM EST
 
 """
-Converted from the OBS_01_GHCN_Daily_Ingest notebook. Schedule: GHCN-Daily
-updates daily by 2 PM EST.
-
-Uses tail-byte HTTP Range requests by default (empirically confirmed
-tail_bytes=8000 covers a full day's records without re-downloading entire
-multi-decade station histories), with --full available for a complete
-re-download when needed.
-
-Pass --station-id to restrict the run to a single station instead of every
-selected station. Combined with --full this backfills one newly activated
-station's complete history -- run that way by the backfill_ghcn task in
-wx_activate_station.job.yml right after a station is activated.
+Ingests GHCN-Daily .dly files into raw.obs_ghcn. By default it fetches only
+each file's tail (an HTTP Range request); --full downloads whole files, and
+with --station-id backfills one newly activated station.
 Docs: https://www.ncei.noaa.gov/pub/data/ghcn/daily/readme.txt
 """
 
@@ -85,15 +76,9 @@ TARGET_SCHEMA = StructType(
 
 def download_dly(session, station_id: str, tail_bytes: int | None = None) -> str:
     """
-    Download the .dly file for a station. If tail_bytes is provided, uses an
-    HTTP Range request to fetch only the last N bytes instead of the whole
-    file, useful at higher station counts where re-downloading full
-    multi-decade histories daily gets expensive.
-
-    If the server doesn't honor Range (ignores it and returns 200 with the
-    full file), this still works correctly, just without the bandwidth
-    savings, check response.status_code (206 = partial content actually
-    returned, 200 = full file sent regardless).
+    A station's .dly file, or only its last tail_bytes via a Range request.
+    A server that ignores Range sends the whole file (200, not 206), which
+    still parses.
     """
 
     url = DLY_URL_TEMPLATE.format(station_id=station_id)
@@ -126,11 +111,8 @@ def download_dly(session, station_id: str, tail_bytes: int | None = None) -> str
 
 def parse_dly(station_id: str, raw_text: str) -> pd.DataFrame:
     """
-    Parse GHCN-D .dly fixed-width text into a tidy (long) DataFrame:
-    one row per station/date/element, values UNSCALED (raw source integers,
-    with -9999 mapped to NULL). No QC filtering, QFLAG-failed rows are
-    kept with their flag intact. Unit conversion and QC-based filtering are
-    downstream (cleaned layer) decisions, not raw ingest decisions.
+    .dly fixed-width text as one row per station/date/element: raw integers,
+    -9999 as NULL, flags kept (QC and units are downstream).
 
     Field layout (readme.txt Section III), 0-indexed slice offsets:
       ID       line[0:11]
@@ -174,17 +156,13 @@ def parse_dly(station_id: str, raw_text: str) -> pd.DataFrame:
             except ValueError:
                 continue
 
-            # Calendar-nonexistent days (e.g. VALUE31 for April) are always
-            # -9999 AND fail date construction below. This is a structural
-            # artifact of the fixed-width format, not a real station-day.
+            # Days that don't exist (e.g. April 31) are -9999 padding, not missing data
             try:
                 obs_date = datetime(year, month, day).date()
             except ValueError:
                 continue
 
-            # True missing readings (for resolved calendar days):
-            # map -9999 to NULL.
-            # Everything else passes through unscaled, regardless of QFLAG.
+            # A real day's -9999 is missing: NULL; everything else passes through unscaled
             value = None if int_value == MISSING_VALUE else float(int_value)
 
             # Append data to records
@@ -213,12 +191,8 @@ def load_ghcn(
     spark, session, tail_bytes: int | None, only_station_id: str | None = None
 ) -> None:
     """
-    tail_bytes=None: download and parse the full .dly file.
-    tail_bytes=N: Range-request just the tail (default TAIL_BYTES).
-
-    only_station_id=None: process every selected station (station_merged.selected).
-    only_station_id=ID: process just that station, whether or not it's selected
-        yet -- used to backfill a station's history right after activation.
+    tail_bytes: None for whole files, else just the tail.
+    only_station_id: that station only, selected or not (backfill); else all selected.
     """
 
     if only_station_id:
@@ -240,8 +214,7 @@ def load_ghcn(
         print(f"Parsed {len(df)} rows for {station_id}")
 
         print(f"Merging {station_id}.dly into {OBS_GHCN_TABLE}...")
-        # A missing day never erases a value already in raw (e.g. one loaded
-        # from an older station ID by load_station_history.py).
+        # A missing day never erases a value already in raw (e.g. from an older station ID)
         merge_into_target(
             spark, df, OBS_GHCN_TABLE, TARGET_SCHEMA, keep_existing_values=True
         )

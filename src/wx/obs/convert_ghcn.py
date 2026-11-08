@@ -1,7 +1,7 @@
 # Apply unit conversions to GHCN weather data (raw units -> transformed units).
 
 """
-Converted from the OBS_02_Unit_Conversions notebook.
+Converts raw GHCN values to app units and applies the QC rule.
 
 Variable   Raw unit          Transformed unit   Formula
 PRCP       tenths of mm      inches             round(tenths_mm * 0.00393701, 2)
@@ -11,18 +11,12 @@ TMAX       tenths of deg C   deg F              round((tenths_C * 0.18) + 32, 0)
 TMIN       tenths of deg C   deg F              round((tenths_C * 0.18) + 32, 0)
 AWND       tenths of m/s     mph                round(tenths_ms * 0.223694, 0)
 
-QC filtering: any value with a GHCN QFLAG (failed a NOAA quality check) is
-set to NULL here. The row and its qflag are kept, so the reason stays
-auditable downstream. The cleaned.qc_allowlist table exempts specific
-values verified as real despite their flag (e.g. SFO's 106F all-time
-record, flagged as an outlier). It is created and seeded by the
-"Create AllowList Table" saved query in the Databricks workspace.
+QC: a value with a QFLAG (failed a NOAA check) becomes NULL, keeping the row
+and flag. cleaned.qc_allowlist exempts values verified as real (e.g. SFO's
+106F record); it's seeded by the "Create AllowList Table" saved query.
 
-Incremental: only raw rows ingested after obs_ghcn_conv's current max
-ingested_at are read and transformed each run, then merged/upserted on
-(station_id, obs_date, variable). Avoids re-reading and rewriting all of
-obs_ghcn every run as station count and history grow -- cost scales with
-the new/changed rows since last run, not total accumulated history.
+Incremental: reads only raw rows ingested after obs_ghcn_conv's max
+ingested_at, and upserts on (station_id, obs_date, variable).
 """
 
 import os
@@ -51,10 +45,7 @@ from wx.utils.spark_utils import get_spark
 
 
 def apply_qc_filter(spark, df: DataFrame) -> DataFrame:
-    """
-    NULL out 'value' wherever qflag is set, except (station_id, obs_date,
-    variable) keys in QC_ALLOWLIST_TABLE. Rows and their flags are kept.
-    """
+    """NULLs value wherever qflag is set, except allowlisted keys; rows and flags stay."""
     allowlist = (
         spark.table(QC_ALLOWLIST_TABLE)
         .select("station_id", "obs_date", "variable")
@@ -80,11 +71,7 @@ def apply_qc_filter(spark, df: DataFrame) -> DataFrame:
 
 
 def apply_ghcn_unit_conversions(df: DataFrame) -> DataFrame:
-    """
-    Apply GHCN unit conversions from raw to transformed units on the
-    'value' column, based on the 'variable' column. Unknown variables
-    pass through unchanged.
-    """
+    """Converts value to app units by variable; unknown variables pass through."""
     return df.withColumn(
         "value",
         F.when(F.col("variable") == "PRCP", F.round(F.col("value") * 0.00393701, 2))
@@ -103,11 +90,7 @@ def apply_ghcn_unit_conversions(df: DataFrame) -> DataFrame:
 
 
 def read_new_raw_rows(spark) -> DataFrame:
-    """
-    Read raw obs_ghcn rows ingested after obs_ghcn_conv's current max
-    ingested_at. Reads the full raw table on first run, when the conv
-    table doesn't exist yet.
-    """
+    """Raw rows ingested after obs_ghcn_conv's max ingested_at (all of them on the first run)."""
     raw_df = spark.table(OBS_GHCN_TABLE)
 
     if not spark.catalog.tableExists(OBS_GHCN_CONV_TABLE):

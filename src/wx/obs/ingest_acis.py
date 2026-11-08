@@ -2,11 +2,8 @@
 # Schedule: ACIS updates every morning by 6-8am EST.
 
 """
-This table is GHCN-D-free and unconverted. ACIS's native element codes
-(maxt/mint/pcpn/snow/snwd), native units (F/inches), values stored as
-strings exactly as returned ("T"/"M"/numeric). Unit conversion, element
-remapping to GHCN-D equivalents, and GHCN-D-vs-ACIS precedence all happen
-downstream in the cleaned/silver layer, not upon ingest.
+Raw ACIS rows as returned: native element codes, units, and string values
+("T"/"M"/numeric). Mapping, conversion, and precedence happen downstream.
 Docs: https://www.rcc-acis.org/docs_webservices.html
 """
 
@@ -40,18 +37,13 @@ from wx.utils.spark_utils import get_spark
 # Data source
 ACIS_BASE_URL = "http://data.rcc-acis.org/StnData"
 
-# Native ACIS element codes. AWND-equivalent has NOT been confirmed to
-# exist in ACIS for this station under any element code; excluded rather
-# than guessed. TMAX/TMIN/PRCP/SNOW/SNWD-equivalent mapping happens
-# downstream, not here -- this table only knows ACIS's own vocabulary.
+# Native ACIS element codes; no confirmed wind element, so AWND is left out
 ACIS_ELEMS = ["maxt", "mint", "pcpn", "snow", "snwd"]
 
 # Missing values
 MISSING_VALUE = "M"
 
-# Documented for reference/downstream use, NOT enforced or converted here.
-# Based on our one confirmed live test response (82, 57, 0.00, 0.0 for
-# maxt/mint/pcpn/snow), not an explicit guarantee from ACIS's own docs.
+# For reference only (from a live response, not ACIS's docs); not enforced
 ACIS_NATIVE_UNITS = {
     "maxt": "degrees F",
     "mint": "degrees F",
@@ -77,9 +69,7 @@ TARGET_SCHEMA = StructType(
 
 
 def fetch_acis_data(session, station_id: str, target_date: date) -> dict:
-    """
-    Fetch one day of ACIS StnData for a station. No token required
-    """
+    """One day of ACIS StnData for a station (no token needed)."""
     params = {
         "sid": station_id,
         "sdate": target_date.isoformat(),
@@ -98,19 +88,12 @@ def fetch_acis_data(session, station_id: str, target_date: date) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Parse into raw rows -- NO interpretation, NO conversion. "T", "M", and
-# numeric strings are all stored exactly as ACIS returned them.
+# Step 2: Parse into raw rows, values stored exactly as ACIS returned them
 # ---------------------------------------------------------------------------
 
 
 def parse_acis_raw(station_id: str, target_date: date, payload: dict) -> pd.DataFrame:
-    """
-    One row per station/date/acis_element, raw_value stored as a STRING,
-    untouched. Interpreting "T" (trace) or "M" (missing), converting units,
-    or remapping to GHCN-D element codes are all cleaned-layer decisions,
-    not raw ingest decisions -- mirrors the same raw-as-is principle
-    already applied to GHCN-D's own -9999 handling.
-    """
+    """One row per station/date/element, raw_value as the untouched string."""
 
     records = []
     ingested_at = datetime.now(timezone.utc)

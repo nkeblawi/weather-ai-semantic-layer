@@ -1,9 +1,7 @@
 # Map ACIS variable names to standardized GHCN variable names.
 
 """
-Converted from the OBS_02_Col_Map notebook. ACIS data is already in the
-target units (inches, degrees F), so no unit conversion happens here --
-just remapping ACIS's native element codes to GHCN-D equivalents:
+Maps ACIS element codes to GHCN-D ones (ACIS is already in inches and F):
 
     pcpn -> PRCP
     snow -> SNOW
@@ -11,11 +9,8 @@ just remapping ACIS's native element codes to GHCN-D equivalents:
     maxt -> TMAX
     mint -> TMIN
 
-Incremental: only raw rows ingested after obs_acis_conv's current max
-ingested_at are read and transformed each run, then merged/upserted on
-(station_id, obs_date, variable). Avoids re-reading and rewriting all of
-obs_acis every run as station count and history grow -- cost scales with
-the new/changed rows since last run, not total accumulated history.
+Incremental: reads only raw rows ingested after obs_acis_conv's max
+ingested_at, and upserts on (station_id, obs_date, variable).
 """
 
 import os
@@ -44,10 +39,7 @@ from wx.utils.spark_utils import get_spark
 
 
 def map_acis_variable_names(df: DataFrame) -> DataFrame:
-    """
-    Map ACIS variable names (in the 'variable' column) to standardized
-    GHCN variable names. Unknown variables pass through unchanged.
-    """
+    """ACIS variable names to GHCN ones; unknown variables pass through."""
     return df.withColumn(
         "variable",
         F.when(F.col("variable") == "pcpn", "PRCP")
@@ -65,11 +57,7 @@ def map_acis_variable_names(df: DataFrame) -> DataFrame:
 
 
 def read_new_raw_rows(spark) -> DataFrame:
-    """
-    Read raw obs_acis rows ingested after obs_acis_conv's current max
-    ingested_at. Reads the full raw table on first run, when the conv
-    table doesn't exist yet.
-    """
+    """Raw rows ingested after obs_acis_conv's max ingested_at (all of them on the first run)."""
     raw_df = spark.table(OBS_ACIS_TABLE)
 
     if not spark.catalog.tableExists(OBS_ACIS_CONV_TABLE):

@@ -1,32 +1,18 @@
 # Add derived temperature variables to obs_pivot, write to the analytics layer.
 
 """
-Converted from the OBS_05_DerivedVars notebook. Computes, per (station_id,
-obs_date):
+Computes per (station_id, obs_date), from cleaned.obs_pivot into
+analytics.observations:
 
     TAVG (Average Temperature)  = (TMAX + TMIN) / 2
     HDD  (Heating Degree Days)  = max(0, 65 - TAVG)
     CDD  (Cooling Degree Days)  = max(0, TAVG - 65)
 
-Source: weather.cleaned.obs_pivot
-Target: weather.analytics.observations
+Incremental, like pivot_obs.py: reprocesses obs_date >= the last GHCN date
+in obs_pivot (from pivot_obs's task value in wx_obs_transform). --station-id
+re-derives one station's whole history (station backfill).
 
-Incremental: same design as pivot_obs.py, one layer further down the
-pipeline. obs_pivot's own `source` column can flip from ACIS to GHCN in
-place (pivot_obs.py upserts on (station_id, obs_date), same key, no
-obs_date change), so this watermarks the same way: ghcn_last_date =
-MAX(obs_date) where source = 'GHCN' in obs_pivot, reprocessing
-obs_date >= ghcn_last_date. No stored watermark. In wx_obs_transform the
-date comes from pivot_obs via a job task value (no second full scan); any
-other run computes it here.
-
---station-id bypasses the date watermark and re-derives that one station's
-entire obs_pivot history -- the derived_vars half of a station backfill,
-run by the backfill_derived_vars task in wx_activate_station.job.yml.
-
-HDD/CDD are NULL when TAVG is NULL (no TMAX or TMIN that day). The
-original notebook's CASE WHEN fell through to 0 in that case, which made
-missing days count as zero degree days in totals; fixed 2026-10-21.
+HDD/CDD are NULL when TAVG is NULL, so missing days don't count as zero.
 """
 
 import os
@@ -59,13 +45,8 @@ from wx.utils.spark_utils import get_spark
 
 def read_new_pivot_rows(spark, only_station_id: str | None = None) -> DataFrame:
     """
-    Read obs_pivot rows with obs_date >= ghcn_last_date (the most recent
-    obs_date with source = 'GHCN' in obs_pivot). Reads the full table on
-    first run, when the analytics table doesn't exist yet.
-
-    only_station_id: restrict to that station and skip the date watermark
-    entirely -- re-derive its full history (used to backfill a station
-    right after activation).
+    obs_pivot rows from ghcn_last_date on (all of them on the first run).
+    only_station_id: that station's full history, no watermark.
     """
     pivot_df = spark.table(OBS_PIVOT_TABLE)
 

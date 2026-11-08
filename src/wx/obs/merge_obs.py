@@ -1,18 +1,11 @@
 # Merge cleaned GHCN and ACIS observations into a unified table (incremental).
 
 """
-Converted from the OBS_03_Merge notebook.
+Merges cleaned GHCN and ACIS rows into cleaned.obs_merged.
 
-Incremental: Only new ACIS records, new GHCN records, and GHCN
-records that would replace an existing ACIS record are read/processed on
-each run. Prevents wasted compute with full table scans.
-
-Each source has its own watermark (max ingested_at of that source's rows
-in obs_merged). A single shared watermark skipped rows: a GHCN merge that
-ran between the ACIS ingest and the next transform (e.g. a
-wx_activate_station backfill) moved it past the ACIS rows' ingested_at.
-Re-reading a source row that is already merged is harmless: the MERGE
-only inserts new keys, replaces ACIS with GHCN, or fills an empty row.
+Incremental, with a watermark per source (its max ingested_at in
+obs_merged): one shared watermark skipped ACIS rows when a GHCN backfill ran
+in between. Re-reading an already merged row is harmless.
 
 Deduplication, when the same (station_id, obs_date, variable) exists in
 both sources:
@@ -25,11 +18,7 @@ both sources:
      (authoritative), ACIS with a non-NULL value fills gaps, NULLs are
      lowest priority.
 
-ACIS special values: "T" (trace) -> 0.001 to preserve the fact a trace
-amount was observed; "M" (missing) -> NULL.
-
-Sources: weather.cleaned.obs_ghcn_conv, weather.cleaned.obs_acis_conv
-Target:  weather.cleaned.obs_merged
+ACIS "T" (trace) -> 0.001, so a trace still counts; "M" (missing) -> NULL.
 """
 
 import os
@@ -69,11 +58,8 @@ from wx.utils.common import set_cutoff
 
 def read_sources(spark, watermarks: dict) -> tuple[DataFrame, DataFrame]:
     """
-    Read cleaned GHCN and ACIS tables, tagging each with its source and
-    normalizing ACIS's string 'value' column ("T"/"M"/numeric) to double
-    with matching flag columns so both sources share a schema. Each source
-    reads only rows ingested after its own watermark; a missing/None
-    watermark reads that source in full (first run).
+    Both cleaned tables in one schema, tagged by source (ACIS values become
+    doubles), each read from its own watermark (in full when it has none).
     """
     ghcn_df = spark.table(OBS_GHCN_CONV_TABLE)
     acis = spark.table(OBS_ACIS_CONV_TABLE)
@@ -106,12 +92,7 @@ def read_sources(spark, watermarks: dict) -> tuple[DataFrame, DataFrame]:
 
 
 def merged_watermarks(spark) -> dict:
-    """
-    obs_merged's current max ingested_at per source, e.g.
-    {"GHCN": ts, "ACIS": ts}: each source's rows newer than its own value
-    are what a run needs to process. Empty when obs_merged doesn't exist
-    yet (first run); a source with no rows in obs_merged has no entry.
-    """
+    """{"GHCN": ts, "ACIS": ts}: obs_merged's max ingested_at per source; empty on the first run."""
     if not spark.catalog.tableExists(OBS_MERGED_TABLE):
         return {}
     rows = (
@@ -124,11 +105,7 @@ def merged_watermarks(spark) -> dict:
 
 
 def ghcn_cutoff_date(spark):
-    """
-    Last obs_date GHCN has non-NULL data for, across all of obs_ghcn_conv,
-    minus CUTOFF_LOOKBACK_DAYS. Drives GHCN-vs-ACIS precedence in
-    dedupe_with_priority.
-    """
+    """GHCN's last non-NULL obs_date minus CUTOFF_LOOKBACK_DAYS: where ACIS takes over."""
     last_date = (
         spark.table(OBS_GHCN_CONV_TABLE)
         .filter(F.col("value").isNotNull())
@@ -144,12 +121,7 @@ def ghcn_cutoff_date(spark):
 
 
 def dedupe_with_priority(ghcn_last_date, unioned_df: DataFrame) -> DataFrame:
-    """
-    Collapse unioned_df down to one row per (station_id, obs_date,
-    variable), preferring GHCN once it has non-NULL data for a date, and
-    ACIS for any date after GHCN's most recent non-NULL date (since ACIS
-    runs ahead of GHCN).
-    """
+    """One row per (station_id, obs_date, variable), by the precedence rules above."""
     print(f"GHCN cutoff ({CUTOFF_LOOKBACK_DAYS} days before its last non-NULL date): {ghcn_last_date}")
 
     prioritized_df = unioned_df.withColumn(
@@ -242,8 +214,7 @@ def merge_obs(spark) -> None:
         print("No new records to merge.")
         return
 
-    # Published for pivot_obs/derived_vars in the same job run, so they
-    # don't rescan for the same date (see wx.utils.common).
+    # Published for pivot_obs/derived_vars in this job run, saving their rescans
     cutoff = ghcn_cutoff_date(spark)
     set_cutoff(cutoff)
 
