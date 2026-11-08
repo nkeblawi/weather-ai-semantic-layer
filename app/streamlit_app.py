@@ -20,8 +20,7 @@ logger = logging.getLogger(__name__)
 # --- Canned replies and error handling (limits live in guardrails.py) ---
 CONNECTING_MSG = "Connecting to the weather database server. Please wait..."
 
-# Shown instead of raw exception text, which can leak internals to visitors.
-# The raw error is still logged and recorded in chat_history.error.
+# Shown instead of raw exception text; the raw error is logged and saved in chat_history
 QUOTA_MSG = (
     "The weather database has reached its daily usage limit. Please try again tomorrow."
 )
@@ -212,7 +211,7 @@ def save_preferences(session):
     else:
         try:
             chat_session.update_preferences(session, temp_unit=unit, home_location=home)
-        except Exception as exc:  # noqa: BLE001 -- show it, keep the chat usable
+        except Exception as exc:
             flash = ("error", f"Couldn't save preferences: {exc}")
         else:
             flash = ("toast", "Preferences updated.")
@@ -242,7 +241,7 @@ def daily_limit_reached(conn) -> bool:
             chat_store.count_resolved_turns_today(conn)
             >= guardrails.DAILY_QUESTION_LIMIT
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.warning("daily question count failed", exc_info=True)
         return False
 
@@ -300,20 +299,13 @@ def render_answer(turn: dict, index: int):
 st.set_page_config(page_title="Weather Observations Chatbot", page_icon="🌤️")
 
 
-# - Preferences header: sticky just under Streamlit's 3.75rem top bar. Set on
-#   the form's wrapper, whose parent is the main column that grows with the
-#   chat (sticky only works within its parent's height). It needs an opaque
-#   background so scrolled messages don't show through: only .stApp carries
-#   the theme's, and the elements between it and the header are transparent,
-#   so each of them inherits it -- the header then follows a theme switch
-#   live (st.context.theme follows the browser, not the app's theme menu).
-# - Update and Plot it buttons: sky blue when clickable. Only the enabled
-#   state is restyled, so Streamlit's own gray disabled style shows while saving.
-# - Chat: user messages on the right (avatar flipped to the right, bubble
-#   shrunk to its text), answers stay left -- messaging-app layout. Emoji
-#   avatars carry no role test id, so rows are matched by the content's
-#   aria-label; the avatar tile is the row's first child.
-# st.html (not st.markdown): a style-only block takes no layout space.
+# - Preferences header: sticky under the top bar, on the form's wrapper (sticky
+#   works only within its parent). The elements above it inherit .stApp's
+#   background so it's opaque and follows a theme switch.
+# - Update and Plot it buttons: sky blue when enabled; disabled keeps Streamlit's gray.
+# - Chat: user messages on the right. Emoji avatars have no role test id, so
+#   rows are matched by the content's aria-label.
+# st.html, not st.markdown: a style-only block takes no layout space.
 st.html("""
     <style>
     [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"]
@@ -357,9 +349,7 @@ st.html("""
     """)
 
 
-# Page order: header, welcome, then the connecting spinner. The header needs
-# the station list, so reserve its slot at the top now and fill it once
-# connected; the welcome shows immediately, with the spinner under it.
+# The header needs the station list: reserve its slot now, fill it once connected
 header_slot = st.container(key="prefs_header")
 with chat_message("assistant"):
     st.markdown(WELCOME_MSG)
@@ -373,8 +363,7 @@ if "admitted" not in st.session_state:
         st.stop()
     st.session_state.admitted = True
 
-# One spinner over both DB steps (connect + create_session) so the message
-# stays up without a blank gap until the chat input renders.
+# One spinner over connect and create_session, so there's no blank gap before the input
 try:
     with st.spinner(CONNECTING_MSG):
         conn, client = get_conn(), get_client()
@@ -382,8 +371,7 @@ try:
             st.session_state.session = chat_session.create_session(
                 conn,
                 client,
-                # WX_APP_USER for local dev (same as the CLI); otherwise each
-                # visitor is anonymous for this session, with no users row
+                # WX_APP_USER for local dev; otherwise an anonymous visitor
                 os.environ.get("WX_APP_USER") or chat_store.new_anonymous_username(),
                 email=os.environ.get("WX_APP_EMAIL"),
                 display_name=os.environ.get("WX_APP_NAME"),
@@ -394,8 +382,7 @@ try:
         locations = get_home_locations(conn)
 
         limit = guardrails.session_limit(session)
-        # created inside the spinner so the input is on screen before the
-        # message clears (no blank frame between them)
+        # inside the spinner, so the input is up before the message clears
         with st.bottom:
             question = st.chat_input(
                 limit.placeholder if limit else "Ask a weather question...",
@@ -410,9 +397,7 @@ try:
                 f"Type {HELP_COMMAND} for example questions and tips  \n"
                 f"Type {PLOT_COMMAND} with a question for a chart"
             )
-except (
-    Exception
-) as exc:  # noqa: BLE001 -- startup failure: explain, don't dump a traceback
+except Exception as exc:
     logger.exception("startup failed")
     st.error(friendly_error(str(exc)))
     st.stop()
@@ -420,9 +405,8 @@ except (
 with header_slot:
     render_preferences(session, locations)
 
-# Help cards live outside session.history (which is replayed to the model as
-# conversation context) as the history lengths they were shown at, so each
-# card stays in place in the transcript across reruns.
+# Help cards, kept out of session.history (replayed to the model) as the
+# history lengths they were shown at, so each stays in place across reruns
 help_after = st.session_state.setdefault("help_after", [])
 # A Plot it click queued its question for this run (the input stays empty)
 if pending := st.session_state.pop("pending_question", None):
@@ -470,10 +454,7 @@ if question:
                 )
             if answer.startswith("[error]"):
                 logger.warning("answer failed: %s", answer)
-            # Rerun so the input/caption reflect the new remaining count
-            # (rendered at the top of this run, before this answer). The
-            # answer is in session.history, so the rerun redraws it. Limit
-            # messages above aren't in history, so those runs don't rerun.
+            # Rerun so the caption shows the new remaining count; the answer is in history
             st.rerun()
 
 # Ended by off-topic messages: say so under the transcript, since the

@@ -1,20 +1,8 @@
 """
-Guardrails for the public, no-sign-in chat: the usage limits and when a
-session has hit one (session_limit), cheap checks that run before a question
-reaches Claude (pre_check), limits across sessions per client IP and
-app-wide (RateLimits), and deterministic validation of what the resolver
-returns before anything runs on the warehouse (validate_resolved).
-
-Nothing here calls a model or the database. Blocked messages are never sent
-to Claude and never written to chat_history (a write is warehouse compute
-too); callers log them instead.
-
-The query checks themselves (allowed values, limits, validate_queries) live
-in wxcore.validation, shared with the MCP server; callers import those from
-wxcore directly. What stays here is the app's own: the session limits,
-canned replies, pre-checks, the checks on the rest of the resolver's reply
-(status, clarification text), and the fixes that read the question's
-wording.
+Guardrails for the public chat: usage limits (session_limit, RateLimits),
+checks before a question reaches Claude (pre_check), and checks on the
+resolver's reply before the warehouse (validate_resolved). Calls no model or
+database. The query checks themselves live in wxcore.validation.
 """
 
 from __future__ import annotations
@@ -43,21 +31,16 @@ from wxcore.validation import coerce_series as _coerce_series_params
 # ---------------------------------------------------------------------------
 
 # --- Limits ---
-# Usage caps. They mainly protect the Databricks Free Edition daily compute
-# quota, which the ingest jobs share. Question caps count only resolved
-# questions (ones that ran answer_query); clarifications and errors are free.
-# /clear doesn't reset any of them.
+# Mainly protect the Free Edition compute quota the ingest jobs share. Question
+# caps count resolved questions only; /clear doesn't reset them.
 SESSION_QUESTION_LIMIT = int(os.environ.get("WX_SESSION_QUESTION_LIMIT", "20"))
 DAILY_QUESTION_LIMIT = int(os.environ.get("WX_DAILY_QUESTION_LIMIT", "100"))
 
-# Backstop on every turn that reaches Claude (clarifications and errors
-# included), so free clarifications can't run up unlimited model calls.
+# Every turn that reaches Claude, so free clarifications can't run up model calls
 SESSION_TURN_LIMIT = int(os.environ.get("WX_SESSION_TURN_LIMIT", "30"))
 MAX_QUESTION_CHARS = int(os.environ.get("WX_MAX_QUESTION_CHARS", "500"))
 
-# SKILL.md states this cap; follow-up clarifications that restate the
-# context run to ~800, so it leaves headroom while bounding how much model
-# text a manipulated reply can show. Keep SKILL.md's number in step.
+# SKILL.md states the same cap; clarifications that restate context run to ~800
 MAX_CLARIFICATION_CHARS = int(os.environ.get("WX_MAX_CLARIFICATION_CHARS", "1000"))
 OFF_TOPIC_STREAK_LIMIT = 3  # in a row -> session ends
 RATE_LIMIT_MESSAGES = 5
@@ -122,18 +105,15 @@ GENERIC_CLARIFICATION_MSG = (
     "Could you rephrase that with a city and a time period? " "Type /help for examples."
 )
 
-# Explicit chart words. Outside plot mode these get NEEDS_PLOT_MSG without a
-# model call; implicit chart requests ("for each month") are left to the
-# resolver's needs_plot clarification. Narrow on purpose: "normal" or
-# "trend" alone isn't here, so "the normal July high" still answers.
+# Explicit chart words get NEEDS_PLOT_MSG without a model call. Narrow on
+# purpose: "normal" or "trend" alone would catch "the normal July high".
 CHART_WORDS = re.compile(
     r"\b(plot|plots|plotting|plotted|chart|charts|charting|graph|graphs|graphing"
     r"|visuali[sz]e|visuali[sz]ation|trend ?lines?)\b",
     re.IGNORECASE,
 )
 
-# Prompt-injection phrasings. Kept narrow to avoid false positives on real
-# weather questions; the resolver's off_topic status is the broader net.
+# Prompt-injection phrasings, kept narrow; the resolver's off_topic is the broader net
 INJECTION_PATTERNS = [
     re.compile(p, re.IGNORECASE)
     for p in (
@@ -188,10 +168,8 @@ def questions_remaining(session) -> int:
 
 def session_limit(session) -> SessionLimit | None:
     """
-    The limit this session has hit, or None if it can keep asking. Reads
-    only the QuerySession counters (off_topic_streak, resolved_count,
-    turn_index); the daily cap needs a database count, so the caller checks
-    it separately against DAILY_QUESTION_LIMIT.
+    The limit this session has hit, or None. The daily cap needs a database
+    count, so the caller checks that one.
     """
     if session.off_topic_streak >= OFF_TOPIC_STREAK_LIMIT:
         return SessionLimit("ended", "Session ended", SESSION_ENDED_MSG)
@@ -353,18 +331,10 @@ def cap_rank_limits(resolved: dict) -> None:
 
 def coerce_series(resolved: dict, question: str = "") -> None:
     """
-    Fixes series queries that ask for more than plots allow, in place, before
-    validation -- a chart instead of an error, like cap_rank_limits. Daily
-    points over more than MAX_DAILY_SERIES_DAYS become monthly; a monthly
-    series over MAX_MONTHLY_SERIES_YEARS becomes yearly. Each change leaves a
-    note under the chart (notes). `question` is the user's text: a long-span
-    request for daily values gets the note even when the resolver already
-    picked monthly itself (plotting.md says to).
-
-    The question-text fixes run here, then the parameter-only ones in
-    wxcore.validation.coerce_series. They touch different queries (a monthly
-    one here, a daily one there), so the order only matters for a monthly
-    query's notes: this one's daily note comes before the yearly one.
+    wxcore.validation.coerce_series, plus fixes that read the question: a
+    request for daily values gets the daily-limit note even when the
+    resolver already picked monthly, and a monthly series over a year or
+    less becomes daily.
     """
     for q in resolved.get("queries") or []:
         if not isinstance(q, dict) or q.get("aggregation") != "series":
