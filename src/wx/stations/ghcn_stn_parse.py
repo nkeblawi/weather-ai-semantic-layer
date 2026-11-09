@@ -23,7 +23,7 @@ from wx.utils.config import (
     STATION_LIST_RAW_TABLE,
     STATION_LIST_PARSED_TABLE,
 )
-from pyspark.sql import functions as F  # type: ignore
+from pyspark.sql import functions as F
 from wx.utils.spark_utils import get_spark
 
 # ---------------------------------------------------------------------------

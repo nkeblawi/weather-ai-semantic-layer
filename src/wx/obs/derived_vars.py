@@ -29,8 +29,8 @@ sys.path.append(args.workspace_root)
 from wx.utils.bootstrap import bootstrap
 bootstrap()
 
-from pyspark.sql import DataFrame  # type: ignore
-from pyspark.sql import functions as F  # type: ignore
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
 from wx.utils.common import get_cutoff, upsert_dataframe
 from wx.utils.config import (
     OBS_ANALYTICS_TABLE,

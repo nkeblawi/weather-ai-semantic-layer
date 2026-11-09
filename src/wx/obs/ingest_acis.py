@@ -23,7 +23,7 @@ bootstrap()
 
 from datetime import date, datetime, timedelta, timezone
 import pandas as pd
-from pyspark.sql.types import StructType, StructField, StringType, DateType, TimestampType  # type: ignore
+from pyspark.sql.types import StructType, StructField, StringType, DateType, TimestampType
 from wx.utils.common import get_selected_stations, merge_into_target
 from wx.utils.config import OBS_ACIS_TABLE
 from wx.utils.http_utils import acis_breaker, get_session

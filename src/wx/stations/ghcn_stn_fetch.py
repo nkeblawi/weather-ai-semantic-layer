@@ -16,7 +16,7 @@ bootstrap()
 
 from wx.utils.config import STATION_LIST_RAW_TABLE
 from datetime import datetime, timezone
-from pyspark.sql import Row  # type: ignore
+from pyspark.sql import Row
 from wx.utils.http_utils import get_session, ghcn_breaker
 from wx.utils.spark_utils import get_spark
 

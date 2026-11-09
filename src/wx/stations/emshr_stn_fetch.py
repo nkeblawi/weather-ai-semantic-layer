@@ -16,7 +16,7 @@ bootstrap()
 
 from wx.utils.config import STATION_EMSHR_RAW_TABLE
 from datetime import datetime, timezone
-from pyspark.sql import functions as F  # type: ignore
+from pyspark.sql import functions as F
 from wx.utils.http_utils import get_session, emshr_breaker
 from wx.utils.spark_utils import get_spark
 

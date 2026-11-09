@@ -14,8 +14,8 @@ sys.path.append(args.workspace_root)
 from wx.utils.bootstrap import bootstrap
 bootstrap()
 
-from pyspark.sql import functions as F  # type: ignore
-from delta.tables import DeltaTable  # type: ignore
+from pyspark.sql import functions as F
+from delta.tables import DeltaTable
 from wx.utils.config import STATION_LIST_PARSED_TABLE, STATION_WMO_TABLE
 from wx.utils.spark_utils import get_spark
 

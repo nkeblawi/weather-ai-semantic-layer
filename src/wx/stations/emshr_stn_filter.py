@@ -15,8 +15,8 @@ from wx.utils.bootstrap import bootstrap
 bootstrap()
 
 from wx.utils.config import STATION_EMSHR_RAW_TABLE, STATION_EMSHR_FILTERED_TABLE
-from pyspark.sql import functions as F  # type: ignore
-from pyspark.sql.window import Window  # type: ignore
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 from wx.utils.spark_utils import get_spark
 
 # ---------------------------------------------------------------------------

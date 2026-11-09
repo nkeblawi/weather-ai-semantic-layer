@@ -23,7 +23,7 @@ sys.path.append(args.workspace_root)
 from wx.utils.bootstrap import bootstrap
 bootstrap()
 
-from pyspark.sql import functions as F  # type: ignore
+from pyspark.sql import functions as F
 from wx.utils.config import CATALOG, GEONAMES_RAW_TABLE, PLACES_TABLE, SCHEMA_CLEANED
 from wx.utils.spark_utils import get_spark
 

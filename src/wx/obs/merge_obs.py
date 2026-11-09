@@ -39,9 +39,9 @@ from wx.utils.bootstrap import bootstrap
 
 bootstrap()
 
-from pyspark.sql import DataFrame  # type: ignore
-from pyspark.sql import functions as F  # type: ignore
-from pyspark.sql.window import Window  # type: ignore
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 from wx.utils.config import (
     CUTOFF_LOOKBACK_DAYS,
     OBS_ACIS_CONV_TABLE,

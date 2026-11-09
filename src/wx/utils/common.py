@@ -6,10 +6,10 @@ merge/upsert, and passing the GHCN cutoff date between job tasks.
 from datetime import date
 
 import pandas as pd
-from delta.tables import DeltaTable  # type: ignore
-from pyspark.sql import DataFrame  # type: ignore
-from pyspark.sql import functions as F  # type: ignore
-from pyspark.sql.types import StructType  # type: ignore
+from delta.tables import DeltaTable
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
+from pyspark.sql.types import StructType
 from wx.utils.config import STATION_MERGED_TABLE
 
 
@@ -106,7 +106,7 @@ GHCN_LAST_DATE_KEY = "ghcn_last_date"
 
 
 def _task_values():
-    from databricks.sdk.runtime import dbutils  # type: ignore
+    from databricks.sdk.runtime import dbutils
 
     return dbutils.jobs.taskValues
 

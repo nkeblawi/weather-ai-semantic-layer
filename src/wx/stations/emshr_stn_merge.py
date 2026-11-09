@@ -23,8 +23,8 @@ from wx.utils.config import (
     STATION_EMSHR_FILTERED_TABLE,
     STATION_MERGED_TABLE,
 )
-from delta.tables import DeltaTable  # type: ignore
-from pyspark.sql import functions as F  # type: ignore
+from delta.tables import DeltaTable
+from pyspark.sql import functions as F
 from wx.utils.http_utils import get_session, ghcn_breaker
 from wx.utils.spark_utils import get_spark
 

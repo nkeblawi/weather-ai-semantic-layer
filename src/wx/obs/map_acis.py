@@ -27,8 +27,8 @@ sys.path.append(args.workspace_root)
 from wx.utils.bootstrap import bootstrap
 bootstrap()
 
-from pyspark.sql import DataFrame  # type: ignore
-from pyspark.sql import functions as F  # type: ignore
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
 from wx.utils.common import upsert_dataframe
 from wx.utils.config import OBS_ACIS_TABLE, OBS_ACIS_CONV_TABLE
 from wx.utils.spark_utils import get_spark
