@@ -33,6 +33,8 @@ Deployed in Unity Catalog from `sql/uc/` with `scripts/deploy_sql.sh`; each answ
 
 - `query_series`: returns every point of a chart instead of one value: daily (a year or less), monthly, yearly, seasonal, and snow-season series (means, sums, or counts of days past a threshold), climatologies by month, week, season, and calendar day (with each day's records), odds (the share of years a condition occurs), and histograms of daily values
 
+- `daily_values`: the one daily read the four query functions share; returns a station's daily values of one metric over a date range (optionally only some months), each flagged as meeting the threshold or not. Deploy it before the functions that read it (the default `scripts/deploy_sql.sh` order does)
+
 ## Station lookup
 
 A station is found from its city, airport name or code, or a common alias ("Logan", "Sea-Tac", "Twin Cities") stored in `analytics.station_aliases`. Case, spaces, and punctuation don't matter.
