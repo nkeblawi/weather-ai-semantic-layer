@@ -45,7 +45,7 @@ from wx.utils.spark_utils import get_spark
 # --- Incremental read ---
 
 
-def read_new_pivot_rows(spark, only_station_id: str | None = None) -> DataFrame:
+def _read_new_pivot_rows(spark, only_station_id: str | None = None) -> DataFrame:
     """
     obs_pivot rows from ghcn_last_date on (all of them on the first run).
     only_station_id: that station's full history, no watermark.
@@ -75,7 +75,7 @@ def read_new_pivot_rows(spark, only_station_id: str | None = None) -> DataFrame:
 # --- Derived variables ---
 
 
-def add_derived_vars(df: DataFrame) -> DataFrame:
+def _add_derived_vars(df: DataFrame) -> DataFrame:
     """
     TAVG = (TMAX + TMIN) / 2
     HDD = 65 - TAVG when TAVG < 65, else 0 (rounded to the nearest integer)
@@ -125,7 +125,7 @@ def main():
 
     spark = get_spark()
 
-    new_pivot_df = read_new_pivot_rows(spark, only_station_id=args.station_id or None)
+    new_pivot_df = _read_new_pivot_rows(spark, only_station_id=args.station_id or None)
     count = new_pivot_df.count()
     print(f"New/changed obs_pivot records to process: {count:,}")
 
@@ -133,7 +133,7 @@ def main():
         print("Nothing new to process.")
         return
 
-    derived_df = add_derived_vars(new_pivot_df)
+    derived_df = _add_derived_vars(new_pivot_df)
 
     upsert_dataframe(
         spark, derived_df, OBS_ANALYTICS_TABLE, merge_keys=("station_id", "obs_date")

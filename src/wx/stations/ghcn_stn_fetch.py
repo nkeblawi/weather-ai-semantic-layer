@@ -33,7 +33,7 @@ SOURCE_URL = f"https://www.ncei.noaa.gov/pub/data/ghcn/daily/{SOURCE_FILE}"
 # ---------------------------------------------------------------------------
 
 
-def fetch_station_list(session) -> str:
+def _fetch_station_list(session) -> str:
     """Fetch the raw station list file contents from NOAA."""
 
     @ghcn_breaker
@@ -54,7 +54,7 @@ def main():
     spark = get_spark()
     session = get_session()
 
-    raw_station_list = fetch_station_list(session)
+    raw_station_list = _fetch_station_list(session)
     lines = raw_station_list.splitlines()
     print(f"Fetched {len(lines)} stations from {SOURCE_URL}")
 

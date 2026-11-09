@@ -24,11 +24,11 @@ from wx.utils.spark_utils import get_spark
 # ---------------------------------------------------------------------------
 
 
-def filter_null_ghcn_rows(raw_df):
+def _filter_null_ghcn_rows(raw_df):
     return raw_df.filter(F.col("ghcnd").isNotNull())
 
 
-def most_recent_ghcn_rows(df):
+def _most_recent_ghcn_rows(df):
     latest_window = Window.partitionBy("ghcnd").orderBy(F.col("end_dt").desc())
     latest_per_station = (
         df.withColumn("rn", F.row_number().over(latest_window))
@@ -60,14 +60,14 @@ def main():
 
     # Filter out null GCHN rows
     raw_df = spark.table(STATION_EMSHR_RAW_TABLE)
-    ghcnd_rows = filter_null_ghcn_rows(raw_df)
+    ghcnd_rows = _filter_null_ghcn_rows(raw_df)
     print(f"Rows with GHCND populated: {ghcnd_rows.count():,}")
     print(
         f"Distinct GHCN-D station ids represented: {ghcnd_rows.select('ghcnd').distinct().count():,}"
     )
 
     # Filter for the most up-to-date rows on each station
-    filtered_df = most_recent_ghcn_rows(ghcnd_rows)
+    filtered_df = _most_recent_ghcn_rows(ghcnd_rows)
     print(f"Rows after filtering to most recent: {filtered_df.count():,}")
 
     # Write to table

@@ -58,24 +58,24 @@ TENTHS_C_TO_F_DIFF = 0.18
 # --- Fill logic (pure pandas, no Spark) ---
 
 
-def day_keys(df: pd.DataFrame) -> pd.Series:
+def _day_keys(df: pd.DataFrame) -> pd.Series:
     """(date, variable) key per row, as a string, e.g. '1995-07-04|TMAX'."""
     return df["obs_date"].astype(str) + "|" + df["variable"]
 
 
-def select_history(
+def _select_history(
     current_df: pd.DataFrame, history: list[tuple[str, pd.DataFrame]]
 ) -> tuple[pd.DataFrame, list[dict]]:
     """Old-ID rows to load, relabeled to the current ID, and a summary per ID and variable."""
     current_id = current_df["station_id"].iloc[0]
-    covered = set(day_keys(current_df[current_df["value"].notna()]))
+    covered = set(_day_keys(current_df[current_df["value"].notna()]))
     selected, summary = [], []
 
     for old_id, old_df in history:
         if old_df.empty:
             continue
         candidates = old_df[old_df["value"].notna()]
-        keys = day_keys(candidates)
+        keys = _day_keys(candidates)
         keep = candidates[~keys.isin(covered)].copy()
         covered |= set(keys[~keys.isin(covered)])
 
@@ -99,7 +99,7 @@ def select_history(
     return loaded, summary
 
 
-def overlap_check(
+def _overlap_check(
     current_df: pd.DataFrame, old_id: str, old_df: pd.DataFrame
 ) -> list[dict]:
     """Days both IDs have, compared: a large difference suggests a site or instrument change."""
@@ -135,7 +135,7 @@ def overlap_check(
 # --- Safety checks ---
 
 
-def check_ids(spark, current_id: str, old_ids: list[str]) -> None:
+def _check_ids(spark, current_id: str, old_ids: list[str]) -> None:
     """The current ID must exist; old IDs can't be it, repeat, or be active stations."""
     if current_id in old_ids or len(set(old_ids)) != len(old_ids):
         raise ValueError("History IDs must be distinct and differ from --station-id.")
@@ -203,7 +203,7 @@ def main():
 
     spark = get_spark()
     session = get_session()
-    check_ids(spark, current_id, old_ids)
+    _check_ids(spark, current_id, old_ids)
 
     print(f"Downloading {current_id}.dly (current)...")
     current_df = parse_dly(current_id, download_dly(session, current_id))
@@ -217,13 +217,13 @@ def main():
         history.append((old_id, old_df))
 
     print("\nOverlap check (days where both IDs have a value):")
-    overlaps = [r for old_id, old_df in history for r in overlap_check(current_df, old_id, old_df)]
+    overlaps = [r for old_id, old_df in history for r in _overlap_check(current_df, old_id, old_df)]
     for result in overlaps:
         print(f"  {result}")
     if not overlaps:
         print("  (none)")
 
-    loaded, summary = select_history(current_df, history)
+    loaded, summary = _select_history(current_df, history)
     print(f"\nRows to load under {current_id}: {len(loaded):,}")
     print(pd.DataFrame(summary).to_string(index=False) if summary else "  (none)")
 

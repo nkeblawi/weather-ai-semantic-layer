@@ -24,14 +24,14 @@ from wx.utils.spark_utils import get_spark
 # ---------------------------------------------------------------------------
 
 
-def filter_wmo_stations(df):
+def _filter_wmo_stations(df):
     """Keep only stations with a non-null WMO id, drop raw lineage columns."""
     return df.filter(F.col("wmo").isNotNull()).drop(
         "raw_line", "source_file", "ingested_at"
     )
 
 
-def upsert_station_wmo(spark, df_wmo):
+def _upsert_station_wmo(spark, df_wmo):
     """Creates station_wmo, or upserts on station_id leaving `selected` as it is."""
     if not spark.catalog.tableExists(STATION_WMO_TABLE):
         df_wmo.write.format("delta").saveAsTable(STATION_WMO_TABLE)
@@ -68,9 +68,9 @@ def main():
     spark = get_spark()
 
     df = spark.table(STATION_LIST_PARSED_TABLE)
-    df_wmo = filter_wmo_stations(df)
+    df_wmo = _filter_wmo_stations(df)
 
-    upsert_station_wmo(spark, df_wmo)
+    _upsert_station_wmo(spark, df_wmo)
 
     wmo_count = spark.table(STATION_WMO_TABLE).count()
     print(f"Wrote {wmo_count} WMO stations to {STATION_WMO_TABLE}")

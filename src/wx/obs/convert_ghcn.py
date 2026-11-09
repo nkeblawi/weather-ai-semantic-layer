@@ -46,7 +46,7 @@ from wx.utils.spark_utils import get_spark
 # --- QC filtering ---
 
 
-def apply_qc_filter(spark, df: DataFrame) -> DataFrame:
+def _apply_qc_filter(spark, df: DataFrame) -> DataFrame:
     """NULLs value wherever qflag is set, except allowlisted keys; rows and flags stay."""
     allowlist = (
         spark.table(QC_ALLOWLIST_TABLE)
@@ -70,7 +70,7 @@ def apply_qc_filter(spark, df: DataFrame) -> DataFrame:
 # --- Unit conversions ---
 
 
-def apply_ghcn_unit_conversions(df: DataFrame) -> DataFrame:
+def _apply_ghcn_unit_conversions(df: DataFrame) -> DataFrame:
     """Converts value to app units by variable; unknown variables pass through."""
     return df.withColumn(
         "value",
@@ -87,7 +87,7 @@ def apply_ghcn_unit_conversions(df: DataFrame) -> DataFrame:
 # --- Incremental read ---
 
 
-def read_new_raw_rows(spark) -> DataFrame:
+def _read_new_raw_rows(spark) -> DataFrame:
     """Raw rows ingested after obs_ghcn_conv's max ingested_at (all of them on the first run)."""
     raw_df = spark.table(OBS_GHCN_TABLE)
 
@@ -111,8 +111,8 @@ def read_new_raw_rows(spark) -> DataFrame:
 def main():
     spark = get_spark()
 
-    new_raw_df = read_new_raw_rows(spark)
-    converted_df = apply_ghcn_unit_conversions(apply_qc_filter(spark, new_raw_df))
+    new_raw_df = _read_new_raw_rows(spark)
+    converted_df = _apply_ghcn_unit_conversions(_apply_qc_filter(spark, new_raw_df))
 
     count = converted_df.count()
     print(f"New/changed records to convert: {count:,}")

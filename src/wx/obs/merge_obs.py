@@ -58,7 +58,7 @@ from wx.utils.common import set_cutoff
 # --- Step 1: Read source tables ---
 
 
-def read_sources(spark, watermarks: dict) -> tuple[DataFrame, DataFrame]:
+def _read_sources(spark, watermarks: dict) -> tuple[DataFrame, DataFrame]:
     """
     Both cleaned tables in one schema, tagged by source (ACIS values become
     doubles), each read from its own watermark (in full when it has none).
@@ -91,7 +91,7 @@ def read_sources(spark, watermarks: dict) -> tuple[DataFrame, DataFrame]:
 # --- Step 2: Watermark the source reads (incremental) ---
 
 
-def merged_watermarks(spark) -> dict:
+def _merged_watermarks(spark) -> dict:
     """{"GHCN": ts, "ACIS": ts}: obs_merged's max ingested_at per source; empty on the first run."""
     if not spark.catalog.tableExists(OBS_MERGED_TABLE):
         return {}
@@ -104,7 +104,7 @@ def merged_watermarks(spark) -> dict:
     return {r["source"]: r["watermark"] for r in rows}
 
 
-def ghcn_cutoff_date(spark):
+def _ghcn_cutoff_date(spark):
     """GHCN's last non-NULL obs_date minus CUTOFF_LOOKBACK_DAYS: where ACIS takes over."""
     last_date = (
         spark.table(OBS_GHCN_CONV_TABLE)
@@ -118,7 +118,7 @@ def ghcn_cutoff_date(spark):
 # --- Step 3: Prioritize and deduplicate GHCN vs ACIS ---
 
 
-def dedupe_with_priority(ghcn_last_date, unioned_df: DataFrame) -> DataFrame:
+def _dedupe_with_priority(ghcn_last_date, unioned_df: DataFrame) -> DataFrame:
     """One row per (station_id, obs_date, variable), by the precedence rules above."""
     print(f"GHCN cutoff ({CUTOFF_LOOKBACK_DAYS} days before its last non-NULL date): {ghcn_last_date}")
 
@@ -155,7 +155,7 @@ def dedupe_with_priority(ghcn_last_date, unioned_df: DataFrame) -> DataFrame:
 # --- Step 4: MERGE UPSERT into target (GHCN replaces ACIS; late values fill empty rows) ---
 
 
-def merge_into_obs_merged(spark, merged_df: DataFrame) -> None:
+def _merge_into_obs_merged(spark, merged_df: DataFrame) -> None:
     merged_df.createOrReplaceTempView("merge_source")
 
     spark.sql(f"""
@@ -199,9 +199,9 @@ def merge_into_obs_merged(spark, merged_df: DataFrame) -> None:
 def merge_obs(spark) -> None:
     first_run = not spark.catalog.tableExists(OBS_MERGED_TABLE)
 
-    watermarks = {} if first_run else merged_watermarks(spark)
+    watermarks = {} if first_run else _merged_watermarks(spark)
     print(f"Watermarks: {watermarks}")
-    ghcn_df, acis_df = read_sources(spark, watermarks)
+    ghcn_df, acis_df = _read_sources(spark, watermarks)
     unioned_df = ghcn_df.unionByName(acis_df, allowMissingColumns=True)
     total = unioned_df.count()
     print(f"Total records to process: {total:,}")
@@ -211,17 +211,17 @@ def merge_obs(spark) -> None:
         return
 
     # Published for pivot_obs/derived_vars in this job run, saving their rescans
-    cutoff = ghcn_cutoff_date(spark)
+    cutoff = _ghcn_cutoff_date(spark)
     set_cutoff(cutoff)
 
-    merged_df = dedupe_with_priority(cutoff, unioned_df)
+    merged_df = _dedupe_with_priority(cutoff, unioned_df)
 
     if first_run:
         merged_df.write.format("delta").saveAsTable(OBS_MERGED_TABLE)
         print(f"Created {OBS_MERGED_TABLE}")
         return
 
-    merge_into_obs_merged(spark, merged_df)
+    _merge_into_obs_merged(spark, merged_df)
     print(f"MERGE complete for {OBS_MERGED_TABLE}")
 
 

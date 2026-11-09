@@ -46,7 +46,7 @@ COUNTRY_FILE = "countryInfo.txt"
 # ---------------------------------------------------------------------------
 
 
-def fetch(session, file_name: str) -> bytes:
+def _fetch(session, file_name: str) -> bytes:
     """One file from the GeoNames dump."""
 
     @geonames_breaker
@@ -58,14 +58,14 @@ def fetch(session, file_name: str) -> bytes:
     return _get().content
 
 
-def source_lines(session) -> dict[str, list[str]]:
+def _source_lines(session) -> dict[str, list[str]]:
     """source file name -> its lines, the cities file unzipped."""
-    with zipfile.ZipFile(io.BytesIO(fetch(session, CITIES_ZIP))) as archive:
+    with zipfile.ZipFile(io.BytesIO(_fetch(session, CITIES_ZIP))) as archive:
         cities = archive.read(CITIES_FILE).decode("utf-8")
     return {
         CITIES_FILE: cities.splitlines(),
-        ADMIN1_FILE: fetch(session, ADMIN1_FILE).decode("utf-8").splitlines(),
-        COUNTRY_FILE: fetch(session, COUNTRY_FILE).decode("utf-8").splitlines(),
+        ADMIN1_FILE: _fetch(session, ADMIN1_FILE).decode("utf-8").splitlines(),
+        COUNTRY_FILE: _fetch(session, COUNTRY_FILE).decode("utf-8").splitlines(),
     }
 
 
@@ -80,7 +80,7 @@ def main():
 
     ingested_at = datetime.now(timezone.utc)
     rows = []
-    for source_file, lines in source_lines(session).items():
+    for source_file, lines in _source_lines(session).items():
         print(f"Fetched {len(lines)} lines of {source_file}")
         rows += [Row(raw_line=line, source_file=source_file, ingested_at=ingested_at) for line in lines]
 

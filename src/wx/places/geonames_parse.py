@@ -41,12 +41,12 @@ COUNTRY_FILE = "countryInfo.txt"
 # ---------------------------------------------------------------------------
 
 
-def null_if_blank(col):
+def _null_if_blank(col):
     """A blank string column as NULL."""
     return F.when(F.trim(col) == "", None).otherwise(F.trim(col))
 
 
-def fields(raw, source_file):
+def _fields(raw, source_file):
     """The lines of one source file, split on tabs into an array column f."""
     return (
         raw.filter(F.col("source_file") == source_file)
@@ -55,22 +55,22 @@ def fields(raw, source_file):
     )
 
 
-def parse_places(raw):
-    cities = fields(raw, CITIES_FILE).select(
+def _parse_places(raw):
+    cities = _fields(raw, CITIES_FILE).select(
         F.col("f")[0].cast("bigint").alias("geonameid"),
         F.col("f")[2].alias("place_name"),
         F.col("f")[4].cast("double").alias("latitude"),
         F.col("f")[5].cast("double").alias("longitude"),
         F.col("f")[8].alias("country_code"),
-        null_if_blank(F.col("f")[10]).alias("admin1_code"),
+        _null_if_blank(F.col("f")[10]).alias("admin1_code"),
         F.col("f")[14].cast("bigint").alias("population"),
     )
-    admin1 = fields(raw, ADMIN1_FILE).select(
+    admin1 = _fields(raw, ADMIN1_FILE).select(
         F.split(F.col("f")[0], r"\.")[0].alias("country_code"),
         F.split(F.col("f")[0], r"\.")[1].alias("admin1_code"),
         F.col("f")[2].alias("admin1_name"),  # the ASCII name, matched like place_name
     )
-    countries = fields(raw, COUNTRY_FILE).select(
+    countries = _fields(raw, COUNTRY_FILE).select(
         F.col("f")[0].alias("country_code"),
         F.col("f")[4].alias("country_name"),
     )
@@ -92,7 +92,7 @@ def parse_places(raw):
 
 def main():
     spark = get_spark()
-    places = parse_places(spark.table(GEONAMES_RAW_TABLE))
+    places = _parse_places(spark.table(GEONAMES_RAW_TABLE))
 
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA_CLEANED}")
     places.write.format("delta").mode("overwrite").saveAsTable(PLACES_TABLE)

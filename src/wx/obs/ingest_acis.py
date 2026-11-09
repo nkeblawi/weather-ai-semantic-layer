@@ -70,7 +70,7 @@ TARGET_SCHEMA = StructType(
 # --- Step 1: Fetch ACIS data for one station, one day ---
 
 
-def fetch_acis_data(session, station_id: str, target_date: date) -> dict:
+def _fetch_acis_data(session, station_id: str, target_date: date) -> dict:
     """One day of ACIS StnData for a station (no token needed)."""
     params = {
         "sid": station_id,
@@ -92,7 +92,7 @@ def fetch_acis_data(session, station_id: str, target_date: date) -> dict:
 # --- Step 2: Parse into raw rows, values stored exactly as ACIS returned them ---
 
 
-def parse_acis_raw(station_id: str, target_date: date, payload: dict) -> pd.DataFrame:
+def _parse_acis_raw(station_id: str, target_date: date, payload: dict) -> pd.DataFrame:
     """One row per station/date/element, raw_value as the untouched string."""
 
     records = []
@@ -134,8 +134,8 @@ def load_acis(spark, session, target_date: date) -> None:
 
     for station_id in station_ids:
         print(f"{station_id}: fetching ACIS for {target_date} ...")
-        payload = fetch_acis_data(session, station_id, target_date)
-        tidy_pdf = parse_acis_raw(station_id, target_date, payload)
+        payload = _fetch_acis_data(session, station_id, target_date)
+        tidy_pdf = _parse_acis_raw(station_id, target_date, payload)
         print(f"{station_id}: parsed {len(tidy_pdf)} rows")
 
         # Merge into target

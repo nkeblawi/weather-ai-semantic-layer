@@ -32,12 +32,12 @@ from wx.utils.spark_utils import get_spark
 
 
 # Convert empty values to NULL
-def null_if_blank(col):
+def _null_if_blank(col):
     """Convert a blank (whitespace-only or empty) string column to NULL."""
     return F.when(F.trim(col) == "", None).otherwise(F.trim(col))
 
 
-def parse_station_list(df):
+def _parse_station_list(df):
     """Parse raw fixed-width station list lines into typed columns."""
     parsed = (
         df.withColumn("station_id", F.trim(F.substring("raw_line", 1, 11)))
@@ -47,9 +47,9 @@ def parse_station_list(df):
         .withColumn("elevation", F.trim(F.substring("raw_line", 32, 6)).cast("double"))
         .withColumn("state", F.trim(F.substring("raw_line", 39, 2)))
         .withColumn("name", F.trim(F.substring("raw_line", 42, 30)))
-        .withColumn("gsn", null_if_blank(F.trim(F.substring("raw_line", 73, 3))))
-        .withColumn("hcn_crn", null_if_blank(F.trim(F.substring("raw_line", 77, 3))))
-        .withColumn("wmo", null_if_blank(F.trim(F.substring("raw_line", 81, 5))))
+        .withColumn("gsn", _null_if_blank(F.trim(F.substring("raw_line", 73, 3))))
+        .withColumn("hcn_crn", _null_if_blank(F.trim(F.substring("raw_line", 77, 3))))
+        .withColumn("wmo", _null_if_blank(F.trim(F.substring("raw_line", 81, 5))))
         .withColumn("selected", F.lit(False))
         .select(
             "station_id",
@@ -79,7 +79,7 @@ def main():
     spark = get_spark()
 
     raw_df = spark.table(STATION_LIST_RAW_TABLE)
-    parsed_df = parse_station_list(raw_df)
+    parsed_df = _parse_station_list(raw_df)
 
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA_CLEANED}")
     parsed_df.write.format("delta").mode("overwrite").saveAsTable(

@@ -49,7 +49,7 @@ VARIABLES = ["AWND", "PRCP", "SNOW", "SNWD", "TMAX", "TMIN"]
 # --- Incremental read ---
 
 
-def read_new_merged_rows(spark, only_station_id: str | None = None) -> DataFrame:
+def _read_new_merged_rows(spark, only_station_id: str | None = None) -> DataFrame:
     """
     obs_merged rows from ghcn_last_date on (all of them on the first run).
     only_station_id: that station's full history, no watermark.
@@ -80,7 +80,7 @@ def read_new_merged_rows(spark, only_station_id: str | None = None) -> DataFrame
 # --- Pivot ---
 
 
-def pivot_obs(df: DataFrame) -> DataFrame:
+def _pivot_obs(df: DataFrame) -> DataFrame:
     """One row per (station_id, obs_date), variables as columns; mixed sources -> GHCN."""
     pivoted = (
         df.groupBy("station_id", "obs_date")
@@ -127,7 +127,7 @@ def main():
 
     spark = get_spark()
 
-    new_merged_df = read_new_merged_rows(spark, only_station_id=args.station_id or None)
+    new_merged_df = _read_new_merged_rows(spark, only_station_id=args.station_id or None)
 
     count = new_merged_df.count()
     print(f"New/changed obs_merged records to pivot: {count:,}")
@@ -136,7 +136,7 @@ def main():
         print("Nothing new to pivot.")
         return
 
-    pivot_df = pivot_obs(new_merged_df)
+    pivot_df = _pivot_obs(new_merged_df)
 
     upsert_dataframe(
         spark, pivot_df, OBS_PIVOT_TABLE, merge_keys=("station_id", "obs_date")

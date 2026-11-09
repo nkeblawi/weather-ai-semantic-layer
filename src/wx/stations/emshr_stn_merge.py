@@ -40,7 +40,7 @@ COUNTRIES_URL = "https://www.ncei.noaa.gov/pub/data/ghcn/daily/ghcnd-countries.t
 # ---------------------------------------------------------------------------
 
 
-def merge_icao(wmo_df, emshr_df, codes_df, countries_df):
+def _merge_icao(wmo_df, emshr_df, codes_df, countries_df):
     """
     WMO stations plus codes and country (station_wmo's own `selected` is
     dropped). EMSHR is US-only, so:
@@ -71,14 +71,14 @@ def merge_icao(wmo_df, emshr_df, codes_df, countries_df):
     return stations_df
 
 
-def read_station_codes(spark):
+def _read_station_codes(spark):
     """station_codes rows, or an empty frame if the table doesn't exist yet."""
     if spark.catalog.tableExists(STATION_CODES_TABLE):
         return spark.table(STATION_CODES_TABLE).select("station_id", "icao", "iata")
     return spark.createDataFrame([], "station_id string, icao string, iata string")
 
 
-def fetch_countries(spark, session):
+def _fetch_countries(spark, session):
     """NOAA's FIPS country code -> name list (ghcnd-countries.txt)."""
 
     @ghcn_breaker
@@ -95,7 +95,7 @@ def fetch_countries(spark, session):
     return spark.createDataFrame(rows, "code string, name string")
 
 
-def upsert_station_merged(spark, merged_df, target_table):
+def _upsert_station_merged(spark, merged_df, target_table):
     """Creates station_merged, or upserts on station_id leaving selected/city as they are."""
     preserved_columns = {"station_id", "selected", "city"}
     update_columns = [c for c in merged_df.columns if c not in preserved_columns]
@@ -141,11 +141,11 @@ def main():
     print(f"{STATION_WMO_TABLE}: {station_wmo_df.count():,} rows")
     print(f"{STATION_EMSHR_FILTERED_TABLE}: {emshr_df.count():,} rows")
 
-    codes_df = read_station_codes(spark)
-    countries_df = fetch_countries(spark, session)
+    codes_df = _read_station_codes(spark)
+    countries_df = _fetch_countries(spark, session)
 
     # Merge ICAO, FAA/IATA, and Country columns into GHNC-D/WMO data
-    merged_df = merge_icao(station_wmo_df, emshr_df, codes_df, countries_df)
+    merged_df = _merge_icao(station_wmo_df, emshr_df, codes_df, countries_df)
     print(f"{STATION_MERGED_TABLE}: {merged_df.count():,} rows")
 
     total = merged_df.count()
@@ -159,7 +159,7 @@ def main():
     print(f"Of which, US stations: {us_icao_count:,}")
 
     # Merge/upsert into table, on station_id, so selected/city survive a rerun
-    upsert_station_merged(spark, merged_df, STATION_MERGED_TABLE)
+    _upsert_station_merged(spark, merged_df, STATION_MERGED_TABLE)
     print(f"Upserted {total:,} rows into {STATION_MERGED_TABLE}")
 
 

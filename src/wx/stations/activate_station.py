@@ -33,7 +33,7 @@ from wx.utils.spark_utils import get_spark
 # ---------------------------------------------------------------------------
 
 
-def check_airport_code(spark, station_id: str) -> None:
+def _check_airport_code(spark, station_id: str) -> None:
     """Refuses a station with no airport code (iata, or faa on tables built before iata)."""
     code_col = "iata" if "iata" in spark.table(STATION_MERGED_TABLE).columns else "faa"
     row = spark.sql(
@@ -47,7 +47,7 @@ def check_airport_code(spark, station_id: str) -> None:
         )
 
 
-def update_station(spark, station_id: str, activate: bool, city: str | None):
+def _update_station(spark, station_id: str, activate: bool, city: str | None):
     """Sets selected and/or city on station_id; ValueError if it doesn't exist."""
     exists = (
         spark.sql(
@@ -61,7 +61,7 @@ def update_station(spark, station_id: str, activate: bool, city: str | None):
         raise ValueError(f'No station with station_id "{station_id}".')
 
     if activate:
-        check_airport_code(spark, station_id)
+        _check_airport_code(spark, station_id)
 
     set_clauses = []
     args = {"station_id": station_id}
@@ -109,7 +109,7 @@ def main():
     spark = get_spark()
 
     try:
-        update_station(spark, args.station_id, args.activate, args.city)
+        _update_station(spark, args.station_id, args.activate, args.city)
     except ValueError as e:
         print(f"Error: {e}")
         sys.exit(1)

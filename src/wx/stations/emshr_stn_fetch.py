@@ -34,7 +34,7 @@ SOURCE_URL = f"https://www.ncei.noaa.gov/access/homr/file/{SOURCE_FILE}"
 # ---------------------------------------------------------------------------
 
 
-def fetch_station_list(session) -> str:
+def _fetch_station_list(session) -> str:
     """Fetch the raw station list file contents from NOAA."""
 
     @emshr_breaker
@@ -46,7 +46,7 @@ def fetch_station_list(session) -> str:
     return _get().content.decode("latin-1")
 
 
-def get_fields():
+def _get_fields():
     return [
         ("ncdc", 1, 8),  # - unique NCEI station-history record ID
         ("beg_dt", 10, 17),  # - record begin date, YYYYMMDD
@@ -70,13 +70,13 @@ def main():
     spark = get_spark()
     session = get_session()
 
-    raw_station_list = fetch_station_list(session)
+    raw_station_list = _fetch_station_list(session)
     lines = raw_station_list.splitlines()
 
     data_lines = [ln for ln in lines[2:] if ln.strip()]
     lines_df = spark.createDataFrame([(ln,) for ln in data_lines], ["line"])
 
-    fields = get_fields()
+    fields = _get_fields()
     select_exprs = [
         F.trim(F.substring(F.col("line"), start, end - start + 1)).alias(name)
         for name, start, end in fields

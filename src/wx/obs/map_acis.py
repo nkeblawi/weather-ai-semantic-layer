@@ -40,7 +40,7 @@ from wx.utils.spark_utils import get_spark
 # --- Variable mapping ---
 
 
-def map_acis_variable_names(df: DataFrame) -> DataFrame:
+def _map_acis_variable_names(df: DataFrame) -> DataFrame:
     """ACIS variable names to GHCN ones; unknown variables pass through."""
     return df.withColumn(
         "variable",
@@ -56,7 +56,7 @@ def map_acis_variable_names(df: DataFrame) -> DataFrame:
 # --- Incremental read ---
 
 
-def read_new_raw_rows(spark) -> DataFrame:
+def _read_new_raw_rows(spark) -> DataFrame:
     """Raw rows ingested after obs_acis_conv's max ingested_at (all of them on the first run)."""
     raw_df = spark.table(OBS_ACIS_TABLE)
 
@@ -80,8 +80,8 @@ def read_new_raw_rows(spark) -> DataFrame:
 def main():
     spark = get_spark()
 
-    new_raw_df = read_new_raw_rows(spark)
-    mapped_df = map_acis_variable_names(new_raw_df)
+    new_raw_df = _read_new_raw_rows(spark)
+    mapped_df = _map_acis_variable_names(new_raw_df)
 
     count = mapped_df.count()
     print(f"New/changed records to map: {count:,}")
