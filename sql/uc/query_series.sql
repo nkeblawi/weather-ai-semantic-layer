@@ -53,37 +53,14 @@ RETURN (
                         CAST(COUNT(value) AS INT) AS n_days,
                         MAKE_DATE(bucket_year - IF(COALESCE(p_year_start_month, 1) > 1, 1, 0), COALESCE(p_year_start_month, 1), 1) AS bucket_start
                     FROM (
-                        -- hit computed below the aggregate: aggregates can't reference parameters
-                        SELECT *, CASE
-                                WHEN value IS NULL THEN NULL
-                                WHEN (p_threshold_operator = '>'  AND value > p_threshold_value)
-                                  OR (p_threshold_operator = '>=' AND value >= p_threshold_value)
-                                  OR (p_threshold_operator = '<'  AND value < p_threshold_value)
-                                  OR (p_threshold_operator = '<=' AND value <= p_threshold_value)
-                                  OR (p_threshold_operator = '='  AND value = p_threshold_value)
-                                THEN 1 ELSE 0
-                            END AS hit
-                        FROM (
-                        SELECT obs_date,
+                        SELECT obs_date, value, hit,
                             CASE WHEN COALESCE(p_year_start_month, 1) > 1
                                  THEN YEAR(ADD_MONTHS(obs_date, 13 - p_year_start_month)) ELSE YEAR(obs_date)
-                            END AS bucket_year,
-                            CASE p_metric
-                                WHEN 'TAVG' THEN TAVG
-                                WHEN 'TMAX' THEN TMAX
-                                WHEN 'TMIN' THEN TMIN
-                                WHEN 'PRCP' THEN PRCP
-                                WHEN 'SNOW' THEN SNOW
-                                WHEN 'SNWD' THEN SNWD
-                                WHEN 'AWND' THEN AWND
-                                WHEN 'HDD' THEN HDD
-                                WHEN 'CDD' THEN CDD
-                            END AS value
-                        FROM weather.analytics.observations
-                        WHERE station_id = p_station_id
-                          AND obs_date BETWEEN p_start_date AND p_end_date
-                          AND (p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(obs_date)))
-                        ) raw
+                            END AS bucket_year
+                        FROM weather.analytics.daily_values(
+                            p_station_id, p_metric, p_start_date, p_end_date,
+                            p_month_filter, p_threshold_operator, p_threshold_value
+                        )
                     ) days
                     GROUP BY bucket_year
                 ) buckets
@@ -131,18 +108,6 @@ RETURN (
                             COALESCE(p_year_start_month, 1), 1
                         ) AS bucket_start
                     FROM (
-                        -- hit: 1 when the day meets the threshold (for count); computed
-                        -- here because aggregates can't reference parameters
-                        SELECT *, CASE
-                                WHEN value IS NULL THEN NULL
-                                WHEN (p_threshold_operator = '>'  AND value > p_threshold_value)
-                                  OR (p_threshold_operator = '>=' AND value >= p_threshold_value)
-                                  OR (p_threshold_operator = '<'  AND value < p_threshold_value)
-                                  OR (p_threshold_operator = '<=' AND value <= p_threshold_value)
-                                  OR (p_threshold_operator = '='  AND value = p_threshold_value)
-                                THEN 1 ELSE 0
-                            END AS hit
-                        FROM (
                         SELECT
                             -- year buckets that start mid-year are labeled by the year they end in
                             CASE WHEN p_unit = 'year' AND COALESCE(p_year_start_month, 1) > 1
@@ -150,22 +115,11 @@ RETURN (
                                  ELSE YEAR(obs_date)
                             END AS bucket_year,
                             MONTH(obs_date) AS bucket_month,
-                            CASE p_metric
-                                WHEN 'TAVG' THEN TAVG
-                                WHEN 'TMAX' THEN TMAX
-                                WHEN 'TMIN' THEN TMIN
-                                WHEN 'PRCP' THEN PRCP
-                                WHEN 'SNOW' THEN SNOW
-                                WHEN 'SNWD' THEN SNWD
-                                WHEN 'AWND' THEN AWND
-                                WHEN 'HDD' THEN HDD
-                                WHEN 'CDD' THEN CDD
-                            END AS value
-                        FROM weather.analytics.observations
-                        WHERE station_id = p_station_id
-                          AND obs_date BETWEEN p_start_date AND p_end_date
-                          AND (p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(obs_date)))
-                        ) raw
+                            value, hit
+                        FROM weather.analytics.daily_values(
+                            p_station_id, p_metric, p_start_date, p_end_date,
+                            p_month_filter, p_threshold_operator, p_threshold_value
+                        )
                     ) days
                     GROUP BY
                         bucket_year,
@@ -213,33 +167,9 @@ RETURN (
                                  WHEN p_period_aggregation = 'any'   THEN MAX(hit)
                             END AS bucket_value,
                             COUNT(value) AS n_days
-                        FROM (
-                            SELECT *, CASE
-                                WHEN value IS NULL THEN NULL
-                                WHEN (p_threshold_operator = '>'  AND value > p_threshold_value)
-                                  OR (p_threshold_operator = '>=' AND value >= p_threshold_value)
-                                  OR (p_threshold_operator = '<'  AND value < p_threshold_value)
-                                  OR (p_threshold_operator = '<=' AND value <= p_threshold_value)
-                                  OR (p_threshold_operator = '='  AND value = p_threshold_value)
-                                THEN 1 ELSE 0
-                            END AS hit
-                            FROM (
-                            SELECT obs_date,
-                                CASE p_metric
-                                    WHEN 'TAVG' THEN TAVG
-                                    WHEN 'TMAX' THEN TMAX
-                                    WHEN 'TMIN' THEN TMIN
-                                    WHEN 'PRCP' THEN PRCP
-                                    WHEN 'SNOW' THEN SNOW
-                                    WHEN 'SNWD' THEN SNWD
-                                    WHEN 'AWND' THEN AWND
-                                    WHEN 'HDD' THEN HDD
-                                    WHEN 'CDD' THEN CDD
-                                END AS value
-                            FROM weather.analytics.observations
-                            WHERE station_id = p_station_id
-                              AND obs_date BETWEEN p_start_date AND p_end_date
-                            ) raw
+                        FROM weather.analytics.daily_values(
+                            p_station_id, p_metric, p_start_date, p_end_date,
+                            NULL, p_threshold_operator, p_threshold_value
                         ) d
                         GROUP BY YEAR(obs_date), MONTH(obs_date)
                     ) monthly
@@ -277,33 +207,9 @@ RETURN (
                                  WHEN p_period_aggregation = 'any'   THEN MAX(hit)
                             END AS bucket_value,
                             COUNT(value) AS n_days
-                        FROM (
-                            SELECT *, CASE
-                                WHEN value IS NULL THEN NULL
-                                WHEN (p_threshold_operator = '>'  AND value > p_threshold_value)
-                                  OR (p_threshold_operator = '>=' AND value >= p_threshold_value)
-                                  OR (p_threshold_operator = '<'  AND value < p_threshold_value)
-                                  OR (p_threshold_operator = '<=' AND value <= p_threshold_value)
-                                  OR (p_threshold_operator = '='  AND value = p_threshold_value)
-                                THEN 1 ELSE 0
-                            END AS hit
-                            FROM (
-                            SELECT obs_date,
-                                CASE p_metric
-                                    WHEN 'TAVG' THEN TAVG
-                                    WHEN 'TMAX' THEN TMAX
-                                    WHEN 'TMIN' THEN TMIN
-                                    WHEN 'PRCP' THEN PRCP
-                                    WHEN 'SNOW' THEN SNOW
-                                    WHEN 'SNWD' THEN SNWD
-                                    WHEN 'AWND' THEN AWND
-                                    WHEN 'HDD' THEN HDD
-                                    WHEN 'CDD' THEN CDD
-                                END AS value
-                            FROM weather.analytics.observations
-                            WHERE station_id = p_station_id
-                              AND obs_date BETWEEN p_start_date AND p_end_date
-                            ) raw
+                        FROM weather.analytics.daily_values(
+                            p_station_id, p_metric, p_start_date, p_end_date,
+                            NULL, p_threshold_operator, p_threshold_value
                         ) d
                         GROUP BY YEAR(obs_date), LEAST(52, CAST(FLOOR((DAYOFYEAR(obs_date) - 1) / 7) AS INT) + 1)
                     ) monthly
@@ -342,16 +248,6 @@ RETURN (
                             END AS bucket_value,
                             COUNT(value) AS n_days
                         FROM (
-                            SELECT *, CASE
-                                WHEN value IS NULL THEN NULL
-                                WHEN (p_threshold_operator = '>'  AND value > p_threshold_value)
-                                  OR (p_threshold_operator = '>=' AND value >= p_threshold_value)
-                                  OR (p_threshold_operator = '<'  AND value < p_threshold_value)
-                                  OR (p_threshold_operator = '<=' AND value <= p_threshold_value)
-                                  OR (p_threshold_operator = '='  AND value = p_threshold_value)
-                                THEN 1 ELSE 0
-                            END AS hit
-                            FROM (
                             SELECT
                                 -- December belongs to the following year's winter
                                 YEAR(ADD_MONTHS(obs_date, 1)) AS season_year,
@@ -361,22 +257,12 @@ RETURN (
                                     WHEN MONTH(obs_date) IN (6, 7, 8) THEN 3
                                     ELSE 4
                                 END AS season,
-                                CASE p_metric
-                                    WHEN 'TAVG' THEN TAVG
-                                    WHEN 'TMAX' THEN TMAX
-                                    WHEN 'TMIN' THEN TMIN
-                                    WHEN 'PRCP' THEN PRCP
-                                    WHEN 'SNOW' THEN SNOW
-                                    WHEN 'SNWD' THEN SNWD
-                                    WHEN 'AWND' THEN AWND
-                                    WHEN 'HDD' THEN HDD
-                                    WHEN 'CDD' THEN CDD
-                                END AS value
-                            FROM weather.analytics.observations
-                            WHERE station_id = p_station_id
-                              -- one month early so the first winter gets its December
-                              AND obs_date BETWEEN ADD_MONTHS(p_start_date, -1) AND p_end_date
-                            ) raw
+                                value, hit
+                            -- one month early so the first winter gets its December
+                            FROM weather.analytics.daily_values(
+                                p_station_id, p_metric, ADD_MONTHS(p_start_date, -1), p_end_date,
+                                NULL, p_threshold_operator, p_threshold_value
+                            )
                         ) d
                         WHERE season_year BETWEEN YEAR(p_start_date) AND YEAR(p_end_date)
                         GROUP BY season_year, season
@@ -419,32 +305,11 @@ RETURN (
                         MAX(named_struct('v', value, 'y', y)) AS hi,
                         MIN(named_struct('v', value, 'ny', -y)) AS lo
                     FROM (
-                        SELECT *, CASE
-                                WHEN value IS NULL THEN NULL
-                                WHEN (p_threshold_operator = '>'  AND value > p_threshold_value)
-                                  OR (p_threshold_operator = '>=' AND value >= p_threshold_value)
-                                  OR (p_threshold_operator = '<'  AND value < p_threshold_value)
-                                  OR (p_threshold_operator = '<=' AND value <= p_threshold_value)
-                                  OR (p_threshold_operator = '='  AND value = p_threshold_value)
-                                THEN 1 ELSE 0
-                            END AS hit
-                        FROM (
-                        SELECT DATE_FORMAT(obs_date, 'MM-dd') AS d, YEAR(obs_date) AS y,
-                            CASE p_metric
-                                WHEN 'TAVG' THEN TAVG
-                                WHEN 'TMAX' THEN TMAX
-                                WHEN 'TMIN' THEN TMIN
-                                WHEN 'PRCP' THEN PRCP
-                                WHEN 'SNOW' THEN SNOW
-                                WHEN 'SNWD' THEN SNWD
-                                WHEN 'AWND' THEN AWND
-                                WHEN 'HDD' THEN HDD
-                                WHEN 'CDD' THEN CDD
-                            END AS value
-                        FROM weather.analytics.observations
-                        WHERE station_id = p_station_id
-                          AND obs_date BETWEEN p_start_date AND p_end_date
-                        ) raw0
+                        SELECT DATE_FORMAT(obs_date, 'MM-dd') AS d, YEAR(obs_date) AS y, value, hit
+                        FROM weather.analytics.daily_values(
+                            p_station_id, p_metric, p_start_date, p_end_date,
+                            NULL, p_threshold_operator, p_threshold_value
+                        )
                     ) raw
                     WHERE value IS NOT NULL
                     GROUP BY d
@@ -464,23 +329,9 @@ RETURN (
                     FROM (
                         -- rounded below the aggregate: aggregates can't reference parameters
                         SELECT IF(p_metric IN ('PRCP', 'SNOW', 'SNWD'), ROUND(value, 2), ROUND(value, 0)) AS v
-                        FROM (
-                        SELECT obs_date,
-                            CASE p_metric
-                                WHEN 'TAVG' THEN TAVG
-                                WHEN 'TMAX' THEN TMAX
-                                WHEN 'TMIN' THEN TMIN
-                                WHEN 'PRCP' THEN PRCP
-                                WHEN 'SNOW' THEN SNOW
-                                WHEN 'SNWD' THEN SNWD
-                                WHEN 'AWND' THEN AWND
-                                WHEN 'HDD' THEN HDD
-                                WHEN 'CDD' THEN CDD
-                            END AS value
-                        FROM weather.analytics.observations
-                        WHERE station_id = p_station_id
-                          AND obs_date BETWEEN p_start_date AND p_end_date
-                          AND (p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(obs_date)))
+                        FROM weather.analytics.daily_values(
+                            p_station_id, p_metric, p_start_date, p_end_date,
+                            p_month_filter
                         ) raw
                         WHERE value IS NOT NULL
                     ) d
@@ -502,23 +353,7 @@ RETURN (
                 FROM (
                     -- rounded here: aggregates can't reference parameters
                     SELECT obs_date, IF(p_metric IN ('PRCP', 'SNOW', 'SNWD'), ROUND(value, 2), ROUND(value, 1)) AS v
-                    FROM (
-                    SELECT obs_date,
-                        CASE p_metric
-                            WHEN 'TAVG' THEN TAVG
-                            WHEN 'TMAX' THEN TMAX
-                            WHEN 'TMIN' THEN TMIN
-                            WHEN 'PRCP' THEN PRCP
-                            WHEN 'SNOW' THEN SNOW
-                            WHEN 'SNWD' THEN SNWD
-                            WHEN 'AWND' THEN AWND
-                            WHEN 'HDD' THEN HDD
-                            WHEN 'CDD' THEN CDD
-                        END AS value
-                    FROM weather.analytics.observations
-                    WHERE station_id = p_station_id
-                      AND obs_date BETWEEN p_start_date AND p_end_date
-                    ) raw
+                    FROM weather.analytics.daily_values(p_station_id, p_metric, p_start_date, p_end_date) raw
                     WHERE value IS NOT NULL
                 ) d
             ) pts_query

@@ -30,20 +30,13 @@ p_aggregation top/bottom ranks events by p_event_value (largest first / smallest
 '
 RETURN ((
     WITH qualifying_days AS (
+        -- days meeting the event-day threshold; events are PRCP or SNOW only
         SELECT obs_date, value
-        FROM (
-            SELECT obs_date,
-                CASE p_metric WHEN 'PRCP' THEN PRCP WHEN 'SNOW' THEN SNOW END AS value
-            FROM weather.analytics.observations
-            WHERE station_id = p_station_id
-              AND obs_date BETWEEN p_start_date AND p_end_date
-        ) d
-        WHERE
-            (p_event_day_threshold_operator = '>'  AND value > p_event_day_threshold_value) OR
-            (p_event_day_threshold_operator = '>=' AND value >= p_event_day_threshold_value) OR
-            (p_event_day_threshold_operator = '<'  AND value < p_event_day_threshold_value) OR
-            (p_event_day_threshold_operator = '<=' AND value <= p_event_day_threshold_value) OR
-            (p_event_day_threshold_operator = '='  AND value = p_event_day_threshold_value)
+        FROM weather.analytics.daily_values(
+            p_station_id, p_metric, p_start_date, p_end_date,
+            NULL, p_event_day_threshold_operator, p_event_day_threshold_value
+        )
+        WHERE hit = 1 AND p_metric IN ('PRCP', 'SNOW')
     ),
     grouped AS (
         SELECT obs_date, value,

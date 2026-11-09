@@ -66,31 +66,12 @@ RETURN ((
                 ROUND(CASE WHEN p_aggregation = 'bottom' THEN -value ELSE value END, 2) AS sort_key,
                 p_aggregation IN ('top', 'bottom') AS is_ranking,
                 GREATEST(LEAST(COALESCE(p_limit, 3), 15), 1) AS rank_limit
-            FROM (
-            SELECT obs_date,
-                CASE p_metric
-                    WHEN 'TAVG' THEN TAVG
-                    WHEN 'TMAX' THEN TMAX
-                    WHEN 'TMIN' THEN TMIN
-                    WHEN 'PRCP' THEN PRCP
-                    WHEN 'SNOW' THEN SNOW
-                    WHEN 'SNWD' THEN SNWD
-                    WHEN 'AWND' THEN AWND
-                    WHEN 'HDD' THEN HDD
-                    WHEN 'CDD' THEN CDD
-                END AS value
-            FROM weather.analytics.observations
-            WHERE station_id = p_station_id
-              AND obs_date BETWEEN p_start_date AND p_end_date
-              AND (p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(obs_date)))
-            ) v
+            FROM weather.analytics.daily_values(
+                p_station_id, p_metric, p_start_date, p_end_date,
+                p_month_filter, p_threshold_operator, p_threshold_value
+            )
         ) base
-        WHERE
-            p_aggregation != 'count' OR
-            (p_threshold_operator = '>'  AND value > p_threshold_value) OR
-            (p_threshold_operator = '>=' AND value >= p_threshold_value) OR
-            (p_threshold_operator = '<'  AND value < p_threshold_value) OR
-            (p_threshold_operator = '<=' AND value <= p_threshold_value) OR
-            (p_threshold_operator = '='  AND value = p_threshold_value)
+        -- count keeps only the days meeting the threshold
+        WHERE p_aggregation != 'count' OR hit = 1
     ) t
 ));

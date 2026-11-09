@@ -139,21 +139,10 @@ RETURN ((
                      ELSE YEAR(obs_date)
                 END AS bucket_year,
                 MONTH(obs_date) AS bucket_month,
-                CASE p_metric
-                    WHEN 'TAVG' THEN TAVG
-                    WHEN 'TMAX' THEN TMAX
-                    WHEN 'TMIN' THEN TMIN
-                    WHEN 'PRCP' THEN PRCP
-                    WHEN 'SNOW' THEN SNOW
-                    WHEN 'SNWD' THEN SNWD
-                    WHEN 'AWND' THEN AWND
-                    WHEN 'HDD' THEN HDD
-                    WHEN 'CDD' THEN CDD
-                END AS value
-            FROM weather.analytics.observations
-            WHERE station_id = p_station_id
-              AND obs_date BETWEEN p_start_date AND p_end_date
-              AND (p_month_filter IS NULL OR array_contains(p_month_filter, MONTH(obs_date)))
+                value
+            FROM weather.analytics.daily_values(
+                p_station_id, p_metric, p_start_date, p_end_date, p_month_filter
+            )
         ) days
         GROUP BY
             bucket_year,
