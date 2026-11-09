@@ -87,11 +87,13 @@ Every function returns one JSON string; `answer_query` passes on the result of t
 
 | Function | Fields | Set for max/min (or latest/earliest) | Each ranked row |
 |---|---|---|---|
-| `query_by_day` | `value`, `obs_date`, `rows`, `rows_truncated` | `obs_date` | `{rank, obs_date, value}` |
+| `query_by_day` | `value`, `obs_date`, `rows`, `rows_truncated`, `n_days` | `obs_date` | `{rank, obs_date, value}` |
 | `query_by_event` | `value`, `event_start`, `event_end`, `rows`, `rows_truncated` | `event_start`, `event_end` | `{rank, event_start, event_end, value, duration, total}` |
 | `query_by_period` | `value`, `bucket_year`, `bucket_month`, `rows`, `rows_truncated`, `n_buckets`, `first_bucket`, `last_bucket` | `bucket_year`, `bucket_month` | `{rank, bucket_year, bucket_month, value, n_days}` |
 
 `query_by_period` also says which periods the answer covers: `n_buckets` complete months or years, from `first_bucket` to `last_bucket` (each `{bucket_year, bucket_month}`; `bucket_month` is null for years).
+
+`query_by_day` says how many days had data: `n_days` is the days in the range (in the month filter's months) with a value; for a count it's the denominator. When it's under the days in the range (through today), `wxcore` adds `days_observed` and `days_in_range` to a daily mean, median, sum, standard deviation, or count, and the answer says how many days it covers.
 
 **Series** (`query_series`, `aggregation: "series"`): parallel arrays, one entry per point, chosen by `unit`:
 

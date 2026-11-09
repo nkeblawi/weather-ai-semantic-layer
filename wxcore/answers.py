@@ -5,7 +5,7 @@ table or a ranking chart.
 """
 
 import calendar
-from datetime import date
+from datetime import date, timedelta
 
 from wxcore.dates import (
     ALL_TIME_START,
@@ -14,6 +14,7 @@ from wxcore.dates import (
     NORMAL_START_YEAR,
     SEASON_MONTHS,
     calendar_day_label,
+    current_date,
     season_label,
 )
 from wxcore.db import station_place
@@ -41,6 +42,8 @@ BUCKET_NAMES = {
     "snow_season": ("snow season", "snow seasons"),
 }
 SNOW_SEASON_NOTE = " (snow seasons run July-June)"
+# Daily answers that aggregate many days, so a missing day changes them
+DAYS_OBSERVED_AGGREGATIONS = ("mean", "median", "sum", "stddev", "count")
 DAILY_STATS = {
     "mean": "Average daily {m}",
     "median": "Median daily {m}",
@@ -252,6 +255,26 @@ def _periods_counted(entry: dict, result: dict) -> dict:
     return out
 
 
+def _days_observed(entry: dict, result: dict) -> dict:
+    """How many of a daily answer's days had data, when some didn't (through today, in the month filter's months)."""
+    if (
+        entry.get("unit", "day") != "day"
+        or entry["aggregation"] not in DAYS_OBSERVED_AGGREGATIONS
+        or result.get("n_days") is None  # the SQL function predates n_days
+    ):
+        return {}
+    start = date.fromisoformat(entry["start_date"])
+    end = min(date.fromisoformat(entry["end_date"]), current_date())
+    months = entry.get("month_filter")
+    in_range = sum(
+        1 for i in range((end - start).days + 1)
+        if not months or (start + timedelta(days=i)).month in months
+    )
+    if result["n_days"] >= in_range:
+        return {}
+    return {"days_observed": result["n_days"], "days_in_range": in_range}
+
+
 # ---------------------------------------------------------------------------
 # Functions
 # ---------------------------------------------------------------------------
@@ -362,6 +385,7 @@ def build_answer_payload(
             payload["season"] = label
         if "excluded" in payload:
             payload.update(_periods_counted(entry, result))
+        payload.update(_days_observed(entry, result))
         if result.get("ties"):
             payload["ties"] = _converted_rows(entry, result["ties"], sentence=True)
         if odds or dates:

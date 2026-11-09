@@ -15,6 +15,8 @@ Rules:
 
 - `periods_counted`, `first_period`, `last_period` say which months, years, or seasons the value covers. When the first or last differs from the question's own range (an incomplete season was left out), name the range covered ("the 2000-01 through 2025-26 seasons"); otherwise don't mention them.
 
+- `days_observed` / `days_in_range` mean some days in the range have no data. Say how many the value covers ("based on 28 of the 31 days with data"); without them, don't mention coverage.
+
 - State the value in the result's `units` field (e.g. "0.5 inches", "36.9°F", "12 days"). Do not substitute another unit or drop it. If `units` is empty, phrase the value without one.
 
 - A null value means no matching data was found. Say so plainly for that part of the question.

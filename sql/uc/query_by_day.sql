@@ -13,7 +13,7 @@ RETURNS STRING
 COMMENT '
 Answers a unit = day query from the weather query resolver skill against weather.analytics.observations. 
 
-Returns JSON {value, obs_date, rows, rows_truncated}
+Returns JSON {value, obs_date, rows, rows_truncated, n_days}
 
 obs_date is populated only when p_aggregation is max or min (the date the extreme occurred), and is null for mean/median/sum/stddev/count, which aggregate across many days with no single date to report.
 
@@ -24,6 +24,8 @@ p_threshold_value are required together only when p_aggregation is count.
 p_month_filter (optional) keeps only days in those calendar months, across every year in the range: "the hottest January day on record" is max with [1] over the whole record.
 
 p_aggregation top/bottom ranks days by value (highest first / lowest first) with DENSE_RANK, so tied days share a rank. rows holds every day ranked 1..p_limit as {rank, obs_date, value}, ordered by rank then date; value/obs_date are null. p_limit defaults to 3 and is clamped to 1-15; rows is capped at 15 entries, and rows_truncated is true when ties pushed more than 15 days into the ranks. rows is null for every other aggregation.
+
+n_days is how many days in the range (in p_month_filter months, if given) have a value, for every aggregation; for count it is the denominator (value of them met the threshold).
 '
 RETURN ((
     SELECT to_json(named_struct(
@@ -34,7 +36,7 @@ RETURN ((
             CASE WHEN p_aggregation = 'max'    THEN MAX(value) END,
             CASE WHEN p_aggregation = 'min'    THEN MIN(value) END,
             CASE WHEN p_aggregation = 'stddev' THEN STDDEV(value) END,
-            CASE WHEN p_aggregation = 'count'  THEN CAST(COUNT(*) AS DOUBLE) END
+            CASE WHEN p_aggregation = 'count'  THEN CAST(COUNT_IF(hit = 1) AS DOUBLE) END
         ),
         'obs_date',
             CASE
@@ -51,10 +53,12 @@ RETURN ((
         'rows_truncated',
             CASE WHEN p_aggregation IN ('top', 'bottom') THEN
                 COUNT(*) FILTER (WHERE is_ranking AND value IS NOT NULL AND rk <= rank_limit) > 15
-            END
+            END,
+        -- days with a value; count's threshold is applied by COUNT_IF, so every day is still here
+        'n_days', CAST(COUNT(value) AS INT)
     ))
     FROM (
-        SELECT obs_date, value,
+        SELECT obs_date, value, hit,
             -- top/bottom: 1 = highest/lowest; NULL values rank last and are dropped
             DENSE_RANK() OVER (ORDER BY sort_key DESC NULLS LAST) AS rk,
             is_ranking, rank_limit
@@ -71,7 +75,5 @@ RETURN ((
                 p_month_filter, p_threshold_operator, p_threshold_value
             )
         ) base
-        -- count keeps only the days meeting the threshold
-        WHERE p_aggregation != 'count' OR hit = 1
     ) t
 ));
