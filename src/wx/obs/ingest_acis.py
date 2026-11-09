@@ -21,7 +21,6 @@ sys.path.append(args.workspace_root)
 from wx.utils.bootstrap import bootstrap
 bootstrap()
 
-import argparse
 from datetime import date, datetime, timedelta, timezone
 import pandas as pd
 from pyspark.sql.types import StructType, StructField, StringType, DateType, TimestampType  # type: ignore
