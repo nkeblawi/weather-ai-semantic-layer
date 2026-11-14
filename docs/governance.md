@@ -1,6 +1,6 @@
 # Governance
 
-Who and what can access the weather data in Unity Catalog, how prod and dev are kept apart, and how to audit it. Grants were last exported on 2026-10-22.
+Who and what can access the weather data in Unity Catalog, how prod and dev are kept apart, and how to audit it. Grants were last checked on 2026-11-14.
 
 Principals are named by role, not by email or application ID, because this repo is public.
 
@@ -8,11 +8,16 @@ Principals are named by role, not by email or application ID, because this repo 
 
 | Principal | What it is | Used by |
 |---|---|---|
-| **Owner** | The workspace user who owns both catalogs and every object in them | Interactive work, `databricks bundle deploy`, `scripts/deploy_sql.sh`, and the scheduled jobs (prod jobs run as the owner) |
-| **App service principal** | An OAuth machine identity (client ID + secret) | The Streamlit app, through `wxcore.db` |
-| **account users** | Databricks built-in group: every user in the account | Nothing in this project; it only holds default and metadata grants |
+| **Owner** | The workspace user who owns both catalogs, their schemas, the SQL functions, the views the jobs don't recreate, and `station_aliases` | Interactive work, `databricks bundle deploy`, `scripts/deploy_sql.sh` |
+| **Prod app service principal** | OAuth machine identity (client ID + secret) | The Streamlit Cloud app, through `wxcore.db` |
+| **Dev app service principal** | OAuth machine identity (client ID + secret) | Local Streamlit, the test harness, tests, and the local MCP server |
+| **Prod jobs service principal** | Machine identity with no secret | `run_as` for every prod job |
+| **Dev jobs service principal** | Machine identity with no secret | `run_as` for every dev job |
+| **account users** | Databricks built-in group: every user in the account | Nothing in this project; it holds only the default `information_schema` grants |
 
-The owner has every privilege on the objects it owns without an explicit grant, so the owner doesn't appear in the grant tables below.
+Each service principal has the Databricks SQL access entitlement and nothing else, except the jobs service principals, which also have workspace access to read the bundle's files and run jobs. None is a workspace admin.
+
+The owner doesn't appear in the grant tables below for objects it owns. Owning a catalog or schema lets the owner manage everything in it (grant, alter, transfer ownership), but not read or write data in tables it doesn't own, so the owner also has explicit schema grants (section 3).
 
 ## 2. Catalogs and schemas
 
@@ -32,29 +37,52 @@ Both catalogs have the same schemas:
 
 ## 3. Grants
 
-These are the grants that were issued directly (`inherited_from = NONE`). Everything else in the export is inherited from them. Both catalogs have the same grants unless noted.
+These are the grants issued directly (`inherited_from = NONE`); everything else is inherited from them. Each service principal is granted on its own catalog only: the prod ones on `weather`, the dev ones on `weather_dev`. Both catalogs have the same grants unless noted.
 
-| Grantee | Object | Privileges | Why |
-|---|---|---|---|
-| App service principal | catalog | `USE_CATALOG` | Enter the catalog; reads nothing by itself |
-| App service principal | schema `analytics` | `USE_SCHEMA`, `SELECT`, `EXECUTE` | Call `answer_query` and `lookup_station`, read `stations` and `places` directly, and read the tables the functions use |
-| App service principal | schema `app` | `USE_SCHEMA` | Enter the schema; reads nothing by itself |
-| App service principal | table `app.users` | `SELECT`, `MODIFY` | Read and upsert users and their preferences |
-| App service principal | table `app.chat_history` | `SELECT`, `MODIFY` | Count and insert chat turns |
-| account users | catalog `weather` (prod only) | `BROWSE` | Lets account users see the catalog's metadata, not its data |
-| account users | schema `information_schema` | `USE_SCHEMA`, `SELECT` | Databricks default on every catalog |
+This is based on LEAST PRIVILEGE for each role.
 
-The service principal can't see `raw`, `cleaned`, or `default`. It has no `CREATE`, `MANAGE`, or ownership on anything, so it can't create, alter, or drop objects, and it can't grant privileges to anyone.
+**App service principals** (read the serving layer, write application state):
+
+| Object | Privileges | Why |
+|---|---|---|
+| catalog | `USE_CATALOG` | Enter the catalog; reads nothing by itself |
+| schema `analytics` | `USE_SCHEMA`, `SELECT`, `EXECUTE` | Call `answer_query` and `lookup_station`, read `stations` and `places` directly, and read the tables the functions use |
+| schema `app` | `USE_SCHEMA` | Enter the schema; reads nothing by itself |
+| table `app.users` | `SELECT`, `MODIFY` | Read and upsert users and their preferences |
+| table `app.chat_history` | `SELECT`, `MODIFY` | Count and insert chat turns |
+
+An app service principal can't see `raw`, `cleaned`, `default`, or `app.usage_daily`. It has no `CREATE`, `MANAGE`, or ownership on anything, so it can't create, alter, or drop objects, and it can't grant privileges to anyone.
+
+**Jobs service principals** (write the pipeline's tables):
+
+| Object | Privileges | Why |
+|---|---|---|
+| catalog | `USE_CATALOG` | Enter the catalog |
+| schemas `raw`, `cleaned`, `analytics`, `app` | `USE_SCHEMA`, `SELECT`, `MODIFY`, `CREATE_TABLE` | Read, merge into, and create tables and views |
+| views `analytics.stations`, `analytics.places` | `MANAGE` | Replace the views (`CREATE OR REPLACE VIEW`) |
+| every table the jobs write (20: all of `raw`, `cleaned` and `app`, and `analytics.observations`) | ownership | Overwrite, `ALTER TABLE`, and `VACUUM` need ownership |
+
+`MANAGE` is used on the views because a non-admin can transfer a view only to a group it belongs to. Once a job recreates a view, the jobs service principal owns it. The jobs service principals have no `CREATE SCHEMA`, `CREATE FUNCTION`, or volume privileges.
+
+**Owner** (explicit, despite owning the catalogs):
+
+| Object | Privileges | Why |
+|---|---|---|
+| schemas `raw`, `cleaned`, `analytics`, `app` | `ALL_PRIVILEGES` | The owner no longer owns the job tables, and the views it owns run with its rights. Without `SELECT` here, `stations` (and the app's station lookup, the dashboards, and the lag alert) fail |
+
+Grant the owner's schema privileges before transferring table ownership, never after.
+
+**account users:** only the Databricks default `USE_SCHEMA` and `SELECT` on `information_schema`. `BROWSE` was revoked on `weather` (and on two other projects' catalogs in the workspace) on 2026-11-14, so other identities don't even see the prod catalog listed.
 
 The grants on `analytics` are schema-level on purpose: they carry over to functions and tables that are recreated, and the schema holds only public weather data and read-only functions. The `app` tables are created once with `IF NOT EXISTS`, so table-level grants on them stay in place.
-
-These least-privilege grants replaced catalog-level `USE_SCHEMA` + `SELECT` on 2026-10-22, in dev first and then prod. To go back, re-grant `SELECT, USE SCHEMA ON CATALOG` to the service principal.
 
 ### Grants outside Unity Catalog
 
 These live in the workspace, not in Unity Catalog, so the export above doesn't include them:
 
-- **SQL warehouse** (Serverless Starter Warehouse, the one in `DATABRICKS_HTTP`): the owner has `IS_OWNER`, the app service principal has `CAN_USE`, the `users` group has `CAN_USE` (Databricks default), and `admins` inherit `CAN_MANAGE`.
+- **SQL warehouse** (Serverless Starter Warehouse, the one in `DATABRICKS_HTTP`): all four service principals have `CAN_USE`, the owner has `IS_OWNER`, the `users` group has `CAN_USE` (Databricks default), and `admins` inherit `CAN_MANAGE`.
+
+- **Jobs service principals:** the owner has the **Service Principal: User** role on each (needed to deploy a job with that `run_as`), not Manager, so nobody creates secrets for them by accident.
 
 - **Jobs:** see section 5.
 
@@ -81,35 +109,56 @@ All jobs are defined in `resources/*.yml` and deployed with `databricks bundle d
 | `wx_app_schema` | Creates the `app` schema and tables (`IF NOT EXISTS`) | `app` | On demand, after a deploy | Yes |
 | `wx_app_retention` | Rolls up daily usage, then deletes old turns (section 8) | `app` | Daily 03:00 ET | Yes |
 
-**Identity.** No job sets `run_as`, so every job runs as the user who deployed it: the owner, in both targets. Jobs therefore have the owner's full rights on both catalogs, not just their target's. The `--catalog` argument is what keeps a job in its own catalog, not a grant.
+**Identity.** Each target sets `run_as` in `databricks.yml`: prod jobs run as the prod jobs service principal, dev jobs as the dev one. A job can only write its own catalog because its identity has grants on no other, not just because of its `--catalog` argument.
 
-**Permissions.** In prod, the owner has `IS_OWNER` (and `CAN_MANAGE` from `databricks.yml`), and the workspace `admins` group has `CAN_MANAGE`. Dev jobs are prefixed `[dev <user>]` by development mode and belong to the user who deployed them.
+**Permissions.** The owner has `IS_OWNER` (and `CAN_MANAGE` from `databricks.yml`) in both targets, the target's jobs service principal has `CAN_VIEW`, and the workspace `admins` group has `CAN_MANAGE`. Dev jobs are prefixed `[dev <user>]` by development mode.
 
-**Dev.** The four scheduled jobs are paused in the dev target (`databricks.yml`), so dev only changes when a job is run by hand.
+**Dev.** The five scheduled jobs are paused in the dev target (`databricks.yml`), so dev only changes when a job is run by hand.
 
-**The app never runs jobs.** The app service principal has no job permissions and no write access to `raw`, `cleaned`, or `analytics`.
+**The app never runs jobs.** The app service principals have no job permissions and no write access to `raw`, `cleaned`, or `analytics`.
 
-## 6. Keeping prod and dev apart
+## 6. Dev/prod isolation
+
+Dev and testing environments (local Streamlit, the test harness, tests, the local MCP server) can't reach prod, even if a config names it. Prod is reached only by the deployed app (Streamlit Cloud) and the prod jobs. Both catalogs share one workspace; the boundary is identity and where credentials live, not config.
+
+**THIS IS BY DESIGN:** ANY DEVEVELOPMENT TESTING CANNOT AND MUST NOT TOUCH ANY PRODUCTION ENVIRONMENTS, NOT EVEN READ FROM IT. TOTAL AIRGAPPED ISOLATION.
+
+- **Identities.** Each environment has its own app and jobs service principals, granted on their own catalog only (section 3). Nothing used locally holds a prod grant.
+
+- **Credentials.** The prod app service principal's secret and the prod Anthropic key exist only in Streamlit Cloud's secrets. Local `.env` holds only dev values. The jobs service principals have no secrets at all.
+
+- **Prod is hidden, not just unreadable.** With `BROWSE` revoked from account users, the dev app service principal doesn't see `weather` in `SHOW CATALOGS`; any read fails with `PERMISSION_DENIED` or `INSUFFICIENT_PERMISSIONS`.
+
+- **A clear refusal.** If `WX_CATALOG=weather` is set where prod isn't reachable, `wxcore.db.env_isolation_warning` turns the permission error into "Sorry, this client does not have production access to the weather observations database." (the Streamlit app, the MCP server, and the test harness use it). A permission error on dev keeps the generic message.
 
 - **Code** never hard-codes a catalog. `wxcore.db.catalog()` reads `WX_CATALOG` on each call and raises an error if it isn't set, so a missing setting can't fall back to prod.
 
 - **SQL files** in `sql/uc/` are written against `weather.analytics.*`. `scripts/deploy_sql.sh --env dev` rewrites them to `weather_dev`, and `--env prod` asks for confirmation before deploying.
 
-- **Jobs** get the catalog from the bundle target (`--catalog`). Dev schedules are paused.
+- **Jobs** get the catalog from the bundle target (`--catalog`) and run as that target's jobs service principal. Dev schedules are paused.
+
+**Checking it.** A local script, `tests/check_airgap_live.py`, connects with the local credentials and must find: `.env` holding only dev settings, prod catalogs hidden, every prod read blocked, and dev working. It also warns about any active personal access token.
+
+**By design, outside the boundary:** the owner's own login reaches prod (it owns the catalogs and deploys from the CLI). Dev and prod share one workspace; separation is by identity and grants, not workspace bindings.
 
 ## 7. Secrets
 
-| Secret | Local | Streamlit Cloud |
+| Secret | Local `.env` (dev) | Streamlit Cloud (prod) |
 |---|---|---|
-| Databricks host, warehouse HTTP path | `.env` | App secrets |
-| Service principal client ID and secret | `.env` | App secrets |
-| Anthropic API key | `.env` | App secrets |
+| Databricks host, warehouse HTTP path | yes | yes |
+| App service principal client ID and secret | dev app service principal | prod app service principal |
+| Anthropic API key | dev key | prod key |
+| `WX_CATALOG` | `weather_dev` | `weather` |
 
 - `.env` is gitignored, so secrets never go in the repo.
 
-- The app authenticates as the service principal with OAuth (client ID and secret), not with a personal access token.
+- The app authenticates as a service principal with OAuth (client ID and secret), not with a personal access token. The secrets are scoped to all APIs, read/write; what a service principal can do is limited by its entitlement, warehouse permission, and grants.
 
-- The deploy tooling (`databricks` CLI, `deploy_sql.sh`) authenticates as the owner through the CLI profile, not as the service principal.
+- The Anthropic keys live in separate Anthropic workspaces (dev and prod), each with a monthly spend limit, so usage and cost are tracked per environment.
+
+- The jobs service principals have no secrets.
+
+- The deploy tooling (`databricks` CLI, `deploy_sql.sh`) authenticates as the owner through the CLI profile, not as a service principal.
 
 ## 8. User data and retention
 
@@ -141,11 +190,9 @@ The MCP server never calls Claude and never sees the conversation, only its tool
 
 These are open observations, not changes that have been made:
 
-- **One service principal for both catalogs.** Credentials used in local dev can also read and write prod. A separate dev principal would remove that.
+- **Dev tables are shallow clones of prod.** Most of `weather_dev`'s tables were shallow-cloned from prod, so dev still reads some of prod's data files. The identity boundary holds, but a `VACUUM` on a prod table could remove files a dev clone needs. A one-time deep clone, or rebuilding dev from its own jobs, would end that.
 
-- **`BROWSE` for account users** is granted on `weather` but not `weather_dev`.
-
-- **Jobs run as the owner.** A dev job with a wrong `--catalog` could write to prod. A jobs service principal with write grants on its own catalog only (set as `run_as` per target) would make that impossible.
+- **The MCP server has no prod identity yet.** When it's deployed, it gets its own prod service principal with `analytics` only (no `app` tables), and its secret only in the host's secret store.
 
 - **The on-demand station jobs have no failure email** (`wx_activate_station`, `wx_load_station_history`). They're run by hand, so a failure is seen in the run, but an alert would match the other jobs.
 
