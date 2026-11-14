@@ -32,7 +32,7 @@ Both catalogs have the same schemas:
 |---|---|---|
 | `raw` | Source data as loaded (GHCN, ACIS, EMSHR, station list, GeoNames) | Ingest jobs |
 | `cleaned` | Converted, merged, and QC'd observations and stations; `places` (GeoNames) | Transform jobs |
-| `analytics` | `observations`, `stations`, `station_aliases`, `places`, and the UC SQL functions | Transform jobs, `scripts/deploy_sql.sh` |
+| `analytics` | `observations`, `stations`, `station_aliases`, `places`, and the UC SQL functions | Transform jobs; `scripts/deploy_sql.sh` (the functions and the `station_aliases` seed) |
 | `app` | `users`, `chat_history`, and `usage_daily` (application state, not weather data) | The app; the retention job (section 8) |
 
 ## 3. Grants
@@ -134,6 +134,8 @@ Dev and testing environments (local Streamlit, the test harness, tests, the loca
 - **Code** never hard-codes a catalog. `wxcore.db.catalog()` reads `WX_CATALOG` on each call and raises an error if it isn't set, so a missing setting can't fall back to prod.
 
 - **SQL files** in `sql/uc/` are written against `weather.analytics.*`. `scripts/deploy_sql.sh --env dev` rewrites them to `weather_dev`, and `--env prod` asks for confirmation before deploying.
+
+- **Data.** Every dev table is stored in dev's own storage; none is a view over prod or a shallow clone of it (both read prod's data). To refresh dev from prod, the owner uses DEEP CLONE, never SHALLOW CLONE. `station_aliases`, the one table no job writes, is loaded into each catalog from the seed file `sql/uc/station_aliases.sql` (`scripts/deploy_sql.sh --env dev|prod station_aliases`), so dev and prod match without copying.
 
 - **Jobs** get the catalog from the bundle target (`--catalog`) and run as that target's jobs service principal. Dev schedules are paused.
 

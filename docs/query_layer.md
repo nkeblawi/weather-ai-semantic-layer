@@ -37,7 +37,7 @@ Deployed in Unity Catalog from `sql/uc/` with `scripts/deploy_sql.sh`; each answ
 
 ## Station lookup
 
-A station is found from its city, airport name or code, or a common alias ("Logan", "Sea-Tac", "Twin Cities") stored in `analytics.station_aliases`. Case, spaces, and punctuation don't matter.
+A station is found from its city, airport name or code, or a common alias ("Logan", "Sea-Tac", "Twin Cities") stored in `analytics.station_aliases`. Case, spaces, and punctuation don't matter. The aliases live in `sql/uc/station_aliases.sql`: edit that file, then load it into dev and prod (see [deploying.md](deploying.md)).
 
 Any other town resolves by name through `analytics.places` (every place in the world with 1,000+ people, from [GeoNames](https://www.geonames.org)).
 
