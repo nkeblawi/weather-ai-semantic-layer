@@ -190,8 +190,6 @@ The MCP server never calls Claude and never sees the conversation, only its tool
 
 These are open observations, not changes that have been made:
 
-- **Dev tables are shallow clones of prod.** Most of `weather_dev`'s tables were shallow-cloned from prod, so dev still reads some of prod's data files. The identity boundary holds, but a `VACUUM` on a prod table could remove files a dev clone needs. A one-time deep clone, or rebuilding dev from its own jobs, would end that.
-
 - **The MCP server has no prod identity yet.** When it's deployed, it gets its own prod service principal with `analytics` only (no `app` tables), and its secret only in the host's secret store.
 
 - **The on-demand station jobs have no failure email** (`wx_activate_station`, `wx_load_station_history`). They're run by hand, so a failure is seen in the run, but an alert would match the other jobs.
