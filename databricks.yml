@@ -20,6 +20,14 @@ targets:
       host: https://dbc-958231c0-60ed.cloud.databricks.com
     variables:
       catalog: weather_dev
+    # jobs run as their own service principal, not the deploying user (as in prod)
+    run_as:
+      service_principal_name: 51350910-c9c9-404e-b8a2-5e8438b018f5  # wx-jobs-sp-dev
+    permissions:
+      - user_name: kebnab@gmail.com
+        level: CAN_MANAGE
+      - service_principal_name: 51350910-c9c9-404e-b8a2-5e8438b018f5
+        level: CAN_VIEW
     resources:
       jobs:
         wx_obs_ingest_ghcn:
@@ -45,6 +53,10 @@ targets:
       root_path: /Workspace/Users/kebnab@gmail.com/.bundle/${bundle.name}/${bundle.target}
     variables:
       catalog: weather
+    run_as:
+      service_principal_name: 23f6fe6c-b5d1-4abc-9735-99d4761681af  # wx-jobs-sp-prod
     permissions:
       - user_name: kebnab@gmail.com
         level: CAN_MANAGE
+      - service_principal_name: 23f6fe6c-b5d1-4abc-9735-99d4761681af
+        level: CAN_VIEW
