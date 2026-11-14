@@ -87,7 +87,7 @@ def friendly_error(error_text: str) -> str:
     lowered = error_text.lower()
     if any(marker in lowered for marker in _QUOTA_MARKERS):
         return QUOTA_MSG
-    return GENERIC_ERROR_MSG
+    return db.env_isolation_warning(error_text) or GENERIC_ERROR_MSG
 
 
 def get_conn():

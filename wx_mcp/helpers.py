@@ -59,6 +59,8 @@ def _warehouse():
         ) from None
     except (sql_exc.Error, DatabricksError) as exc:
         logger.error("warehouse error: %s", exc)
+        if message := db.env_isolation_warning(str(exc)):
+            raise ToolError(message) from None
         raise ToolError(
             "the weather warehouse couldn't run this query; this is a server problem, not your request, "
             "so don't retry it"

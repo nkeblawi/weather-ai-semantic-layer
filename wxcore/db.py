@@ -32,6 +32,11 @@ from wxcore.dates import (
 # Constants
 # ---------------------------------------------------------------------------
 
+# A permission error on the prod catalog: these credentials aren't prod's (e.g. a dev machine)
+PROD_CATALOG = "weather"
+ENV_ISOLATION_MSG = "Sorry, this client does not have production access to the weather observations database."
+_NO_ACCESS_MARKERS = ("PERMISSION_DENIED", "INSUFFICIENT_PERMISSIONS")
+
 MATCHING_DAYS_MAX = 5  # a day count names its days: all of them up to this many, else at least this many of the most extreme (whole ties)
 
 # A place matched by coordinates: a station in that city within NEARBY_MILES is
@@ -417,6 +422,14 @@ def catalog() -> str:
             "in the environment, or in the app's .env"
         )
     return name
+
+
+def env_isolation_warning(error_text: str) -> str | None:
+    """ENV_ISOLATION_MSG for a permission error while WX_CATALOG is prod; None for anything else."""
+    if os.environ.get("WX_CATALOG", "").strip() != PROD_CATALOG:
+        return None
+    upper = error_text.upper()
+    return ENV_ISOLATION_MSG if any(marker in upper for marker in _NO_ACCESS_MARKERS) else None
 
 
 def get_databricks_connection():

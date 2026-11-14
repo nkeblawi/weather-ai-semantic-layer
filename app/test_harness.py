@@ -27,7 +27,7 @@ from pipeline import (
     resolve_question,
 )
 from wxcore.answers import build_answer_payload
-from wxcore.db import call_answer_query, get_databricks_connection
+from wxcore.db import call_answer_query, env_isolation_warning, get_databricks_connection
 from chat_store import (
     ensure_user,
     new_session_id,
@@ -166,7 +166,7 @@ def main():
             print()
             interrupted = True
         except Exception as exc:  # noqa: BLE001
-            answer_text = f"[error] {exc}"
+            answer_text = f"[error] {env_isolation_warning(str(exc)) or exc}"
             status = "error"
             print(answer_text)
 
