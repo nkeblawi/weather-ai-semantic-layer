@@ -160,7 +160,7 @@ Dev and testing environments (local Streamlit, the test harness, tests, the loca
 
 - The jobs service principals have no secrets.
 
-- The deploy tooling (`databricks` CLI, `deploy_sql.sh`) authenticates as the owner through the CLI profile, not as a service principal.
+- The deploy tooling (`databricks` CLI, `deploy_sql.sh`, `backfill.sh`) authenticates as the owner through OAuth (`databricks auth login`), not as a service principal. Its short-lived tokens are kept in the OS keyring, not in a config file, and the owner has no personal access tokens.
 
 ## 8. User data and retention
 
