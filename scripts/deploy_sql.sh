@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Deploy the Unity Catalog SQL functions in sql/uc/ to dev or prod.
+# Deploy the Unity Catalog SQL functions in sql/uc/ to dev or prod, and load
+# the station_aliases seed (sql/uc/station_aliases.sql).
 #
 # Usage: scripts/deploy_sql.sh --env dev|prod [--dry-run] [function ...]
 #
@@ -10,8 +11,8 @@
 # With no function names, deploys the query layer in dependency order:
 # daily_values (read by the four query functions), query_by_day,
 # query_by_event, query_by_period, query_series, answer_query (calls the
-# other four, so it goes last). lookup_station is deployed only when named
-# explicitly.
+# other four, so it goes last). lookup_station and station_aliases are
+# deployed only when named explicitly.
 #
 # The .sql files are written against the prod catalog (weather.analytics.*);
 # --env dev rewrites every "weather.analytics." to "weather_dev.analytics."
