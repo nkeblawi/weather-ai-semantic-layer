@@ -84,6 +84,7 @@ A request for many metrics across many cities is not answered as asked: set `cla
 | first, earliest (an event/storm, `unit: "event"` only) | earliest |
 | top N, N biggest/hottest/wettest/snowiest, rank, list the …-est (plural or a count) | top |
 | bottom N, N smallest/coldest/driest/least snowy, the lowest few (plural or a count) | bottom |
+| record highs/lows set, record-breaking days, days that broke their record (see below) | record_high / record_low |
 
 By default, `aggregation` operates on raw daily rows: this is `unit: "day"`, the default, and the field can be omitted entirely.
 
@@ -104,7 +105,7 @@ Days above/below N degrees (an explicit number) use `threshold` with the operato
 
 If the question asks "how many days" but doesn't match one of these idioms and doesn't state an explicit threshold itself, set `clarification_question` to ask what condition defines "a day" rather than guessing a cutoff.
 
-**Days that set or tied a record for their own date are not supported yet.** "How many record highs this summer", "record-breaking days in the last 5 years", "which days this year broke their record", "how many daily records were set": no query counts or lists these, so never resolve one into something else. Don't invent a threshold (a count of days `= 103` or `>= 100` isn't a count of records), and don't use `day_of_year`, `max`, or `top` in its place. Submit `needs_clarification`, with a `clarification_question` saying that counting record-setting days isn't available yet and offering what is: the hottest days in that period (`top`), days at or above a temperature they name (`count` + `threshold`), or the record high for one calendar date ("the record high for July 4"). This holds after a retry too, and whether the user calls them record highs, record lows, or daily records. A single record as an extreme ("the record high this summer", "the record high for July 4") is still answered as usual (`max`, or `day_of_year` below).
+**Days that set or tied a record for their own date** ("how many record highs this summer", "record-breaking days in the last 5 years", "which days this year broke their record", "record warm lows in 2024", "days with record rainfall"): `aggregation: "record_high"` or `"record_low"`, `unit: "day"` (omit it), and no `threshold` (the record is the bar). Record highs → TMAX `record_high`; record lows → TMIN `record_low`; record warm lows (the warmest lows, record high minimums) → TMIN `record_high`; record daily rain or snowfall → PRCP or SNOW `record_high`. "Daily records" or "records" with no direction → two queries, TMAX `record_high` and TMIN `record_low`. Nothing else is supported (record cold highs, record low rainfall, record average temperatures): submit `needs_clarification` offering record highs, record lows, or record warm lows. Dates are the period asked about (a month name → `month_filter`, as below); none → omit both (the whole record). Each day is judged against earlier years, with ties counted and young records handled by the app, so don't add a threshold, `top`, or `day_of_year` to it. A single record as an extreme ("the record high this summer", "the record high for July 4") is still answered as usual (`max`, or `day_of_year` below).
 
 **Events, months, years, and seasons.** A precipitation/snow event, storm, or spell ("N in a row"), or a month, year, or season as the thing counted, compared, or aggregated ("how many months…", "which year was wettest", "the snowiest winter", "the hottest summers") → follow `references/count_group.md`. Every other question, including plain "how many days…", stays `unit: "day"` (omit it).
 
@@ -164,7 +165,7 @@ Once every prior step has resolved (or Step 2/3/4/5 has stopped early with a que
     {
       "station_id": "GHCN station ID",
       "metric": "TAVG | TMAX | TMIN | PRCP | SNOW | SNWD | AWND | HDD | CDD",
-      "aggregation": "mean | median | sum | max | min | stddev | count | latest | earliest | top | bottom | first_date | last_date",
+      "aggregation": "mean | median | sum | max | min | stddev | count | latest | earliest | top | bottom | first_date | last_date | record_high | record_low",
       "unit": "day | event | month | year | snow_season | season | day_of_year, omit if day",
       "season": "winter | spring | summer | fall, only present when unit is season",
       "calendar_day": "MM-DD, only present when unit is day_of_year",

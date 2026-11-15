@@ -214,6 +214,67 @@
       }
     },
     {
+      "question": "How many record highs did Reagan National set this summer?",
+      "note": "days that set or tied their date's record: no threshold",
+      "resolved": {
+        "current_date": "2026-08-04",
+        "status": "resolved",
+        "queries": [
+          {
+            "station_id": "USW00013743",
+            "metric": "TMAX",
+            "aggregation": "record_high",
+            "start_date": "2026-06-01",
+            "end_date": "2026-08-31"
+          }
+        ]
+      }
+    },
+    {
+      "question": "Did Dulles set any daily records in 2025?",
+      "note": "records with no direction: highs and lows",
+      "resolved": {
+        "current_date": "2026-08-04",
+        "status": "resolved",
+        "queries": [
+          {
+            "station_id": "USW00093738",
+            "metric": "TMAX",
+            "aggregation": "record_high",
+            "start_date": "2025-01-01",
+            "end_date": "2025-12-31"
+          },
+          {
+            "station_id": "USW00093738",
+            "metric": "TMIN",
+            "aggregation": "record_low",
+            "start_date": "2025-01-01",
+            "end_date": "2025-12-31"
+          }
+        ]
+      }
+    },
+    {
+      "question": "How many record warm lows has Reagan National had in July since 2000?",
+      "note": "record warm lows: TMIN record_high; a month name is a month_filter",
+      "resolved": {
+        "current_date": "2026-08-04",
+        "status": "resolved",
+        "queries": [
+          {
+            "station_id": "USW00013743",
+            "metric": "TMIN",
+            "aggregation": "record_high",
+            "month_filter": [
+              7
+            ],
+            "start_date": "2000-01-01",
+            "end_date": "2026-08-04"
+          }
+        ]
+      }
+    },
+    {
       "question": "What were the 5 hottest days ever recorded at Dulles?",
       "resolved": {
         "current_date": "2026-08-04",
