@@ -427,7 +427,7 @@ def ranking_chart(payload: dict, table: dict) -> dict:
     ]
     units = "days" if payload.get("event_value") == "duration" else payload["units"]
     return {
-        "kind": "ranking", "unit": payload.get("unit", "day"), "units": units,
+        "kind": "ranking", "unit": payload.get("unit", "day"), "units": units, "order": payload["aggregation"],
         "title": table["title"], "heading": table["title"].split(" · ")[0], "subtitle": payload["place"],
         "series": [{"name": payload["metric"], "metric": payload["metric"], "bars": True, "trend": None, "points": points}],
         "notes": [table["note"]] if table.get("note") else [],

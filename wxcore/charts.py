@@ -21,23 +21,29 @@ import pandas as pd
 
 # Line colors by metric.
 METRIC_COLORS = {
-    "TMAX": "#E4572E",  # red: highs
-    "TMIN": "#2E86DE",  # blue: lows
+    "TMAX": "#E4572E",
+    "TMIN": "#2E86DE",
     "TAVG": "#F2A541",
     "PRCP": "#17A398",
-    "SNOW": "#7FA7C9",
-    "SNWD": "#7FA7C9",
+    "SNOW": "#87CEEB",
+    "SNWD": "#87CEEB",
     "AWND": "#8E7DBE",
     "HDD": "#2E86DE",
     "CDD": "#E4572E",
 }
+
 # Fallbacks for a second line of the same metric (another station): contrast
-# first -- a blue next to a blue, or a red next to a red, is hard to tell apart
 PALETTE = ["#F2A541", "#8E7DBE", "#17A398", "#E4572E", "#87CEEB"]
 ABOVE, BELOW = "#E4572E", "#2E86DE"  # anomaly bars: warmer/wetter vs cooler/drier
 NORMAL_GRAY = "#8C8C8C"
 HEIGHT = 320
 
+# Temperature rankings: coldest (bottom) is blue whatever the metric; warmest
+WARM_COLORS = {
+    "TMAX": METRIC_COLORS["TMAX"],
+    "TAVG": METRIC_COLORS["TAVG"],
+    "TMIN": METRIC_COLORS["TAVG"],
+}
 
 # Climate graph (NWS style): record range behind the normal range, daily bars on top
 CLIMATE_PARTS = [
@@ -539,6 +545,11 @@ def ranking_bar_chart(chart: dict) -> alt.Chart:
     df = _frame(chart)
     metric = chart["series"][0]["metric"]
     color = METRIC_COLORS.get(metric, PALETTE[0])
+    # charts saved before "order" existed keep their metric color
+    if metric in WARM_COLORS and chart.get("order"):
+        color = (
+            METRIC_COLORS["TMIN"] if chart["order"] == "bottom" else WARM_COLORS[metric]
+        )
     totals = metric in ("PRCP", "SNOW", "SNWD") or chart["units"] in ("days",)
     # every label shown: Vega otherwise drops alternate ones when the font is larger
     y = alt.Y(
