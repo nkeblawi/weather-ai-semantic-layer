@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 from wxcore.dates import ALL_TIME_START, resolve_date_range, current_date
 from wxcore.db import call_lookup_station
 from wxcore.db import fill_station_info as _fill_station_info
+from wxcore.units import RECORD_AGGREGATIONS
 
 
 # ---------------------------------------------------------------------------
@@ -302,9 +303,12 @@ def _holds_a_record(payload: dict) -> bool:
     """
     An extreme over the whole record: the highest/lowest values (a calendar
     date's record too), or first/last dates with their earliest/latest on
-    record. A value the answer may call a record.
+    record. A value the answer may call a record. Days that set or tied
+    their date's record (record_high/record_low) are records in any period.
     """
     extremes = ("max", "min", "top", "bottom", "first_date", "last_date")
+    if payload.get("aggregation") in RECORD_AGGREGATIONS:
+        return True
     return payload.get("aggregation") in extremes and payload.get("start_date") == ALL_TIME_START
 
 

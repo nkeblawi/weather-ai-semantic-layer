@@ -52,6 +52,8 @@ SUMMARY_STATS = {
 
 # choice -> (aggregation, aggregation when ranked; None: can't be ranked)
 ORDERS = {"highest": ("max", "top"), "lowest": ("min", "bottom")}
+# days that set or tied their date's record (validation.RECORD_METRICS says which metrics)
+RECORDS = {"high": "record_high", "low": "record_low"}
 EVENT_SELECTS = {
     "largest": ("max", "top"),
     "smallest": ("min", "bottom"),
@@ -327,6 +329,13 @@ def count_days(
     """How many days met a named condition, or a metric's threshold. No period: the whole record."""
     q = {"station_id": station, "aggregation": "count"}
     _condition_or_threshold(q, condition, metric, threshold)
+    _with_period(q, period, months, today)
+    return q
+
+
+def record_days(station, metric, record, period=None, months=None, today=None) -> dict:
+    """Days that set or tied the record high or low for their calendar date. No period: the whole record."""
+    q = {"station_id": station, "metric": metric, "aggregation": RECORDS[_choice("record", record, RECORDS)]}
     _with_period(q, period, months, today)
     return q
 

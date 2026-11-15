@@ -22,6 +22,7 @@ from wxcore.units import (
     COUNT_UNITS,
     METRIC_LABELS,
     METRIC_UNITS,
+    RECORD_AGGREGATIONS,
     TEMP_METRICS,
     answer_units,
     convert_value,
@@ -43,7 +44,7 @@ BUCKET_NAMES = {
 }
 SNOW_SEASON_NOTE = " (snow seasons run July-June)"
 # Daily answers that aggregate many days, so a missing day changes them
-DAYS_OBSERVED_AGGREGATIONS = ("mean", "median", "sum", "stddev", "count")
+DAYS_OBSERVED_AGGREGATIONS = ("mean", "median", "sum", "stddev", "count", *RECORD_AGGREGATIONS)
 DAILY_STATS = {
     "mean": "Average daily {m}",
     "median": "Median daily {m}",
@@ -53,7 +54,15 @@ DAILY_STATS = {
     "min": "Lowest daily {m}",
     "top": "Days ranked by {m}, highest first",
     "bottom": "Days ranked by {m}, lowest first",
+    "record_high": "Days whose {m} set or tied the highest on record for their calendar date",
+    "record_low": "Days whose {m} set or tied the lowest on record for their calendar date",
 }
+# how query_records judges a record, for the answer to rest on
+RECORD_RULE = (
+    "Each day is compared with the same calendar date in earlier years only (the record as it stood "
+    "that day); a tie counts. A date needs 30 earlier years of data before its records count, unless "
+    "the day still holds the record for that date today."
+)
 ACROSS_BUCKETS = {
     "mean": "Average of each {one}'s {v}",
     "median": "Median of each {one}'s {v}",
@@ -86,7 +95,7 @@ def _round_value(entry: dict, value):
     if value is None:
         return None
     # counts and event durations are whole numbers of days/events
-    whole = entry["aggregation"] == "count" or (
+    whole = entry["aggregation"] in ("count", *RECORD_AGGREGATIONS) or (
         entry.get("unit") == "event" and entry.get("event_value") == "duration"
     )
     return int(value) if whole else round(value, 1)
@@ -255,6 +264,30 @@ def _periods_counted(entry: dict, result: dict) -> dict:
     return out
 
 
+def _record_days(entry: dict, result: dict) -> dict:
+    """A records answer's days, converted like single readings, and how they were judged."""
+    reading = {**entry, "aggregation": "max"}  # round/convert like one day's value, not a count
+    days = []
+    for r in result.get("rows") or []:
+        day = {"obs_date": r["obs_date"], "value": _round_value(reading, convert_value(reading, r["value"]))}
+        # absent when the date had no earlier value (to_json drops nulls)
+        if r.get("previous_record") is not None:
+            day["previous_record"] = _round_value(reading, convert_value(reading, r["previous_record"]))
+            day["previous_record_year"] = r["previous_record_year"]
+            day["tied"] = bool(r.get("tied"))
+        days.append(day)
+    # the days' values are readings (°F/°C, inches), unlike the answer's count of days
+    out = {"record_rule": RECORD_RULE, "record_units": answer_units(reading)}
+    if result.get("n_tied") is not None:  # of all the days, not just the ones listed
+        out["tied_days"] = result["n_tied"]
+    if days:
+        out["record_days"] = days
+        out["record_days_are"] = (
+            f"the first {len(days)} of them, by date" if result.get("rows_truncated") else "all of them"
+        )
+    return out
+
+
 def _days_observed(entry: dict, result: dict) -> dict:
     """How many of a daily answer's days had data, when some didn't (through today, in the month filter's months)."""
     if (
@@ -399,6 +432,8 @@ def build_answer_payload(
                 payload["matching_days_are"] = f"the {'lowest' if below else 'highest'} {len(result['matching_days'])} of them"
             else:
                 payload["matching_days_are"] = "all of them"
+        if entry["aggregation"] in RECORD_AGGREGATIONS:
+            payload.update(_record_days(entry, result))
         # top/bottom: value is null and the ranking is in rows (rank, then
         # date). Ties share a rank, so rows can outnumber the requested ranks.
         if entry["aggregation"] in RANKING_AGGREGATIONS:
@@ -431,6 +466,31 @@ def ranking_chart(payload: dict, table: dict) -> dict:
         "title": table["title"], "heading": table["title"].split(" · ")[0], "subtitle": payload["place"],
         "series": [{"name": payload["metric"], "metric": payload["metric"], "bars": True, "trend": None, "points": points}],
         "notes": [table["note"]] if table.get("note") else [],
+    }
+
+
+def records_table(payload: dict) -> dict | None:
+    """A display table for one records answer payload (the days and the records they beat), or None."""
+    if payload.get("aggregation") not in RECORD_AGGREGATIONS or not payload.get("record_days"):
+        return None
+    units = payload.get("record_units", "")
+    suffix = units if units.startswith("°") else f" {units}" if units else ""
+    rows = []
+    for d in payload["record_days"]:
+        if "previous_record" in d:
+            before = f"{d['previous_record']}{suffix} ({d['previous_record_year']})"
+            before = f"tied {before}" if d["tied"] else before
+        else:
+            before = "none"
+        rows.append({"Date": _fmt_day(d["obs_date"]), "Value": f"{d['value']}{suffix}", "Previous record": before})
+    direction = "high" if payload["aggregation"] == "record_high" else "low"
+    label = METRIC_LABELS.get(payload["metric"], payload["metric"]).lower()
+    more = payload.get("record_days_are", "").startswith("the first")
+    return {
+        # e.g. "Days that set or tied a record high (low temperature) · New York, NY"
+        "title": f"Days that set or tied a record {direction} ({label}) · {payload['place']}",
+        "rows": rows,
+        "note": f"{payload['value']} days in all; the first {len(rows)} are shown." if more else None,
     }
 
 

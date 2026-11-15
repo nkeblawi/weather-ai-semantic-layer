@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 
 from wxcore.dates import ALL_TIME_START, FALL_MONTHS, SPRING_MONTHS, current_date
-from wxcore.units import TEMP_METRICS, TOTAL_METRICS, natural_aggregation
+from wxcore.units import RECORD_AGGREGATIONS, TEMP_METRICS, TOTAL_METRICS, natural_aggregation
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,10 @@ AGGREGATIONS = {
     "series",
     "first_date",
     "last_date",
-}
+} | set(RECORD_AGGREGATIONS)
+
+# days that set or tied their date's record: which metrics each direction applies to
+RECORD_METRICS = {"record_high": {"TMAX", "TMIN", "PRCP", "SNOW"}, "record_low": {"TMIN"}}
 
 # the first/last day each year (or Jul-Jun season) meeting a threshold: freeze dates, first 90-degree day
 DATE_AGGREGATIONS = {"first_date", "last_date"}
@@ -259,6 +262,15 @@ def _validate_query(q, station_info: dict, today: date) -> list[str]:
         )
     if "calendar_day" in q and (unit != "day_of_year" or aggregation == "series"):
         problems.append("calendar_day only applies to a day_of_year record or normal")
+    if aggregation in RECORD_METRICS:
+        if metric not in RECORD_METRICS[aggregation]:
+            problems.append(
+                f"aggregation {aggregation!r} takes {', '.join(sorted(RECORD_METRICS[aggregation]))}, got {metric!r}"
+            )
+        if unit != "day":
+            problems.append(f"aggregation {aggregation!r} counts days: unit must be 'day', got {unit!r}")
+        if "threshold" in q:
+            problems.append(f"aggregation {aggregation!r} takes no threshold: the record is the bar")
     if aggregation in DATE_AGGREGATIONS:
         if unit not in DATE_UNITS:
             problems.append(

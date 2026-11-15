@@ -93,10 +93,14 @@ def threshold_label(metric: str, threshold: dict, celsius: bool = False) -> str:
     return f"{what} {sign} {label}"
 
 
+# days that set or tied their date's record (query_records): a count of days, like count
+RECORD_AGGREGATIONS = ("record_high", "record_low")
+
+
 def answer_units(entry: dict) -> str:
     """Physical unit the answer value should be stated in."""
     grain = entry.get("unit", "day")
-    if entry["aggregation"] == "count":
+    if entry["aggregation"] == "count" or entry["aggregation"] in RECORD_AGGREGATIONS:
         return COUNT_UNITS.get(grain, "days")
     if grain == "event" and entry.get("event_value") == "duration":
         return "days"
@@ -114,6 +118,9 @@ def convert_value(entry: dict, value):
     """
     if value is None:
         return None
+    # a count (days, events, periods, records) isn't a reading
+    if entry["aggregation"] in ("count", *RECORD_AGGREGATIONS):
+        return value
     if entry.get("output_unit") == "C" and entry["metric"] in TEMP_METRICS:
         if entry["aggregation"] == "stddev":
             return value * 5 / 9

@@ -61,7 +61,7 @@ def _fill_dates(q, unit, today: date) -> None:
         q["start_date"] = f"{NORMAL_START_YEAR}-01-01"
         q["end_date"] = f"{NORMAL_END_YEAR}-12-31"
     elif (
-        q.get("aggregation") in SUPERLATIVE_AGGREGATIONS | {"series", "count"}
+        q.get("aggregation") in SUPERLATIVE_AGGREGATIONS | {"series", "count", "record_high", "record_low"}
         or unit in WHOLE_RECORD_UNITS
         or "month_filter" in q
     ):

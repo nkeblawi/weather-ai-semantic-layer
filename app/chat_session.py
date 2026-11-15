@@ -365,7 +365,7 @@ def get_answer(
             answer_text = pipeline.generate_answer(
                 session.client, question, answer_payloads, history=model_history
             )
-            tables = [t for p in answer_payloads if (t := answers.ranking_table(p))]
+            tables = [t for p in answer_payloads if (t := answers.ranking_table(p) or answers.records_table(p))]
             if plot_mode == validation.PLOT_EXPLICIT and tables:
                 # /plot of a ranking: bars, with the table still under them
                 charts = [
