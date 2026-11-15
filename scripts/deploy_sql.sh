@@ -9,9 +9,9 @@
 # Nothing is sent to Databricks and no prod confirmation is asked.
 #
 # With no function names, deploys the query layer in dependency order:
-# daily_values (read by the four query functions), query_by_day,
-# query_by_event, query_by_period, query_series, answer_query (calls the
-# other four, so it goes last). lookup_station and station_aliases are
+# daily_values (read by the five query functions), query_by_day,
+# query_by_event, query_by_period, query_series, query_records, answer_query
+# (calls the other five, so it goes last). lookup_station and station_aliases are
 # deployed only when named explicitly.
 #
 # The .sql files are written against the prod catalog (weather.analytics.*);
@@ -61,7 +61,7 @@ case "$ENV" in
 esac
 
 if [[ ${#FUNCTIONS[@]} -eq 0 ]]; then
-    FUNCTIONS=(daily_values query_by_day query_by_event query_by_period query_series answer_query)
+    FUNCTIONS=(daily_values query_by_day query_by_event query_by_period query_series query_records answer_query)
 fi
 
 for fn in "${FUNCTIONS[@]}"; do
