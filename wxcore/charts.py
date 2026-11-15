@@ -582,7 +582,8 @@ def ranking_bar_chart(chart: dict) -> alt.Chart:
         .mark_text(align="left", dx=4, color=NORMAL_GRAY)
         .encode(x=x, y=y, text=alt.Text("value:Q"))
     )
-    return alt.layer(bars, text).properties(height=max(120, 34 * len(df)))
+    # at least the other charts' height: shorter squeezes the labels in the chat column
+    return alt.layer(bars, text).properties(height=max(HEIGHT, 34 * len(df)))
 
 
 def difference_chart(chart: dict) -> alt.Chart:
