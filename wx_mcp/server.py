@@ -34,6 +34,10 @@ Past weather observations (temperature, rain, snow, wind) at stations in the US 
 - Name what the results give: a count's matching_days with their dates and values, and an extreme's date.
 - Metrics: {metrics}.
 - Values and thresholds are in °F and inches. Data runs 1-3 days behind today (non-US stations 2-3).
+- If the user wants °C or metric, convert in your reply: °C = (°F - 32) x 5/9, mm = inches x 25.4. A
+  difference (a departure from normal, a gap between stations or periods, a change) and a degree-day total
+  convert by x 5/9 only, with no -32: +9°F is +5°C. Convert a °C or metric threshold to °F or inches before
+  calling a tool (30°C is 86°F). Charts stay in °F and inches: say so when you show one.
 - Chart tools return a PNG: show it to the user, and describe it only from the summaries or rows. Terminal
   clients may not display images: unless you know the user can see it, don't say "the chart above", and give
   the file path if your client saved one. Pass on any notes the result gives (they qualify the chart). A CSV
