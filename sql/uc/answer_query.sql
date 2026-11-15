@@ -27,6 +27,7 @@ p_event_day_threshold_operator/p_event_day_threshold_value are required when p_u
 p_period_aggregation is required when p_unit is month or year. 
 p_threshold_operator/p_threshold_value are required when p_aggregation is count and p_unit is day or month/year, optional when p_unit is event, and required for a series with p_period_aggregation count (days per bucket meeting the threshold).
 p_year_start_month (default 1) is the month a p_unit = year bucket starts in; 7 = snow season (Jul-Jun). Passed to query_by_period only.
+p_aggregation record_high/record_low (days that set or tied the record for their calendar date) goes to query_records, with p_month_filter; thresholds, p_limit and p_unit are ignored.
 p_limit is used only when p_aggregation is top or bottom: how many ranks to return (default 3, clamped to 1-15); see the called function for the rows format.
 '
 RETURN (
@@ -38,6 +39,11 @@ RETURN (
                 p_station_id, p_metric, p_start_date, p_end_date,
                 p_unit, p_period_aggregation, p_month_filter, COALESCE(p_year_start_month, 1),
                 p_threshold_operator, p_threshold_value
+            )
+        -- days that set or tied their date's record: read the whole history, any p_unit
+        WHEN p_aggregation IN ('record_high', 'record_low') THEN
+            weather.analytics.query_records(
+                p_station_id, p_metric, p_aggregation, p_start_date, p_end_date, p_month_filter
             )
         WHEN p_unit = 'day' THEN
             weather.analytics.query_by_day(
