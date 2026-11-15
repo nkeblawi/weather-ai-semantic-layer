@@ -553,10 +553,14 @@ def ranking_bar_chart(chart: dict) -> alt.Chart:
         if chart["units"] == "days" and not df.empty
         else {}
     )
+    # stack=None: a stacked bar starts at 0, which overrides zero=False and
+    # squeezes temperatures (80.4 to 81.3) into a 0-90 axis. padding: room so
+    # the lowest bar isn't zero length and the top value label isn't clipped
     x = alt.X(
         "value:Q",
         title=chart["units"],
-        scale=alt.Scale(zero=totals),
+        scale=alt.Scale(zero=True) if totals else alt.Scale(zero=False, padding=40),
+        stack=None,
         axis=alt.Axis(**whole),
     )
     bars = (
