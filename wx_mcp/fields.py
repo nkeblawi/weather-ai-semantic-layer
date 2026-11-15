@@ -46,6 +46,10 @@ Order = Annotated[
     Literal[tuple(tools.ORDERS)],
     Field(description="Pick highest or lowest"),
 ]
+Record = Annotated[
+    Literal[tuple(tools.RECORDS)],
+    Field(description="Pick high (TMAX, TMIN for warm lows, PRCP, SNOW) or low (TMIN)"),
+]
 Which = Annotated[
     Literal[tuple(tools.WHICH_DATES)],
     Field(description="Pick first or last date each year"),

@@ -209,6 +209,33 @@ def count_days(
     return _answer(tools.count_days, locals())
 
 
+@tool("Record days")
+def record_days(
+    station: str,
+    metric: fields.Metric,
+    record: fields.Record,
+    period: fields.Period = None,
+    months: list[int] | None = None,
+) -> dict:
+    """
+    Days that set or tied the daily record for their calendar date: "how many record highs this
+    summer", "record lows in the last 5 years", "record warm lows in 2024", "days with record rain".
+    - record high: TMAX (record highs), TMIN (record warm lows), PRCP or SNOW (record daily totals);
+      record low: TMIN (record lows). Nothing else. "Daily records" with no direction: call it twice,
+      TMAX high and TMIN low.
+    - Each day is judged against the same date in earlier years only (the record as it stood then);
+      ties count. No threshold: the record is the bar.
+    - months for a month across years; no period: the whole record.
+    - Answer with the count (value, in days) and the most notable day from record_days, with the
+      record it beat and that record's year; record_days lists up to 15 (record_days_are says which).
+    - Say how many were ties from tied_days, which covers every day; never count them from record_days.
+    - Not for the single record high on one calendar date (calendar_day) or the hottest day of a
+      period (extreme_days).
+    e.g. metric TMAX, record high, period {"kind": "season", "season": "summer", "year": 2024}.
+    """
+    return _answer(tools.record_days, locals())
+
+
 @tool("Calendar day")
 def calendar_day(
     station: str,
