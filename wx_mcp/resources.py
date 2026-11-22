@@ -4,6 +4,7 @@ the last charts, and read only on request so it costs no tokens until then).
 """
 
 import secrets
+import time
 from collections import OrderedDict
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
@@ -16,7 +17,9 @@ from wxcore import charts, db
 # ---------------------------------------------------------------------------
 
 CSV_KEEP = 50  # recent charts' CSVs held for fetching
-_csvs: OrderedDict[str, tuple[str, str]] = OrderedDict()  # chart id -> (file name, CSV)
+CSV_TTL_SECONDS = 3600  # and only for an hour: a link isn't a lasting address
+# chart id -> (file name, CSV, when it was made); ids are random and long, so a link can't be guessed
+_csvs: OrderedDict[str, tuple[str, str, float]] = OrderedDict()
 
 
 # ---------------------------------------------------------------------------
@@ -27,9 +30,11 @@ _csvs: OrderedDict[str, tuple[str, str]] = OrderedDict()  # chart id -> (file na
 def _csv_link(prefix: str, n: int, chart: dict) -> ResourceLink:
     """Holds the chart's CSV for fetching on request; the link costs a few tokens, the CSV none until read."""
     name = f"{prefix}.csv" if n == 1 else f"{prefix}_{n}.csv"
-    chart_id = secrets.token_hex(4)
-    _csvs[chart_id] = (name, charts.to_csv(chart))
-    while len(_csvs) > CSV_KEEP:
+    chart_id = secrets.token_urlsafe(16)
+    now = time.monotonic()
+    _csvs[chart_id] = (name, charts.to_csv(chart), now)
+    # oldest first: drop expired ones, then any past the count
+    while _csvs and (len(_csvs) > CSV_KEEP or now - next(iter(_csvs.values()))[2] > CSV_TTL_SECONDS):
         _csvs.popitem(last=False)
     return ResourceLink(
         type="resource_link",
@@ -41,12 +46,13 @@ def _csv_link(prefix: str, n: int, chart: dict) -> ResourceLink:
 
 
 def chart_csv(chart_id: str, name: str) -> str:
-    """A chart's data as CSV, held for the last 50 charts while the server runs."""
+    """A chart's data as CSV, held for an hour (the last 50 charts) while the server runs."""
     held = _csvs.get(chart_id)
-    if not held or held[0] != name:
+    if not held or held[0] != name or time.monotonic() - held[2] > CSV_TTL_SECONDS:
         raise ResourceError(
-            f"no CSV {name!r} for chart {chart_id!r}: chart_id is the 8 characters after chart:// "
-            "in the link, name its file name; CSVs last for the 50 most recent charts until the server restarts"
+            f"no CSV {name!r} for chart {chart_id!r}: use the link exactly as given (chart_id is the text "
+            "after chart:// up to the next /, name its file name); a CSV lasts an hour, for the 50 most "
+            "recent charts, until the server restarts. Run the chart tool again for a new link"
         )
     return held[1]
 
