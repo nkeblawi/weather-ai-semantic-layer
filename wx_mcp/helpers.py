@@ -5,6 +5,7 @@ tool's arguments into checked queries, and the data-lag hint.
 
 import functools
 import logging
+import time
 from contextlib import contextmanager
 from datetime import timedelta
 from databricks.sdk.errors import DatabricksError
@@ -13,6 +14,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 from wx_mcp.access import limits
+from wx_mcp.access import logger as usage_log
 from wxcore import db, tools
 from wxcore.dates import ALL_TIME_START, current_date
 from wxcore.defaults import apply_defaults
@@ -95,16 +97,32 @@ class ToolSet:
 
     def register(self, mcp: MCPServer) -> None:
         for fn, title in self.tools:
-            mcp.tool(annotations=_read_only(title))(_limited(fn))
+            mcp.tool(annotations=_read_only(title))(_guarded(fn))
 
 
-def _limited(fn):
-    """fn with the call limits checked first (wx_mcp/access/limits.py); same name, docstring, and signature."""
+def _guarded(fn):
+    """
+    fn with the call limits checked first and one usage line after (wx_mcp/access); same name,
+    docstring, and signature.
+    """
 
     @functools.wraps(fn)
     def run(*args, **kwargs):
-        limits.check()
-        return fn(*args, **kwargs)
+        user, start, outcome = limits.current_user(), time.monotonic(), "ok"
+        try:
+            limits.check(user)
+            return fn(*args, **kwargs)
+        except limits.LimitError:
+            outcome = "refused"
+            raise
+        except ToolError:
+            outcome = "error"
+            raise
+        except Exception:
+            outcome = "crash"
+            raise
+        finally:
+            usage_log.record(user, fn.__name__, outcome, time.monotonic() - start)
 
     return run
 

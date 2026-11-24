@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from mcp.server import MCPServer
 from wx_mcp import prompts, resources
 from wx_mcp.access import limits
+from wx_mcp.access import logger as usage_log
 from wx_mcp.access import settings as config
 from wx_mcp.tools import charts, queries
 from wxcore import db
@@ -73,6 +74,7 @@ def main() -> None:
     except config.SettingsError as e:
         sys.exit(f"weather MCP server not started: {e}")
     limits.configure(SETTINGS)
+    usage_log.configure()
     print(
         f"weather MCP server: catalog {db.catalog()}, limits {SETTINGS.user_per_minute}/min "
         f"and {SETTINGS.user_per_day}/day per user, {SETTINGS.total_per_day}/day in total"

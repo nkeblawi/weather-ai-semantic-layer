@@ -20,13 +20,17 @@ WINDOW_SECONDS = 60
 LOCAL_USER = "local"  # no sign-in yet (local runs): every call shares one count
 
 
+class LimitError(ToolError):
+    """A call refused by a limit: a plain tool error to clients, "refused" in the usage log."""
+
+
 # ---------------------------------------------------------------------------
 # Limiter
 # ---------------------------------------------------------------------------
 
 
 class Limiter:
-    """Counts each allowed call; a call over any limit raises ToolError and isn't counted."""
+    """Counts each allowed call; a call over any limit raises LimitError and isn't counted."""
 
     def __init__(self, settings: Settings, clock=time.time):
         self.settings, self.clock = settings, clock
@@ -49,17 +53,17 @@ class Limiter:
                 recent.popleft()
             s = self.settings
             if self.total >= s.total_per_day:
-                raise ToolError(
+                raise LimitError(
                     "this server's shared daily limit is used up; tell the user to try again tomorrow "
                     "(it resets at midnight UTC), and don't retry today"
                 )
             if self.today.get(user, 0) >= s.user_per_day:
-                raise ToolError(
+                raise LimitError(
                     f"the daily limit of {s.user_per_day} tool calls per user is reached; tell the user to "
                     "try again tomorrow (it resets at midnight UTC), and don't retry today"
                 )
             if len(recent) >= s.user_per_minute:
-                raise ToolError(
+                raise LimitError(
                     f"too many calls: at most {s.user_per_minute} tool calls a minute; wait a minute before the next one"
                 )
             recent.append(now)
@@ -87,6 +91,6 @@ def current_user() -> str:
     return f"{(token.claims or {}).get('iss', '')}|{token.subject}"
 
 
-def check() -> None:
+def check(user: str) -> None:
     if _limiter:
-        _limiter.check(current_user())
+        _limiter.check(user)
