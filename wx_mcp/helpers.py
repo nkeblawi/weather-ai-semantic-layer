@@ -3,6 +3,7 @@ What the query and chart tools share: the warehouse connection, turning a
 tool's arguments into checked queries, and the data-lag hint.
 """
 
+import functools
 import logging
 from contextlib import contextmanager
 from datetime import timedelta
@@ -11,6 +12,7 @@ from databricks.sql import exc as sql_exc
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
+from wx_mcp import limits
 from wxcore import db, tools
 from wxcore.dates import ALL_TIME_START, current_date
 from wxcore.defaults import apply_defaults
@@ -93,7 +95,18 @@ class ToolSet:
 
     def register(self, mcp: MCPServer) -> None:
         for fn, title in self.tools:
-            mcp.tool(annotations=_read_only(title))(fn)
+            mcp.tool(annotations=_read_only(title))(_limited(fn))
+
+
+def _limited(fn):
+    """fn with the call limits checked first (wx_mcp/limits.py); same name, docstring, and signature."""
+
+    @functools.wraps(fn)
+    def run(*args, **kwargs):
+        limits.check()
+        return fn(*args, **kwargs)
+
+    return run
 
 
 def _threshold(args: dict, name: str) -> None:

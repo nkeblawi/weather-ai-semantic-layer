@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from mcp.server import MCPServer
-from wx_mcp import prompts, resources
+from wx_mcp import limits, prompts, resources
 from wx_mcp import settings as config
 from wx_mcp.tools import charts, queries
 from wxcore import db
@@ -71,6 +71,7 @@ def main() -> None:
         SETTINGS = config.load()
     except config.SettingsError as e:
         sys.exit(f"weather MCP server not started: {e}")
+    limits.configure(SETTINGS)
     print(
         f"weather MCP server: catalog {db.catalog()}, limits {SETTINGS.user_per_minute}/min "
         f"and {SETTINGS.user_per_day}/day per user, {SETTINGS.total_per_day}/day in total"
