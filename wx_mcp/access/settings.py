@@ -7,6 +7,7 @@ names are checked here, never their values.
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -32,6 +33,15 @@ LIMITS = {
 # optional: a file of users refused every call (wx_mcp/access/blocklist.py)
 BLOCKLIST = "WX_MCP_BLOCKLIST"
 
+# optional sign-in (wx_mcp/access/auth.py): both or neither. ISSUER is the OAuth provider's issuer;
+# RESOURCE is this server's MCP URL, which tokens must name as their audience
+ISSUER = "WX_MCP_ISSUER"
+RESOURCE = "WX_MCP_RESOURCE"
+LOCAL_HOSTS = {
+    "localhost",
+    "127.0.0.1",
+}
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -39,6 +49,8 @@ class Settings:
     user_per_day: int
     total_per_day: int
     blocklist: Path | None = None
+    issuer: str | None = None
+    resource: str | None = None
 
 
 class SettingsError(Exception):
@@ -72,12 +84,31 @@ def load() -> Settings:
         blocklist = Path(raw).expanduser().resolve()
         if not blocklist.is_file():
             problems.append(f"{BLOCKLIST} names a file that doesn't exist")
+    # sign-in: both or neither, so the server can't start half-protected; https except on this machine
+    issuer, resource = (
+        os.environ.get(name, "").strip() or None for name in (ISSUER, RESOURCE)
+    )
+    if bool(issuer) != bool(resource):
+        problems.append(f"set both {ISSUER} and {RESOURCE}, or neither")
+    for name, url in ((ISSUER, issuer), (RESOURCE, resource)):
+        if url and not _allowed_url(url):
+            problems.append(f"{name} must be an https URL (http only for localhost)")
     if problems:
         raise SettingsError("; ".join(problems))
-    settings = Settings(*values.values(), blocklist=blocklist)
+    settings = Settings(
+        *values.values(), blocklist=blocklist, issuer=issuer, resource=resource
+    )
     # a smaller cap above a larger one could never be reached
     if not settings.user_per_minute <= settings.user_per_day <= settings.total_per_day:
         raise SettingsError(
             "limits must satisfy WX_MCP_USER_PER_MINUTE <= WX_MCP_USER_PER_DAY <= WX_MCP_TOTAL_PER_DAY"
         )
     return settings
+
+
+def _allowed_url(url: str) -> bool:
+    parts = urlsplit(url)
+    return bool(parts.hostname) and (
+        parts.scheme == "https"
+        or (parts.scheme == "http" and parts.hostname in LOCAL_HOSTS)
+    )

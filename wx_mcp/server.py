@@ -10,8 +10,9 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from mcp.server import MCPServer
+from mcp.server.auth.settings import AuthSettings
 from wx_mcp import prompts, resources
-from wx_mcp.access import blocklist, limits
+from wx_mcp.access import auth, blocklist, limits
 from wx_mcp.access import logger as usage_log
 from wx_mcp.access import settings as config
 from wx_mcp.tools import charts, queries
@@ -54,11 +55,25 @@ Past weather observations (temperature, rain, snow, wind) at stations in the US 
 SETTINGS: config.Settings | None = None
 
 
-mcp = MCPServer(name="weather", instructions=INSTRUCTIONS)
-queries.register(mcp)
-charts.register(mcp)
-resources.register(mcp)
-prompts.register(mcp)
+def build(settings: config.Settings | None = None) -> MCPServer:
+    """The server with its tools; with settings.issuer, every request needs a valid sign-in token."""
+    sign_in = {}
+    if settings and settings.issuer:
+        sign_in = {
+            "auth": AuthSettings(
+                issuer_url=settings.issuer,
+                resource_server_url=settings.resource,
+                validate_token_resource=False,  # JwtVerifier checks the audience itself
+            ),
+            "token_verifier": auth.JwtVerifier(settings.issuer, settings.resource),
+        }
+    server = MCPServer(name="weather", instructions=INSTRUCTIONS, **sign_in)
+    for module in (queries, charts, resources, prompts):
+        module.register(server)
+    return server
+
+
+mcp = build()  # no sign-in: what the tests and MCP Inspector's no-auth runs use
 
 
 # ---------------------------------------------------------------------------
@@ -73,16 +88,20 @@ def main() -> None:
         SETTINGS = config.load()
     except config.SettingsError as e:
         sys.exit(f"weather MCP server not started: {e}")
+    try:
+        server = build(SETTINGS)
+    except auth.AuthError as e:
+        sys.exit(f"weather MCP server not started: sign-in: {e}")
     blocklist.configure(SETTINGS.blocklist)
     limits.configure(SETTINGS)
     usage_log.configure()
     print(
         f"weather MCP server: catalog {db.catalog()}, limits {SETTINGS.user_per_minute}/min "
         f"and {SETTINGS.user_per_day}/day per user, {SETTINGS.total_per_day}/day in total, "
-        f"blocklist {'on' if SETTINGS.blocklist else 'off'}"
+        f"blocklist {'on' if SETTINGS.blocklist else 'off'}, sign-in {SETTINGS.issuer or 'off'}"
     )
     try:
-        mcp.run("streamable-http")
+        server.run("streamable-http")
     except KeyboardInterrupt:
         pass  # Ctrl-C: uvicorn has already shut down; skip the traceback
     print("weather MCP server stopped")
