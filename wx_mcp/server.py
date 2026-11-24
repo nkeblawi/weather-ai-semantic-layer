@@ -6,12 +6,12 @@ Run from the repo root: .venv/bin/python -m wx_mcp.server
 (MCP Inspector: Streamable HTTP, http://127.0.0.1:8000/mcp)
 """
 
-import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from mcp.server import MCPServer
 from wx_mcp import prompts, resources
+from wx_mcp import settings as config
 from wx_mcp.tools import charts, queries
 from wxcore import db
 from wxcore.units import METRIC_LABELS
@@ -48,14 +48,8 @@ Past weather observations (temperature, rain, snow, wind) at stations in the US 
     )
 )
 
-# what wxcore.db reads to reach the warehouse; checked at startup, by name only
-SETTINGS = (
-    "WX_CATALOG",
-    "DATABRICKS_SERVER",
-    "DATABRICKS_HTTP",
-    "DATABRICKS_CLIENT",
-    "DATABRICKS_SECRET",
-)
+# built and checked in main() (wx_mcp/settings.py); the limits read it
+SETTINGS: config.Settings | None = None
 
 
 mcp = MCPServer(name="weather", instructions=INSTRUCTIONS)
@@ -72,11 +66,15 @@ prompts.register(mcp)
 
 def main() -> None:
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-    if missing := [name for name in SETTINGS if not os.environ.get(name, "").strip()]:
-        sys.exit(
-            f"weather MCP server not started: set {', '.join(missing)} in the environment or .env"
-        )
-    print(f"weather MCP server: catalog {db.catalog()}")
+    global SETTINGS
+    try:
+        SETTINGS = config.load()
+    except config.SettingsError as e:
+        sys.exit(f"weather MCP server not started: {e}")
+    print(
+        f"weather MCP server: catalog {db.catalog()}, limits {SETTINGS.user_per_minute}/min "
+        f"and {SETTINGS.user_per_day}/day per user, {SETTINGS.total_per_day}/day in total"
+    )
     try:
         mcp.run("streamable-http")
     except KeyboardInterrupt:
