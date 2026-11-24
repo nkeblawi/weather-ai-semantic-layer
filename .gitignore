@@ -2,6 +2,9 @@
 .env
 .env.*
 
+# MCP server blocklist (user IDs)
+blocklist.txt
+
 # Virtual environment
 .venv/
 pyvenv.cfg

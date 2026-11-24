@@ -6,6 +6,7 @@ names are checked here, never their values.
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -28,12 +29,16 @@ LIMITS = {
     "WX_MCP_TOTAL_PER_DAY": 500,
 }
 
+# optional: a file of users refused every call (wx_mcp/access/blocklist.py)
+BLOCKLIST = "WX_MCP_BLOCKLIST"
+
 
 @dataclass(frozen=True)
 class Settings:
     user_per_minute: int
     user_per_day: int
     total_per_day: int
+    blocklist: Path | None = None
 
 
 class SettingsError(Exception):
@@ -61,9 +66,15 @@ def load() -> Settings:
             values[name] = None
         if values[name] is None or values[name] < 1:
             problems.append(f"{name} must be a whole number above 0")
+    # blocklist: optional, but a path that's set must exist (a typo would block no one)
+    blocklist = None
+    if raw := os.environ.get(BLOCKLIST, "").strip():
+        blocklist = Path(raw).expanduser().resolve()
+        if not blocklist.is_file():
+            problems.append(f"{BLOCKLIST} names a file that doesn't exist")
     if problems:
         raise SettingsError("; ".join(problems))
-    settings = Settings(*values.values())
+    settings = Settings(*values.values(), blocklist=blocklist)
     # a smaller cap above a larger one could never be reached
     if not settings.user_per_minute <= settings.user_per_day <= settings.total_per_day:
         raise SettingsError(

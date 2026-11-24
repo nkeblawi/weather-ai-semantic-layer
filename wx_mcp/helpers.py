@@ -13,7 +13,7 @@ from databricks.sql import exc as sql_exc
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
-from wx_mcp.access import limits
+from wx_mcp.access import blocklist, limits
 from wx_mcp.access import logger as usage_log
 from wxcore import db, tools
 from wxcore.dates import ALL_TIME_START, current_date
@@ -102,14 +102,15 @@ class ToolSet:
 
 def _guarded(fn):
     """
-    fn with the call limits checked first and one usage line after (wx_mcp/access); same name,
-    docstring, and signature.
+    fn with the blocklist and call limits checked first and one usage line after
+    (wx_mcp/access); same name, docstring, and signature.
     """
 
     @functools.wraps(fn)
     def run(*args, **kwargs):
         user, start, outcome = limits.current_user(), time.monotonic(), "ok"
         try:
+            blocklist.check(user)
             limits.check(user)
             return fn(*args, **kwargs)
         except limits.LimitError:
