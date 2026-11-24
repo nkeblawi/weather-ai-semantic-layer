@@ -10,8 +10,9 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from mcp.server import MCPServer
-from wx_mcp import limits, prompts, resources
-from wx_mcp import settings as config
+from wx_mcp import prompts, resources
+from wx_mcp.access import limits
+from wx_mcp.access import settings as config
 from wx_mcp.tools import charts, queries
 from wxcore import db
 from wxcore.units import METRIC_LABELS
@@ -48,7 +49,7 @@ Past weather observations (temperature, rain, snow, wind) at stations in the US 
     )
 )
 
-# built and checked in main() (wx_mcp/settings.py); the limits read it
+# built and checked in main() (wx_mcp/access/settings.py); the limits read it
 SETTINGS: config.Settings | None = None
 
 

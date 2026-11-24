@@ -10,7 +10,7 @@ from collections import deque
 from datetime import UTC, datetime
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.mcpserver.exceptions import ToolError
-from wx_mcp.settings import Settings
+from wx_mcp.access.settings import Settings
 
 # ---------------------------------------------------------------------------
 # Constants

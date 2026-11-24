@@ -12,7 +12,7 @@ from databricks.sql import exc as sql_exc
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
-from wx_mcp import limits
+from wx_mcp.access import limits
 from wxcore import db, tools
 from wxcore.dates import ALL_TIME_START, current_date
 from wxcore.defaults import apply_defaults
@@ -99,7 +99,7 @@ class ToolSet:
 
 
 def _limited(fn):
-    """fn with the call limits checked first (wx_mcp/limits.py); same name, docstring, and signature."""
+    """fn with the call limits checked first (wx_mcp/access/limits.py); same name, docstring, and signature."""
 
     @functools.wraps(fn)
     def run(*args, **kwargs):
