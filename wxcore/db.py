@@ -557,17 +557,18 @@ def fill_station_info(conn, queries, station_info: dict) -> None:
     params = {f"id{i}": sid for i, sid in enumerate(sorted(missing))}
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT ghcn_id, name, city, state FROM {catalog()}.analytics.stations "
+            f"SELECT ghcn_id, name, city, state, iata FROM {catalog()}.analytics.stations "
             f"WHERE ghcn_id IN ({', '.join(':' + k for k in params)})",
             parameters=params,
         )
         rows = cur.fetchall()
-    for ghcn_id, name, city, state in rows:
+    for ghcn_id, name, city, state, iata in rows:
         station_info[ghcn_id] = {
             "ghcn_id": ghcn_id,
             "name": name,
             "city": city,
             "state": state,
+            "iata": iata,
         }
 
 
@@ -583,21 +584,32 @@ def station_place(station: dict, station_id: str) -> str:
     return station.get("name") or station_id
 
 
+def list_coded_stations(conn) -> list[tuple]:
+    """
+    (country_code, country_name, code, city, state) for every station with a
+    code (ICAO, else IATA) and a city, by city: the MCP list_stations tool and
+    the home-location picker.
+    """
+    with conn.cursor() as cur:
+        cur.execute(f"""
+            SELECT country_code, country_name, coalesce(icao, iata) AS code, city, state
+            FROM {catalog()}.analytics.stations
+            WHERE coalesce(icao, iata) IS NOT NULL AND city IS NOT NULL
+            ORDER BY city, code
+            """)
+        return cur.fetchall()
+
+
 def list_home_locations(conn) -> dict[str, str]:
     """
     {station code: display name} for the home-location picker, e.g.
     {"KIAD": "Sterling, VA (KIAD)"}. The code (ICAO, else IATA) is what's
     saved and given to the resolver: an exact lookup_station key.
     """
-    with conn.cursor() as cur:
-        cur.execute(f"""
-            SELECT coalesce(icao, iata) AS code, city, state
-            FROM {catalog()}.analytics.stations
-            WHERE coalesce(icao, iata) IS NOT NULL AND city IS NOT NULL
-            ORDER BY city, code
-            """)
-        rows = cur.fetchall()
-    return {code: f"{place_label(city, state)} ({code})" for code, city, state in rows}
+    return {
+        code: f"{place_label(city, state)} ({code})"
+        for _, _, code, city, state in list_coded_stations(conn)
+    }
 
 
 def call_answer_query(conn, entry: dict):

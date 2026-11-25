@@ -39,18 +39,6 @@ def _png(chart: dict) -> bytes:
     return vl_convert.vegalite_to_png(spec, scale=2)
 
 
-def _iata(conn, ids: list[str]) -> dict[str, str]:
-    """Each station's IATA code from analytics.stations (fill_station_info doesn't read it)."""
-    params = {f"id{i}": sid for i, sid in enumerate(ids)}
-    with conn.cursor() as cur:
-        cur.execute(
-            f"SELECT ghcn_id, iata FROM {db.catalog()}.analytics.stations "
-            f"WHERE ghcn_id IN ({', '.join(':' + k for k in params)})",
-            parameters=params,
-        )
-        return {ghcn_id: iata for ghcn_id, iata in cur.fetchall() if iata}
-
-
 def _chart(tool, args: dict) -> list:
     """tool(**args)'s series queries, answered and drawn like the app's /plot turn."""
     tool_name = tool.__name__
@@ -66,8 +54,7 @@ def _chart(tool, args: dict) -> list:
         stations = _checked(conn, queries, PLOT_EXPLICIT)
         # e.g. IAD_DCA_chart_over_time: the stations in line order (ghcn_id if no IATA code), then the tool
         ids = list(dict.fromkeys(q["station_id"] for q in queries))
-        codes = _iata(conn, ids)
-        prefix = "_".join([*(codes.get(i, i) for i in ids), tool_name])
+        prefix = "_".join([*(stations[i].get("iata") or i for i in ids), tool_name])
         series_list = []
         for entry in queries:
             base_entry = series.baseline_entry(entry)

@@ -115,14 +115,8 @@ def list_stations(country: fields.Country = None) -> dict:
       ghcn_id it returns; the code here isn't a ghcn_id.
     e.g. country Canada.
     """
-    with _warehouse() as conn, conn.cursor() as cur:
-        cur.execute(
-            f"SELECT country_code, country_name, coalesce(icao, iata), city, state "
-            f"FROM {db.catalog()}.analytics.stations "
-            "WHERE coalesce(icao, iata) IS NOT NULL AND city IS NOT NULL "
-            "ORDER BY city"
-        )
-        rows = cur.fetchall()
+    with _warehouse() as conn:
+        rows = db.list_coded_stations(conn)
     wanted = (country or "").strip().upper()
     wanted = COUNTRY_ALIASES.get(wanted, wanted)
     stations = [
