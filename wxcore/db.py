@@ -8,6 +8,7 @@ Environment (read when used; the caller loads any .env):
     DATABRICKS_CLIENT, DATABRICKS_SECRET (the service principal's OAuth credentials)
 """
 
+import functools
 import json
 import logging
 import math
@@ -118,10 +119,28 @@ logger = logging.getLogger(__name__)
 
 
 def _service_principal_credentials():
+    credentials = _credentials_for(
+        os.environ["DATABRICKS_SERVER"],
+        os.environ["DATABRICKS_CLIENT"],
+        os.environ["DATABRICKS_SECRET"],
+    )
+    # None (OAuth endpoints not found) mustn't stick: try again on the next connection
+    if credentials is None:
+        _credentials_for.cache_clear()
+    return credentials
+
+
+@functools.lru_cache(maxsize=1)
+def _credentials_for(server: str, client_id: str, client_secret: str):
+    """
+    Built once per service principal and reused by every connection: building it
+    looks up the OAuth endpoints and fetches a token (~0.2 s). The SDK keeps the
+    token and refreshes it before it expires; new settings get a new one.
+    """
     config = Config(
-        host=f"https://{os.environ['DATABRICKS_SERVER']}",
-        client_id=os.environ["DATABRICKS_CLIENT"],
-        client_secret=os.environ["DATABRICKS_SECRET"],
+        host=f"https://{server}",
+        client_id=client_id,
+        client_secret=client_secret,
     )
     return oauth_service_principal(config)
 
