@@ -42,6 +42,12 @@ LOCAL_HOSTS = {
     "127.0.0.1",
 }
 
+# optional - server listening address and port. localhost by default; container sets 0.0.0.0
+HOST = "WX_MCP_HOST"
+PORT = "WX_MCP_PORT"
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8000
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -51,6 +57,8 @@ class Settings:
     blocklist: Path | None = None
     issuer: str | None = None
     resource: str | None = None
+    host: str = DEFAULT_HOST
+    port: int = DEFAULT_PORT
 
 
 class SettingsError(Exception):
@@ -93,10 +101,25 @@ def load() -> Settings:
     for name, url in ((ISSUER, issuer), (RESOURCE, resource)):
         if url and not _allowed_url(url):
             problems.append(f"{name} must be an https URL (http only for localhost)")
+    # listening address: optional host, and a port from 1 to 65535
+    host = os.environ.get(HOST, "").strip() or DEFAULT_HOST
+    raw_port = os.environ.get(PORT, "").strip()
+    port = (
+        int(raw_port)
+        if raw_port.isdigit()
+        else (DEFAULT_PORT if not raw_port else None)
+    )
+    if port is None or not 1 <= port <= 65535:
+        problems.append(f"{PORT} must be a port number from 1 to 65535")
     if problems:
         raise SettingsError("; ".join(problems))
     settings = Settings(
-        *values.values(), blocklist=blocklist, issuer=issuer, resource=resource
+        *values.values(),
+        blocklist=blocklist,
+        issuer=issuer,
+        resource=resource,
+        host=host,
+        port=port,
     )
     # a smaller cap above a larger one could never be reached
     if not settings.user_per_minute <= settings.user_per_day <= settings.total_per_day:

@@ -1,0 +1,9 @@
+# Allow-list: the MCP server image needs only the following, everything else is ignored
+*
+!pyproject.toml
+!wxcore/
+!wx_mcp/
+
+# Exclude:
+**/__pycache__/
+**/*.pyc

@@ -98,10 +98,11 @@ def main() -> None:
     print(
         f"weather MCP server: catalog {db.catalog()}, limits {SETTINGS.user_per_minute}/min "
         f"and {SETTINGS.user_per_day}/day per user, {SETTINGS.total_per_day}/day in total, "
-        f"blocklist {'on' if SETTINGS.blocklist else 'off'}, sign-in {SETTINGS.issuer or 'off'}"
+        f"blocklist {'on' if SETTINGS.blocklist else 'off'}, sign-in {SETTINGS.issuer or 'off'}, "
+        f"listening on {SETTINGS.host}:{SETTINGS.port}"
     )
     try:
-        server.run("streamable-http")
+        server.run("streamable-http", host=SETTINGS.host, port=SETTINGS.port)
     except KeyboardInterrupt:
         pass  # Ctrl-C: uvicorn has already shut down; skip the traceback
     print("weather MCP server stopped")
