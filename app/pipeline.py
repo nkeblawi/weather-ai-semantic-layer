@@ -20,7 +20,6 @@ from dotenv import load_dotenv
 
 from wxcore.dates import ALL_TIME_START, resolve_date_range, current_date
 from wxcore.db import call_lookup_station
-from wxcore.db import fill_station_info as _fill_station_info
 from wxcore.units import RECORD_AGGREGATIONS
 
 
@@ -269,15 +268,6 @@ def _example_json(resolved: dict) -> str:
 # ---------------------------------------------------------------------------
 # Functions
 # ---------------------------------------------------------------------------
-
-
-def fill_station_info(conn, resolved: dict, station_info: dict) -> None:
-    """
-    wxcore.db.fill_station_info on the resolver's queries: adds the real
-    stations it used without calling lookup_station this session, so
-    validate_resolved accepts them.
-    """
-    _fill_station_info(conn, resolved.get("queries"), station_info)
 
 
 def replayed_answer(turn: dict) -> str:

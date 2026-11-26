@@ -44,7 +44,8 @@ def _check_resolved(
 ) -> list[str]:
     """The steps between the resolver's reply and the warehouse; returns validate_resolved's problems."""
     try:
-        pipeline.fill_station_info(session.conn, resolved, session.station_info)
+        # stations the resolver used without a lookup this session, so validate_resolved accepts them
+        db.fill_station_info(session.conn, resolved.get("queries"), session.station_info)
     except Exception as exc:
         logger.warning(
             "station id check failed session=%s: %s", session.session_id, exc
@@ -214,7 +215,6 @@ def get_answer(
     now = time.monotonic()
     blocked = guardrails.pre_check(
         question,
-        history=session.history,
         recent_message_times=session.recent_message_times,
         now=now,
     )

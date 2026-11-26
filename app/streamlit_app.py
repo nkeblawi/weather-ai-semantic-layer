@@ -118,9 +118,9 @@ def get_home_locations(_conn):
     return db.list_home_locations(_conn)
 
 
-def render_help():
+def help_text() -> str:
     examples = "\n".join(f"- {q}" for q in HELP_EXAMPLES)
-    st.markdown(
+    return (
         "Ask about past weather for any of the cities in the **Home city** list. "
         f"Some examples to try:\n\n{examples}\n\n"
         f"**Charts:** You can also create charts and graphs! Just start a question with `{PLOT_COMMAND}`. "
@@ -137,13 +137,6 @@ def chat_message(role: str):
     return st.chat_message(role, avatar=AVATARS[role])
 
 
-def render_help_cards_at(position):
-    """Help cards requested when the transcript had `position` turns."""
-    for _ in range(st.session_state.get("help_after", []).count(position)):
-        with chat_message("assistant"):
-            render_help()
-
-
 def render_preferences(session, locations):
     """
     Header: home city + units, saved only when Update is pressed. Collapsed
@@ -152,11 +145,7 @@ def render_preferences(session, locations):
     """
     # Options are station codes (what gets saved); format_func shows the name.
     options = list(locations)
-    current = session.home_location
-    # Keep a stored value that isn't a known code (e.g. free text seeded from
-    # WX_APP_HOME_LOCATION) visible instead of silently dropping it.
-    if current and current not in options:
-        options.insert(0, current)
+    current = session.home_location if session.home_location in locations else None
 
     city = locations.get(current, current) if current else "not set"
     summary = f"Home city: {city} · °{session.temp_unit or 'F'}"
@@ -405,9 +394,6 @@ except Exception as exc:
 with header_slot:
     render_preferences(session, locations)
 
-# Help cards, kept out of session.history (replayed to the model) as the
-# history lengths they were shown at, so each stays in place across reruns
-help_after = st.session_state.setdefault("help_after", [])
 # A Plot it click queued its question for this run (the input stays empty)
 if pending := st.session_state.pop("pending_question", None):
     question = pending
@@ -418,21 +404,19 @@ command = question.strip().lower() if question else None
 if command == CLEAR_COMMAND:
     session.history.clear()
     session.station_info.clear()
-    help_after.clear()
     st.toast("Chat cleared.")
     question = None
-# /help: never reaches get_answer, so it isn't recorded or counted
+# /help: a display-only turn (never replayed to the model); it never reaches
+# get_answer, so it isn't recorded or counted
 elif command == HELP_COMMAND:
-    help_after.append(len(session.history))
+    session.history.append({"question": question, "answer": help_text(), "query": None, "ui_only": True})
     question = None
 
 for i, turn in enumerate(session.history):
-    render_help_cards_at(i)
     with chat_message("user"):
         st.write(turn["question"])
     with chat_message("assistant"):
         render_answer(turn, i)
-render_help_cards_at(len(session.history))
 
 if question:
     with chat_message("user"):

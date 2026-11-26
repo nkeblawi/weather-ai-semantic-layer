@@ -25,7 +25,6 @@ from wxcore.validation import (
 from wxcore.validation import cap_rank_limits as _cap_rank_limits
 from wxcore.validation import coerce_series as _coerce_series_params
 
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -33,11 +32,8 @@ from wxcore.validation import coerce_series as _coerce_series_params
 # --- Limits ---
 # Mainly protect the Free Edition compute quota the ingest jobs share. Question
 # caps count resolved questions only; /clear doesn't reset them.
-SESSION_QUESTION_LIMIT = int(os.environ.get("WX_SESSION_QUESTION_LIMIT", "20"))
-DAILY_QUESTION_LIMIT = int(os.environ.get("WX_DAILY_QUESTION_LIMIT", "100"))
-
-# Every turn that reaches Claude, so free clarifications can't run up model calls
-SESSION_TURN_LIMIT = int(os.environ.get("WX_SESSION_TURN_LIMIT", "30"))
+SESSION_QUESTION_LIMIT = int(os.environ.get("WX_SESSION_QUESTION_LIMIT", "50"))
+DAILY_QUESTION_LIMIT = int(os.environ.get("WX_DAILY_QUESTION_LIMIT", "300"))
 MAX_QUESTION_CHARS = int(os.environ.get("WX_MAX_QUESTION_CHARS", "500"))
 
 # SKILL.md states the same cap; clarifications that restate context run to ~800
@@ -48,10 +44,8 @@ RATE_LIMIT_WINDOW_SECS = 60
 
 # Usage caps across sessions (RateLimits).
 IP_SESSION_LIMIT = int(os.environ.get("WX_IP_SESSION_LIMIT", "10"))
-IP_QUESTION_LIMIT = int(os.environ.get("WX_IP_QUESTION_LIMIT", "40"))
+IP_QUESTION_LIMIT = int(os.environ.get("WX_IP_QUESTION_LIMIT", "60"))
 IP_LIMIT_WINDOW_SECS = 3600
-GLOBAL_SESSION_LIMIT = int(os.environ.get("WX_GLOBAL_SESSION_LIMIT", "30"))
-GLOBAL_SESSION_WINDOW_SECS = 60
 
 
 # --- Allowed values of the resolver's reply itself (SKILL.md Step 6) ---
@@ -81,7 +75,6 @@ IP_QUESTION_LIMIT_MSG = (
     "Too many questions have come from your network in the last hour. "
     "Please try again later."
 )
-BUSY_MSG = "The app is busy right now. Please try again in a minute."
 INVALID_MSG = (
     "Sorry, I couldn't turn that into a weather query. Could you rephrase it, "
     "with a city and a time period? Type /help for examples."
@@ -136,17 +129,6 @@ DAILY_WORDS = re.compile(
 
 
 # ---------------------------------------------------------------------------
-# Helper Functions
-# ---------------------------------------------------------------------------
-
-# --- Pre-checks (before Claude) ---
-
-
-def _normalize(text: str) -> str:
-    return " ".join(text.lower().split())
-
-
-# ---------------------------------------------------------------------------
 # Functions
 # ---------------------------------------------------------------------------
 
@@ -157,7 +139,7 @@ def _normalize(text: str) -> str:
 class SessionLimit:
     """Why a session can't take more questions: input placeholder + message."""
 
-    reason: str  # "ended" (off-topic streak) | "questions" | "messages"
+    reason: str  # "ended" (off-topic streak) | "questions"
     placeholder: str
     message: str
 
@@ -180,12 +162,6 @@ def session_limit(session) -> SessionLimit | None:
             f"You've used all {SESSION_QUESTION_LIMIT} questions for this session. "
             "Thanks for trying the app!",
         )
-    if session.turn_index >= SESSION_TURN_LIMIT:
-        return SessionLimit(
-            "messages",
-            "Message limit reached for this session",
-            "This session has reached its message limit. Thanks for trying the app!",
-        )
     return None
 
 
@@ -204,7 +180,6 @@ class Blocked:
 def pre_check(
     question: str,
     *,
-    history: list[dict],
     recent_message_times: list[float],
     now: float,
 ) -> Blocked | None:
@@ -228,15 +203,6 @@ def pre_check(
     if sum(1 for t in recent_message_times if t >= window_start) >= RATE_LIMIT_MESSAGES:
         return Blocked(SLOW_DOWN_MSG, "rate_limit")
 
-    # Same question as the previous turn: re-show its answer. Not after an
-    # error, so a retry of a failed question still goes through.
-    if history:
-        last = history[-1]
-        if _normalize(question) == _normalize(last["question"]) and not last[
-            "answer"
-        ].startswith("[error]"):
-            return Blocked(last["answer"], "repeat")
-
     return None
 
 
@@ -259,7 +225,9 @@ class SlidingWindow:
         start = now - self.window_secs
         with self._lock:
             if len(self._hits) > self.MAX_KEYS:
-                self._hits = {k: h for k, h in self._hits.items() if h and h[-1] > start}
+                self._hits = {
+                    k: h for k, h in self._hits.items() if h and h[-1] > start
+                }
             hits = self._hits.setdefault(key, deque())
             while hits and hits[0] <= start:
                 hits.popleft()
@@ -279,16 +247,11 @@ class RateLimits:
     ip_questions: SlidingWindow = field(
         default_factory=lambda: SlidingWindow(IP_QUESTION_LIMIT, IP_LIMIT_WINDOW_SECS)
     )
-    global_sessions: SlidingWindow = field(
-        default_factory=lambda: SlidingWindow(GLOBAL_SESSION_LIMIT, GLOBAL_SESSION_WINDOW_SECS)
-    )
 
     def new_session(self, ip: str, now: float) -> Blocked | None:
         """Blocked if a new session is over a limit, else None."""
         if not self.ip_sessions.allow(ip, now):
             return Blocked(IP_SESSION_LIMIT_MSG, "ip_session_limit")
-        if not self.global_sessions.allow("all", now):
-            return Blocked(BUSY_MSG, "global_session_limit")
         return None
 
     def question(self, ip: str, now: float) -> Blocked | None:

@@ -6,7 +6,7 @@ A natural-language interface for historical weather data. Ask a question like *"
 
 The chat app is live at **https://weather-obs-chat.streamlit.app/**. It's public: no account or sign-in needed.
 
-Each session gets 20 questions, and the app as a whole answers up to 100 a day. Type `/help` in the chat for example questions, and start a question with `/plot` to get a chart (see [Charts](#charts)).
+Each session gets 50 questions, and the app as a whole answers up to 300 a day. Type `/help` in the chat for example questions, and start a question with `/plot` to get a chart (see [Charts](#charts)).
 
 ## Architecture
 
