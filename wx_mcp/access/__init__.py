@@ -1,1 +1,1 @@
-"""Who may call the server and how much: settings, call limits (later sign-in, blocklist, usage log)."""
+"""Who may call the server and how much: settings, sign-in, blocklist, call limits, usage log."""

@@ -1,12 +1,11 @@
 """
 Users refused every call: a text file named by WX_MCP_BLOCKLIST, one user per line
-(the usage log's "user" value, or just its subject), # for comments. Reread when
+(the usage log's "user" value, copied as is), # for comments. Reread when
 the file changes, so a block takes effect on the user's next call.
 """
 
 import logging
 import os
-import threading
 from pathlib import Path
 from wx_mcp.access.limits import LimitError
 
@@ -24,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 class Blocklist:
     def __init__(self, path: Path):
-        self.path, self.lock = path, threading.Lock()
+        self.path = path
         self.mtime, self.users = None, frozenset()
         self._reload()
 
@@ -43,11 +42,8 @@ class Blocklist:
         self.mtime = mtime
 
     def check(self, user: str) -> None:
-        with self.lock:
-            self._reload()
-            # the full key ("issuer|subject") or just the subject
-            blocked = user in self.users or user.rsplit("|", 1)[-1] in self.users
-        if blocked:
+        self._reload()
+        if user in self.users:
             raise LimitError("this account is blocked from this server; tell the user, and don't retry")
 
 

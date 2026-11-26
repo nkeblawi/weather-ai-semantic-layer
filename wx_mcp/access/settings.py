@@ -113,7 +113,7 @@ def load() -> Settings:
         problems.append(f"{PORT} must be a port number from 1 to 65535")
     if problems:
         raise SettingsError("; ".join(problems))
-    settings = Settings(
+    return Settings(
         *values.values(),
         blocklist=blocklist,
         issuer=issuer,
@@ -121,12 +121,6 @@ def load() -> Settings:
         host=host,
         port=port,
     )
-    # a smaller cap above a larger one could never be reached
-    if not settings.user_per_minute <= settings.user_per_day <= settings.total_per_day:
-        raise SettingsError(
-            "limits must satisfy WX_MCP_USER_PER_MINUTE <= WX_MCP_USER_PER_DAY <= WX_MCP_TOTAL_PER_DAY"
-        )
-    return settings
 
 
 def _allowed_url(url: str) -> bool:

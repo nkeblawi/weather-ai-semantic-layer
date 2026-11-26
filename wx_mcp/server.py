@@ -51,8 +51,6 @@ Past weather observations (temperature, rain, snow, wind) at stations in the US 
     )
 )
 
-# built and checked in main() (wx_mcp/access/settings.py); the limits read it
-SETTINGS: config.Settings | None = None
 
 
 def build(settings: config.Settings | None = None) -> MCPServer:
@@ -83,26 +81,25 @@ mcp = build()  # no sign-in: what the tests and MCP Inspector's no-auth runs use
 
 def main() -> None:
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-    global SETTINGS
     try:
-        SETTINGS = config.load()
+        settings = config.load()
     except config.SettingsError as e:
         sys.exit(f"weather MCP server not started: {e}")
     try:
-        server = build(SETTINGS)
+        server = build(settings)
     except auth.AuthError as e:
         sys.exit(f"weather MCP server not started: sign-in: {e}")
-    blocklist.configure(SETTINGS.blocklist)
-    limits.configure(SETTINGS)
+    blocklist.configure(settings.blocklist)
+    limits.configure(settings)
     usage_log.configure()
     print(
-        f"weather MCP server: catalog {db.catalog()}, limits {SETTINGS.user_per_minute}/min "
-        f"and {SETTINGS.user_per_day}/day per user, {SETTINGS.total_per_day}/day in total, "
-        f"blocklist {'on' if SETTINGS.blocklist else 'off'}, sign-in {SETTINGS.issuer or 'off'}, "
-        f"listening on {SETTINGS.host}:{SETTINGS.port}"
+        f"weather MCP server: catalog {db.catalog()}, limits {settings.user_per_minute}/min "
+        f"and {settings.user_per_day}/day per user, {settings.total_per_day}/day in total, "
+        f"blocklist {'on' if settings.blocklist else 'off'}, sign-in {settings.issuer or 'off'}, "
+        f"listening on {settings.host}:{settings.port}"
     )
     try:
-        server.run("streamable-http", host=SETTINGS.host, port=SETTINGS.port)
+        server.run("streamable-http", host=settings.host, port=settings.port)
     except KeyboardInterrupt:
         pass  # Ctrl-C: uvicorn has already shut down; skip the traceback
     print("weather MCP server stopped")

@@ -14,7 +14,6 @@ from datetime import UTC, datetime
 
 logger = logging.getLogger("wx_mcp.usage")
 logger.propagate = False  # only through configure()'s handler, never the root logger
-OUTCOMES = ("ok", "refused", "error", "crash")
 
 
 # ---------------------------------------------------------------------------
