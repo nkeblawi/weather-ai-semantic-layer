@@ -1,6 +1,6 @@
 ---
 name: weather-query-resolver
-description: Resolves a natural-language question about historical weather (temperature, precipitation, snow, wind, degree-days) into a structured JSON parameter object (current date, date range, GHCN station ID, metric, and aggregation) that a downstream process uses to query the weather.analytics.observations table. Use whenever the user asks a natural-language question about past weather at a specific place and time.
+description: Resolves a natural-language question about historical weather (temperature, precipitation, snow, wind, degree-days) into the query parameters (date range, GHCN station ID, metric, and aggregation) the app runs against the weather data. Use whenever the user asks a natural-language question about past weather at a specific place and time.
 ---
 
 # Weather Query Resolver
@@ -149,17 +149,14 @@ Never compute `start_date` / `end_date` by hand. Classify the time expression in
 | "the last / most recent <event>" with no time period stated (e.g. "the last storm over 6 inches") | none | omit both dates: the whole record is searched for the most recent one; do **not** set `clarification_question` to ask how far back to look |
 | a ranking or extreme (`top`, `bottom`, `max`, `min`) with no time period stated (e.g. "the coldest days at Reagan National", "the biggest snowstorms", "the snowiest winter") | none | omit both dates: an unqualified superlative means "on record"; do **not** set `clarification_question` to ask how far back to look. (Averages, totals, and counts with no period stated still need one: set `clarification_question`.) |
 
-Season names accepted by the script: `winter` (DJF), `spring` (MAM), `summer` (JJA), `fall` or `autumn` (SON).
-
 If the time expression is missing, ambiguous, or doesn't fit any shape above, set `clarification_question` to ask rather than guessing a range or calling the script with invented parameters.
 
 ## Step 6: Assemble the output
 
-Once every prior step has resolved (or Step 2/3/4/5 has stopped early with a question for the user), end the turn by calling the `submit_resolution` tool with exactly one object below as its input. This is how every turn ends, including a question for the user: never write the question, an answer, or your reasoning as text, since nothing outside `submit_resolution` is shown. Call it once, last, after any other tool calls have returned. (Used without that tool, reply with the object alone.) Submit:
+Once every prior step has resolved (or Step 2/3/4/5 has stopped early with a question for the user), end the turn by calling the `submit_resolution` tool with exactly one object below as its input. This is how every turn ends, including a question for the user: never write the question, an answer, or your reasoning as text, since nothing outside `submit_resolution` is shown. Call it once, last, after any other tool calls have returned. Submit:
 
 ```json
 {
-  "current_date": "YYYY-MM-DD",
   "status": "resolved",
   "queries": [
     {
@@ -196,7 +193,6 @@ If any step above couldn't be resolved and needs the user's answer, submit this 
 
 ```json
 {
-  "current_date": "YYYY-MM-DD",
   "status": "needs_clarification",
   "clarification_question": "...",
   "reason": "needs_plot: only for a chart request outside plot mode (Step 4); omit otherwise"
@@ -209,7 +205,6 @@ If the message isn't a request for historical weather data at all (see **Off-top
 
 ```json
 {
-  "current_date": "YYYY-MM-DD",
   "status": "off_topic"
 }
 ```

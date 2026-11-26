@@ -168,7 +168,6 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "current_date": {"type": "string"},
                 "status": {"type": "string", "enum": ["resolved", "needs_clarification", "off_topic"]},
                 "queries": {
                     "type": "array",
